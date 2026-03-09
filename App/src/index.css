@@ -7,3 +7,6 @@ body {
   @apply bg-slate-50;
   -webkit-font-smoothing: antialiased;
 }
+.input-premium {
+  @apply w-full bg-slate-100/50 rounded-2xl px-6 py-4 font-bold outline-none border border-transparent focus:border-black/10 focus:bg-white transition-all text-sm;
+}

@@ -1,7 +1,7 @@
 const puppeteer = require('puppeteer');
 const db = require('../database/db');
 
-async function startScraping(location = 'São Paulo') {
+async function startScraping({ niche, location, limit, minRating }) {
     const browser = await puppeteer.launch({ 
         headless: false,
         args: ['--no-sandbox', '--disable-setuid-sandbox', '--start-maximized']
@@ -10,72 +10,85 @@ async function startScraping(location = 'São Paulo') {
     const page = await browser.newPage();
     await page.setViewport({ width: 1280, height: 900 });
 
-    const query = `empresas e serviços em ${location}`;
+    const query = `${niche} em ${location}`;
     const url = `https://www.google.com/maps/search/${encodeURIComponent(query)}`;
     
+    let leadsFound = 0; // Nosso contador de meta
+
     try {
         await page.goto(url, { waitUntil: 'networkidle2' });
-        console.log(`🔎 Buscando em: ${location}...`);
+        console.log(`🚀 Missão iniciada: Buscar ${limit} leads de "${niche}" com nota ${minRating}+`);
 
-        // Espera os resultados aparecerem
         await page.waitForSelector('a.hfpxzc', { timeout: 15000 });
 
-        // Tenta encontrar os itens
-        let items = await page.$$('a.hfpxzc');
-        console.log(`📍 Encontrados ${items.length} possíveis candidatos.`);
+        // Loop principal
+        while (leadsFound < limit) {
+            let items = await page.$$('a.hfpxzc');
+            
+            for (let i = 0; i < items.length; i++) {
+                if (leadsFound >= limit) break; // Para tudo se bater a meta
 
-        for (let i = 0; i < items.length; i++) {
-            try {
-                // RE-BUSCAR os itens a cada loop para evitar que fiquem "velhos" (stale)
-                const currentItems = await page.$$('a.hfpxzc');
-                const leadElement = currentItems[i];
+                try {
+                    const currentItems = await page.$$('a.hfpxzc');
+                    const leadElement = currentItems[i];
+                    if (!leadElement) continue;
 
-                if (!leadElement) continue;
+                    await page.evaluate(el => el.scrollIntoView(), leadElement);
+                    await leadElement.click();
+                    await new Promise(r => setTimeout(r, 3000)); 
 
-                // Rola até o elemento antes de clicar
-                await page.evaluate(el => el.scrollIntoView(), leadElement);
-                await new Promise(r => setTimeout(r, 1000));
-                
-                await leadElement.click();
-                
-                // Espera o painel lateral carregar (importante!)
-                await new Promise(r => setTimeout(r, 3000)); 
+                    const data = await page.evaluate(() => {
+                        const name = document.querySelector('h1')?.innerText || 'Sem nome';
+                        const website = document.querySelector('a[data-tooltip="Abrir website"]') || null;
+                        const phone = document.querySelector('button[data-tooltip="Copiar número de telefone"]') || null;
+                        
+                        // Extração da nota (ex: "4.5 estrelas")
+                        const ratingText = document.querySelector('span[role="img"]')?.ariaLabel || "0";
+                        const rating = parseFloat(ratingText.replace(',', '.').split(' ')[0]) || 0;
+                        
+                        return { 
+                            name, 
+                            hasWebsite: !!website, 
+                            phone: phone ? phone.innerText : null,
+                            rating
+                        };
+                    });
 
-                const data = await page.evaluate(() => {
-                    const name = document.querySelector('h1')?.innerText || 'Sem nome';
-                    const website = document.querySelector('a[data-tooltip="Abrir website"]') || 
-                                    document.querySelector('a[aria-label*="website"]') || null;
-                    const phone = document.querySelector('button[data-tooltip="Copiar número de telefone"]') || 
-                                  document.querySelector('button[aria-label*="Telefone"]') || null;
-                    
-                    return { 
-                        name, 
-                        hasWebsite: !!website, 
-                        phone: phone ? phone.innerText : null 
-                    };
-                });
+                    // LÓGICA DE FILTRO: Sem site + Nota mínima + Ter Telefone
+                    if (!data.hasWebsite && data.phone && data.rating >= minRating) {
+                        console.log(`🎯 [${leadsFound + 1}/${limit}] Oportunidade: ${data.name} | ⭐ ${data.rating}`);
+                        
+                        await db.query(
+                            'INSERT INTO leads (name, phone, has_website, status) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING',
+                            [data.name, data.phone, false, 'pending']
+                        );
+                        
+                        leadsFound++; // Incrementa só quando salva um lead válido
+                    } else {
+                        console.log(`⏩ Ignorado: ${data.name} (Nota: ${data.rating} | Site: ${data.hasWebsite})`);
+                    }
 
-                if (!data.hasWebsite && data.phone) {
-                    console.log(`✅ Oportunidade: ${data.name} | 📞 ${data.phone}`);
-                    await db.query(
-                        'INSERT INTO leads (name, phone, has_website, status) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING',
-                        [data.name, data.phone, false, 'pending']
-                    );
-                } else {
-                    console.log(`⏩ Pulando ${data.name} (Possui site ou sem telefone)`);
+                } catch (innerErr) {
+                    continue;
                 }
+            }
 
-            } catch (innerErr) {
-                // Log mais detalhado para sabermos PORQUE falhou
-                console.log(`❌ Erro no item ${i + 1}: ${innerErr.message.substring(0, 50)}...`);
+            // Se ainda não bateu a meta, tenta rolar a lista para carregar mais leads
+            if (leadsFound < limit) {
+                console.log("🔄 Buscando mais resultados na lista...");
+                await page.evaluate(() => {
+                    const scrollableSection = document.querySelector('div[role="feed"]');
+                    if (scrollableSection) scrollableSection.scrollTop += 1000;
+                });
+                await new Promise(r => setTimeout(r, 2000));
             }
         }
 
     } catch (e) {
-        console.error("❌ Erro crítico na busca:", e.message);
+        console.error("❌ Erro na operação:", e.message);
     }
 
-    console.log("🏁 Busca finalizada!");
+    console.log(`🏁 Missão cumprida! ${leadsFound} leads capturados.`);
     await browser.close();
 }
 
