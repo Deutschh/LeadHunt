@@ -1,0 +1,92 @@
+require('dotenv').config();
+const express = require('express');
+const cors = require('cors');
+const db = require('./database/db');
+const { startScraping } = require('./services/scraper');
+
+const app = express();
+const PORT = process.env.PORT || 3001;
+
+// --- Middlewares ---
+app.use(cors()); // Permite que o seu React acesse a API
+app.use(express.json()); // Permite que a API entenda JSON no corpo das requisições
+
+// --- Rotas de Monitoramento ---
+
+// 1. Verificação básica de saúde da API
+app.get('/', (req, res) => {
+    res.json({ 
+        message: "LeadHunt API online! 🚀",
+        status: "OK"
+    });
+});
+
+// 2. Teste real de conexão com o Neon DB
+app.get('/test-db', async (req, res) => {
+    try {
+        const result = await db.query('SELECT NOW()');
+        res.json({ 
+            status: "Conectado ao Neon DB com sucesso!", 
+            server_time: result.rows[0].now 
+        });
+    } catch (err) {
+        console.error("Erro no banco:", err);
+        res.status(500).json({ error: "Falha na conexão com o banco de dados." });
+    }
+});
+
+// --- Rotas de Negócio (LeadHunt) ---
+
+// 3. Iniciar o Robô Scraper
+// Exemplo de uso: POST para /run-scraper com { "location": "São Bernardo do Campo" }
+app.post('/run-scraper', async (req, res) => {
+    const { location } = req.body;
+
+    if (!location) {
+        return res.status(400).json({ error: "Por favor, informe a localização para a busca." });
+    }
+
+    // O robô roda de forma assíncrona (não "trava" a resposta da API)
+    // Ele vai salvando os leads no banco enquanto você faz outras coisas
+    startScraping(location)
+        .then(() => console.log(`[LeadHunt] Busca em ${location} finalizada.`))
+        .catch(err => console.error(`[LeadHunt] Erro durante o scraping:`, err));
+    
+    res.json({ 
+        message: `O robô LeadHunt começou a vasculhar ${location}! 🤖`,
+        instructions: "Acompanhe os novos registros na rota /leads ou no seu dashboard."
+    });
+});
+
+// 4. Listar todos os leads encontrados
+app.get('/leads', async (req, res) => {
+    try {
+        // Busca os leads mais recentes primeiro
+        const result = await db.query('SELECT * FROM leads ORDER BY created_at DESC');
+        res.json(result.rows);
+    } catch (err) {
+        console.error("Erro ao buscar leads:", err);
+        res.status(500).json({ error: "Erro ao carregar lista de leads." });
+    }
+});
+
+// 5. Atualizar o status de um lead (Ex: marcou como 'contacted' no dashboard)
+app.patch('/leads/:id', async (req, res) => {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    try {
+        await db.query('UPDATE leads SET status = $1 WHERE id = $2', [status, id]);
+        res.json({ message: "Status do lead atualizado!" });
+    } catch (err) {
+        res.status(500).json({ error: "Erro ao atualizar lead." });
+    }
+});
+
+// --- Inicialização do Servidor ---
+app.listen(PORT, () => {
+    console.log(`--------------------------------------------------`);
+    console.log(`✅ LeadHunt API rodando na porta ${PORT}`);
+    console.log(`🔗 Teste o servidor em: http://localhost:${PORT}`);
+    console.log(`--------------------------------------------------`);
+});

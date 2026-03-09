@@ -1,0 +1,28 @@
+# Dependências
+node_modules/
+.pnpm-store/
+
+# Variáveis de Ambiente (SEGURANÇA!)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Build e Saída
+dist/
+build/
+.next/
+out/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Sistema
+.DS_Store
+Thumbs.db
+
+# Puppeteer / Navegador
+.cache/
