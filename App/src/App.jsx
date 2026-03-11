@@ -31,19 +31,32 @@ function App() {
     setLoading(false);
   };
 
-  const handleUpdateStatus = async (id, newStatus) => {
-    try {
-      await axios.patch(`${API_URL}/leads/${id}`, { status: newStatus });
-      // Atualiza o estado local para a UI mudar instantaneamente
-      setLeads((prevLeads) =>
-        prevLeads.map((lead) =>
-          lead.id === id ? { ...lead, status: newStatus } : lead,
-        ),
+// Função para sincronizar o progresso do lead com o Neon DB
+const handleUpdateStatus = async (id, newStatus, newInterestLevel = 0) => {
+  try {
+    // 1. Fazemos o PATCH na API enviando o status e o nível de interesse
+    const response = await axios.patch(`${API_URL}/leads/${id}`, { 
+      status: newStatus, 
+      interest_level: newInterestLevel 
+    });
+
+    if (response.status === 200) {
+      // 2. Atualizamos o estado local para a UI refletir a mudança na hora
+      setLeads(prevLeads => 
+        prevLeads.map(lead => 
+          lead.id === id 
+            ? { ...lead, status: newStatus, interest_level: newInterestLevel } 
+            : lead
+        )
       );
-    } catch (error) {
-      console.error("Erro ao atualizar status do lead");
+      
+      console.log(`✅ Lead ${id} atualizado: Status ${newStatus}, Nível ${newInterestLevel}`);
     }
-  };
+  } catch (error) {
+    console.error("❌ Erro ao atualizar o progresso do lead:", error);
+    alert("Erro ao salvar o progresso. Verifique a conexão com o servidor.");
+  }
+};
 
   useEffect(() => {
     fetchLeads();
