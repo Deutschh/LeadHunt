@@ -75,15 +75,29 @@ app.get("/leads", async (req, res) => {
 });
 
 // 5. Atualizar o status de um lead (Ex: marcou como 'contacted' no dashboard)
+// Atualizar o status de um lead (ex: de 'pending' para 'contacted')
+// 5. Atualizar o status de um lead
 app.patch("/leads/:id", async (req, res) => {
   const { id } = req.params;
-  const { status } = req.body;
+  const { status, interest_level } = req.body;
 
   try {
-    await db.query("UPDATE leads SET status = $1 WHERE id = $2", [status, id]);
-    res.json({ message: "Status do lead atualizado!" });
+    const result = await db.query(
+      "UPDATE leads SET status = COALESCE($1, status), interest_level = COALESCE($2, interest_level) WHERE id = $3 RETURNING *",
+      [status, interest_level, id],
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: "Lead não encontrado." });
+    }
+
+    // Retorna o lead atualizado
+    res.json({ message: "Lead atualizado com sucesso!", lead: result.rows[0] });
   } catch (err) {
-    res.status(500).json({ error: "Erro ao atualizar lead." });
+    console.error("Erro ao atualizar status:", err);
+    res
+      .status(500)
+      .json({ error: "Erro interno ao atualizar o banco de dados." });
   }
 });
 
