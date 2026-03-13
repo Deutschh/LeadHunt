@@ -1,7 +1,17 @@
 import React, { useState } from "react";
-import { 
-  RefreshCw, Globe, Send, CheckCircle, 
-  Star, MapPin, Tag, Target, Users, Plane, Flame, Handshake 
+import {
+  RefreshCw,
+  Globe,
+  Send,
+  CheckCircle,
+  Star,
+  MapPin,
+  Tag,
+  Target,
+  Users,
+  Plane,
+  Flame,
+  Handshake,
 } from "lucide-react";
 
 const Home = ({ leads, loading, onRefresh, onUpdateStatus }) => {
@@ -10,49 +20,52 @@ const Home = ({ leads, loading, onRefresh, onUpdateStatus }) => {
   // Contagem inteligente para o Pipeline
   const stats = {
     total: leads.length,
-    pending: leads.filter(l => l.status === "pending").length,
-    contacted: leads.filter(l => l.status === "contacted" && l.interest_level <= 1).length,
-    negotiating: leads.filter(l => l.interest_level >= 2 && l.interest_level <= 3).length,
-    closed: leads.filter(l => l.interest_level === 4).length
+    pending: leads.filter((l) => l.status === "pending").length,
+    contacted: leads.filter(
+      (l) => l.status === "contacted" && l.interest_level <= 1,
+    ).length,
+    negotiating: leads.filter(
+      (l) => l.interest_level >= 2 && l.interest_level <= 3,
+    ).length,
+    closed: leads.filter((l) => l.interest_level === 4).length,
   };
 
-  const filteredLeads = leads.filter(l => l.status === currentView);
+  const filteredLeads = leads.filter((l) => l.status === currentView);
 
   return (
     <div className="p-10 max-w-[1600px] mx-auto w-full animate-in fade-in duration-500">
-      
       {/* SEÇÃO DE MÉTRICAS (STAT CARDS) PREMIUM */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-12">
-        <StatCard 
-          label="Scanner Total" 
-          value={stats.total} 
-          icon={Target} 
-          color="slate" 
+        <StatCard
+          label="Scanner Total"
+          value={stats.total}
+          icon={Target}
+          color="slate"
         />
-        <StatCard 
-          label="Novos Leads" 
-          value={stats.pending} 
-          icon={Users} 
-          color="red" 
+        <StatCard
+          label="Novos Leads"
+          value={stats.pending}
+          icon={Users}
+          color="red"
           pulse={stats.pending > 0}
         />
-        <StatCard 
-          label="Abordados" 
-          value={stats.contacted} 
-          icon={Plane} 
-          color="blue" 
+        <StatCard
+          label="Abordados"
+          value={stats.contacted}
+          icon={Plane}
+          color="blue"
         />
-        <StatCard 
-          label="Em Negociação" 
-          value={stats.negotiating} 
-          icon={Flame} 
-          color="orange" 
+        <StatCard
+          label="Em Negociação"
+          value={stats.negotiating}
+          icon={Flame}
+          color="orange"
         />
-        <StatCard 
-          label="Fechamentos" 
-          value={stats.closed} 
-          icon={Handshake} 
-          color="green" 
+        <StatCard
+          label="Fechamentos"
+          value={stats.closed}
+          icon={Handshake}
+          color="green"
         />
       </div>
 
@@ -128,31 +141,62 @@ const Home = ({ leads, loading, onRefresh, onUpdateStatus }) => {
 function StatCard({ label, value, icon: Icon, color, pulse = false }) {
   // Mapeamento de Cores Premium (Tailwind)
   const colors = {
-    slate: { text: 'text-slate-500', bg: 'bg-slate-100', number: 'text-slate-900', border: 'border-slate-200' },
-    red: { text: 'text-red-500', bg: 'bg-red-50', number: 'text-red-600', border: 'border-red-100' },
-    blue: { text: 'text-blue-500', bg: 'bg-blue-50', number: 'text-blue-600', border: 'border-blue-100' },
-    orange: { text: 'text-orange-500', bg: 'bg-orange-50', number: 'text-orange-600', border: 'border-orange-100' },
-    green: { text: 'text-[#00b37e]', bg: 'bg-[#00b37e]/5', number: 'text-[#00b37e]', border: 'border-[#00b37e]/20' }
+    slate: {
+      text: "text-slate-500",
+      bg: "bg-slate-100",
+      number: "text-slate-900",
+      border: "border-slate-200",
+    },
+    red: {
+      text: "text-red-500",
+      bg: "bg-red-50",
+      number: "text-red-600",
+      border: "border-red-100",
+    },
+    blue: {
+      text: "text-blue-500",
+      bg: "bg-blue-50",
+      number: "text-blue-600",
+      border: "border-blue-100",
+    },
+    orange: {
+      text: "text-orange-500",
+      bg: "bg-orange-50",
+      number: "text-orange-600",
+      border: "border-orange-100",
+    },
+    green: {
+      text: "text-[#00b37e]",
+      bg: "bg-[#00b37e]/5",
+      number: "text-[#00b37e]",
+      border: "border-[#00b37e]/20",
+    },
   };
 
   const c = colors[color] || colors.slate; // Fallback para slate
 
   return (
-    <div className={`bg-white p-6 rounded-[2.5rem] border ${c.border} shadow-sm relative overflow-hidden group`}>
+    <div
+      className={`bg-white p-6 rounded-[2.5rem] border ${c.border} shadow-sm relative overflow-hidden group`}
+    >
       {/* Detalhe de fundo decorativo e sutil */}
-      <div className={`absolute -right-4 -bottom-4 w-16 h-16 ${c.bg} rounded-full opacity-50 group-hover:scale-150 transition-transform duration-500`}></div>
-      
+      <div
+        className={`absolute -right-4 -bottom-4 w-16 h-16 ${c.bg} rounded-full opacity-50 group-hover:scale-150 transition-transform duration-500`}
+      ></div>
+
       <div className="relative z-10 flex flex-col gap-4">
         {/* Topo com Ícone e Label */}
         <div className="flex items-center gap-3">
-          <div className={`p-2.5 rounded-xl ${c.bg} ${pulse ? 'animate-pulse' : ''}`}>
+          <div
+            className={`p-2.5 rounded-xl ${c.bg} ${pulse ? "animate-pulse" : ""}`}
+          >
             <Icon size={18} className={c.text} />
           </div>
           <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.2em] leading-tight">
             {label}
           </p>
         </div>
-        
+
         {/* Número Grande */}
         <p className={`text-4xl font-black tracking-tighter ${c.number}`}>
           {value}
@@ -162,8 +206,8 @@ function StatCard({ label, value, icon: Icon, color, pulse = false }) {
   );
 }
 
-
 function LeadCard({ lead, onUpdateStatus, showInterestScale }) {
+  const rawPhone = lead.phone || "";
   const cleanPhone = lead.phone?.replace(/\D/g, "");
   const displayPhone = lead.phone?.replace(/\n/g, "").trim();
 
@@ -200,6 +244,11 @@ function LeadCard({ lead, onUpdateStatus, showInterestScale }) {
         <h3 className="text-xl font-black mb-1 truncate pr-4 text-black">
           {lead.name}
         </h3>
+
+        {/* EXIBIÇÃO DO TELEFONE NO CARD */}
+        <p className="text-slate-500 font-bold text-sm mb-4">
+          {displayPhone || "Telefone não disponível"}
+        </p>
 
         <div className="space-y-1 mb-6">
           <div className="flex items-center gap-2 text-slate-400 text-xs font-bold uppercase tracking-wider">

@@ -26,3 +26,5 @@ Thumbs.db
 
 # Puppeteer / Navegador
 .cache/
+
+chrome_profile/

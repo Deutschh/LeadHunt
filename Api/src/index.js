@@ -60,12 +60,27 @@ app.post("/run-scraper", async (req, res) => {
   res.json({ message: "O robô LeadHunt foi lançado com sucesso! 🚀" });
 });
 
+app.post("/settings/selectors", async (req, res) => {
+  const { tags } = req.body;
+  try {
+    await db.query(
+      "INSERT INTO scraper_config (selector_type, tags) VALUES ('business_name', $1) " +
+        "ON CONFLICT (selector_type) DO UPDATE SET tags = EXCLUDED.tags",
+      [tags],
+    );
+    res.json({ message: "Seletores atualizados com sucesso!" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erro ao salvar seletores." });
+  }
+});
+
 // 4. Listar todos os leads encontrados
 app.get("/leads", async (req, res) => {
   try {
     // Busca os leads mais recentes primeiro
     const result = await db.query(
-      "SELECT * FROM leads ORDER BY created_at DESC",
+      "SELECT * FROM leads ORDER BY created_at DESC, id DESC",
     );
     res.json(result.rows);
   } catch (err) {
