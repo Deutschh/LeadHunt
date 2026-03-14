@@ -166,59 +166,57 @@ async function startScraping({ niche, location, limit, minRating }) {
         lastProcessedName = data.name;
 
         // LIMPEZA E VALIDAÇÃO DE CELULAR
-        const apenasNumeros = data.phone ? data.phone.replace(/\D/g, "") : "";
-        const ehCelular =
-          apenasNumeros.length === 11 && apenasNumeros[2] === "9";
+// --- 1. LIMPEZA E FORMATAÇÃO (O Padrão WhatsApp) ---
+const apenasNumeros = data.phone ? data.phone.replace(/\D/g, "") : "";
+const ehCelular = apenasNumeros.length === 11 && apenasNumeros[2] === "9";
 
-        // 4. FEEDBACK EM TEMPO REAL NO TERMINAL
-        console.log(
-          `🔎 Item ${currentIndex}: [${data.name || "NOME NÃO ENCONTRADO"}]`,
-        );
-        console.log(
-          `   📍 ${data.neighborhood} | ⭐ ${data.rating} | 📞 ${data.phone || "S/ Tel"}`,
-        );
-        console.log(`   🌐 Site: ${data.hasWebsite ? "Sim ✅" : "Não ❌"}`);
+// Criamos o formato internacional: 55 + DDD + Numero (ex: 5511988887777)
+const phoneFormatado = ehCelular ? `55${apenasNumeros}` : null;
 
-        if (
-          data.name &&
-          data.phone &&
-          ehCelular &&
-          !data.hasWebsite &&
-          data.rating >= minRating
-        ) {
-          const res = await db.query(
-            `INSERT INTO leads (name, phone, has_website, status, niche, rating, neighborhood, interest_level)
-             VALUES ($1, $2, $3, 'pending', $4, $5, $6, 0)
-             ON CONFLICT (phone) DO NOTHING`,
-            [
-              data.name,
-              data.phone,
-              false,
-              data.niche,
-              data.rating,
-              data.neighborhood,
-            ],
-          );
+// --- 2. FEEDBACK EM TEMPO REAL ---
+console.log(`🔎 Item ${currentIndex}: [${data.name || "NOME NÃO ENCONTRADO"}]`);
+console.log(`   📍 ${data.neighborhood} | ⭐ ${data.rating} | 📞 ${data.phone || "S/ Tel"}`);
+console.log(`   🌐 Site: ${data.hasWebsite ? "Sim ✅" : "Não ❌"}`);
 
-          if (res.rowCount > 0) {
-            savedCount++;
-            console.log(`   ✨ STATUS: SALVO! [${savedCount}/${limit}]`);
-          } else {
-            console.log(`   ⏩ STATUS: Já cadastrado.`);
-          }
-        } else {
-          // Melhora o motivo do descarte para o seu feedback no terminal
-          let reason = "Filtro de nota";
-          if (!data.name) reason = "Falha na leitura";
-          else if (data.hasWebsite) reason = "Já tem site";
-          else if (!data.phone) reason = "Sem telefone";
-          else if (!ehCelular)
-            reason = "Telefone Fixo (Ignorado)"; // <--- Agora você sabe o que aconteceu
-          else if (data.rating < minRating)
-            reason = `Nota baixa (${data.rating})`;
+// --- 3. FILTROS E VALIDAÇÃO DE DUPLICIDADE ---
+if (data.name && phoneFormatado && !data.hasWebsite && data.rating >= minRating) {
+  
+  // VERIFICAÇÃO NO BANCO (Evita processar o que já temos)
+  const jaExiste = await db.query("SELECT id FROM leads WHERE phone = $1", [phoneFormatado]);
 
-          console.log(`   ⏭️ STATUS: Pulado (${reason})`);
-        }
+  if (jaExiste.rowCount > 0) {
+    console.log(`   ⏩ STATUS: Já cadastrado no banco.`);
+  } else {
+    const res = await db.query(
+      `INSERT INTO leads (name, phone, has_website, status, niche, rating, neighborhood, interest_level)
+       VALUES ($1, $2, $3, 'pending', $4, $5, $6, 0)
+       ON CONFLICT (phone) DO NOTHING`,
+      [
+        data.name,
+        phoneFormatado, // Salvando já no padrão 55...
+        false,
+        data.niche,
+        data.rating,
+        data.neighborhood,
+      ]
+    );
+
+    if (res.rowCount > 0) {
+      savedCount++;
+      console.log(`   ✨ STATUS: SALVO! [${savedCount}/${limit}]`);
+    }
+  }
+} else {
+  // Lógica de motivos (Reason)
+  let reason = "Filtro de nota";
+  if (!data.name) reason = "Falha na leitura";
+  else if (data.hasWebsite) reason = "Já tem site";
+  else if (!data.phone) reason = "Sem telefone";
+  else if (!ehCelular) reason = "Não é celular (Fixo)";
+  else if (data.rating < minRating) reason = `Nota baixa (${data.rating})`;
+
+  console.log(`   ⏭️ STATUS: Pulado (${reason})`);
+}
         console.log(`--------------------------------------------------`);
       } catch (innerErr) {
         console.log("⚠️ Erro ao processar item, tentando próximo...");

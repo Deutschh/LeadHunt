@@ -3,6 +3,7 @@ const express = require("express");
 const cors = require("cors");
 const db = require("./database/db");
 const { startScraping } = require("./services/scraper");
+const leadsRoutes = require('./routes/leads');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -10,6 +11,9 @@ const PORT = process.env.PORT || 3001;
 // --- Middlewares ---
 app.use(cors()); // Permite que o seu React acesse a API
 app.use(express.json()); // Permite que a API entenda JSON no corpo das requisições
+
+
+app.use('/api/leads', leadsRoutes);
 
 // --- Rotas de Monitoramento ---
 

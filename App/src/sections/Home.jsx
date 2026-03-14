@@ -14,7 +14,7 @@ import {
   Handshake,
 } from "lucide-react";
 
-const Home = ({ leads, loading, onRefresh, onUpdateStatus }) => {
+const Home = ({ leads, loading, onRefresh, onUpdateStatus, onOpenLead }) => {
   const [currentView, setCurrentView] = useState("pending");
 
   // Contagem inteligente para o Pipeline
@@ -119,6 +119,7 @@ const Home = ({ leads, loading, onRefresh, onUpdateStatus }) => {
               key={lead.id}
               lead={lead}
               onUpdateStatus={onUpdateStatus}
+              onOpenLead={onOpenLead}
               showInterestScale={currentView === "contacted"}
             />
           ))}
@@ -206,7 +207,7 @@ function StatCard({ label, value, icon: Icon, color, pulse = false }) {
   );
 }
 
-function LeadCard({ lead, onUpdateStatus, showInterestScale }) {
+function LeadCard({ lead, onUpdateStatus, onOpenLead, showInterestScale }) {
   const rawPhone = lead.phone || "";
   const cleanPhone = lead.phone?.replace(/\D/g, "");
   const displayPhone = lead.phone?.replace(/\n/g, "").trim();
@@ -240,6 +241,13 @@ function LeadCard({ lead, onUpdateStatus, showInterestScale }) {
             </div>
           </div>
         </div>
+
+                <button 
+         onClick={() => onOpenLead(lead.id)}
+         className="absolute left-8 top-8 opacity-0 group-hover:opacity-100 transition-opacity bg-blue-600 text-white p-2 rounded-full shadow-lg"
+       >
+         <Target size={16} />
+       </button>
 
         <h3 className="text-xl font-black mb-1 truncate pr-4 text-black">
           {lead.name}

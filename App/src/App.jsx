@@ -4,6 +4,8 @@ import Sidebar from "./components/Sidebar";
 import Home from "./sections/Home";
 import SearchSection from "./sections/Search";
 import Configs from "./sections/config";
+import LeadDetails from "./sections/LeadDetails";
+
 
 const API_URL = "http://localhost:3001";
 
@@ -11,6 +13,13 @@ function App() {
   const [activeTab, setActiveTab] = useState("home");
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(false);
+
+  const [selectedLeadId, setSelectedLeadId] = useState(null);
+
+  const handleOpenLead = (id) => {
+    setSelectedLeadId(id);
+    setActiveTab("lead-details");
+  };
 
   const fetchLeads = async () => {
     try {
@@ -78,10 +87,18 @@ function App() {
             loading={loading}
             onRefresh={fetchLeads}
             onUpdateStatus={handleUpdateStatus}
+            onOpenLead={handleOpenLead}
           />
         )}
         {activeTab === "search" && (
           <SearchSection onStartSearch={handleStartSearch} loading={loading} />
+        )}
+        {/* DETALHES DO LEAD (MINI-CRM) */}
+        {activeTab === "lead-details" && (
+          <LeadDetails 
+            leadId={selectedLeadId} 
+            onBack={() => setActiveTab("home")} 
+          />
         )}
         {activeTab === "settings" && <Configs />}
       </main>
