@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from "react";
 import axios from "axios";
 import Sidebar from "./components/Sidebar";
-import Home from "./sections/Home";
+import MyLeads from "./sections/MyLeads";
 import SearchSection from "./sections/Search";
 import Configs from "./sections/config";
 import LeadDetails from "./sections/LeadDetails";
-
+import Home from "./sections/Home";
 
 const API_URL = "http://localhost:3001";
 
@@ -23,7 +23,7 @@ function App() {
 
   const fetchLeads = async () => {
     try {
-      const { data } = await axios.get(`${API_URL}/leads`);
+      const { data } = await axios.get(`${API_URL}/api/leads`);
       setLeads(data);
     } catch (error) {
       console.error(error);
@@ -45,7 +45,7 @@ function App() {
   const handleUpdateStatus = async (id, newStatus, newInterestLevel = 0) => {
     try {
       // 1. Fazemos o PATCH na API enviando o status e o nível de interesse
-      const response = await axios.patch(`${API_URL}/leads/${id}`, {
+      const response = await axios.patch(`${API_URL}/api/leads/${id}`, {
         status: newStatus,
         interest_level: newInterestLevel,
       });
@@ -82,7 +82,10 @@ function App() {
 
       <main className="flex-1 overflow-y-auto">
         {activeTab === "home" && (
-          <Home
+          <Home />
+        )}
+        {activeTab === "leads" && (
+          <MyLeads
             leads={leads}
             loading={loading}
             onRefresh={fetchLeads}
@@ -95,9 +98,9 @@ function App() {
         )}
         {/* DETALHES DO LEAD (MINI-CRM) */}
         {activeTab === "lead-details" && (
-          <LeadDetails 
-            leadId={selectedLeadId} 
-            onBack={() => setActiveTab("home")} 
+          <LeadDetails
+            leadId={selectedLeadId}
+            onBack={() => setActiveTab("leads")}
           />
         )}
         {activeTab === "settings" && <Configs />}

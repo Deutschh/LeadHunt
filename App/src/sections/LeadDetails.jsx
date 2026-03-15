@@ -363,6 +363,48 @@ const LeadDetails = ({ leadId, onBack }) => {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         {/* COLUNA ESQUERDA (Atividades e Notas) */}
         <div className="lg:col-span-8 space-y-8">
+          {/* SEÇÃO DE CONTRATO FECHADO (Resumo do Deal) */}
+          {lead.status === "closed" && lead.deal_details?.services && (
+            <div className="bg-white p-8 rounded-[2.5rem] border-2 border-green-100 shadow-sm mb-8 animate-in zoom-in duration-500">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="font-black text-xs uppercase tracking-[0.2em] text-green-600 flex items-center gap-2">
+                  <Award size={18} /> Detalhes do Contrato Fechado
+                </h3>
+                <button
+                  onClick={() => setShowClosingModal(true)}
+                  className="text-[10px] font-black uppercase text-blue-600 hover:underline flex items-center gap-1"
+                >
+                  <Edit3 size={12} /> Editar Valores/Prazos
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                {Object.entries(lead.deal_details.services).map(
+                  ([service, details]) => (
+                    <div
+                      key={service}
+                      className="bg-green-50/50 p-4 rounded-2xl border border-green-100"
+                    >
+                      <p className="text-[10px] font-black text-green-700 uppercase mb-1">
+                        {service}
+                      </p>
+                      <p className="text-lg font-black text-slate-900">
+                        R$ {parseFloat(details.price).toLocaleString("pt-BR")}
+                      </p>
+                      <p className="text-[10px] font-bold text-slate-400 mt-1 flex items-center gap-1">
+                        <Calendar size={10} />{" "}
+                        {details.deadline
+                          ? new Date(details.deadline).toLocaleDateString(
+                              "pt-BR",
+                            )
+                          : "Sem data"}
+                      </p>
+                    </div>
+                  ),
+                )}
+              </div>
+            </div>
+          )}
           {/* TERMÔMETRO */}
           <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
             <div className="flex items-center justify-between mb-6">

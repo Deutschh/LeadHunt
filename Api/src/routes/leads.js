@@ -44,6 +44,41 @@ router.get("/:id/activities", async (req, res) => {
   }
 });
 
+// Buscar notas ativas
+router.get("/notes/active", async (req, res) => {
+  try {
+    const result = await db.query(
+      "SELECT * FROM home_notes WHERE expires_at >= CURRENT_DATE OR expires_at IS NULL ORDER BY created_at DESC"
+    );
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao buscar notas" });
+  }
+});
+
+// Criar nova nota
+router.post("/notes", async (req, res) => {
+  const { title, content, expires_at } = req.body;
+  try {
+    const result = await db.query(
+      "INSERT INTO home_notes (title, content, expires_at) VALUES ($1, $2, $3) RETURNING *",
+      [title, content, expires_at || null]
+    );
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao criar nota" });
+  }
+});
+
+// Deletar nota
+router.delete("/notes/:id", async (req, res) => {
+  try {
+    await db.query("DELETE FROM home_notes WHERE id = $1", [req.params.id]);
+    res.json({ message: "Nota removida" });
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao deletar nota" });
+  }
+});
 
 router.patch("/:id", async (req, res) => {
   const { id } = req.params;

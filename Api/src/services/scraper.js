@@ -9,20 +9,15 @@ async function startScraping({ niche, location, limit, minRating }) {
   let savedCount = 0;
 
   try {
-    // 1. CONEXÃO COM O CÉREBRO (Configurações Dinâmicas)
-    // Buscamos os seletores que você "cadastrou" no banco
     const configRes = await db.query(
       "SELECT tags FROM scraper_config WHERE selector_type = 'business_name'",
     );
     const dbTags = configRes.rows[0]?.tags || "";
-
-    // Convertemos a string do banco em uma array de seletores
     const dynamicSelectors = dbTags
       .split(",")
       .map((t) => t.trim())
       .filter((t) => t);
 
-    // 2. CONEXÃO COM O NAVEGADOR (Modo Carona)
     browser = await puppeteer.connect({
       browserURL: "http://127.0.0.1:9222",
       defaultViewport: null,
@@ -32,25 +27,21 @@ async function startScraping({ niche, location, limit, minRating }) {
     const query = `${niche} em ${location}`;
     const url = `https://www.google.com.br/maps/search/${encodeURIComponent(query)}`;
 
-    console.log(`\n🚀 MISSÃO HUNTER INICIADA`);
-    console.log(`--------------------------------------------------`);
-    console.log(`🎯 Alvo: ${limit} leads de "${niche}" em "${location}"`);
-    console.log(
-      `🛠️ Seletores Ativos: ${[...dynamicSelectors, "H1"].join(" | ")}`,
-    );
-    console.log(`--------------------------------------------------\n`);
+    if (global.io)
+      global.io.emit("scraper-log", {
+        message: `🚀 MISSÃO INICIADA: Procurando ${limit} leads...`,
+        type: "info",
+      });
 
     await page.goto(url, { waitUntil: "networkidle2" });
     await page.waitForSelector("a.hfpxzc", { timeout: 15000 });
 
-    let currentIndex = 3; // Começa no 3 para pular os anúncios do topo
-    let lastProcessedName = "";
+    let currentIndex = 3;
 
     while (savedCount < limit && currentIndex < 80) {
       const items = await page.$$("a.hfpxzc");
 
       if (currentIndex >= items.length) {
-        console.log("🔄 Fim da lista. Scrollando para carregar mais...");
         await page.evaluate(() => {
           const feed = document.querySelector('div[role="feed"]');
           if (feed) feed.scrollTop += 1200;
@@ -66,56 +57,26 @@ async function startScraping({ niche, location, limit, minRating }) {
         await page.evaluate((el) => el.scrollIntoView(), leadElement);
         await new Promise((r) => setTimeout(r, 1200));
         await leadElement.click();
+        await new Promise((r) => setTimeout(r, 2000));
 
-        // ESPERA INTELIGENTE (Paciência de Hunter)
-        await page
-          .waitForFunction(
-            (oldName) => {
-              // Verifica os seletores comuns para saber se o painel mudou
-              const h1 =
-                document.querySelector("h1.DUwDve") ||
-                document.querySelector("h1.DUwDbe") ||
-                document.querySelector(".lfPiob");
-              const name = h1 ? h1.innerText.trim() : "";
-              return (
-                name.length > 0 && name !== oldName && name !== "Resultados"
-              );
-            },
-            { timeout: 7000 },
-            lastProcessedName,
-          )
-          .catch(() => {});
-
-        await new Promise((r) => setTimeout(r, 1500));
-
-        // 3. EXTRAÇÃO CIRÚRGICA (O Coração do Robô)
         const data = await page.evaluate((extraSelectors) => {
-          // Lista de prioridade de busca
           const selectors = [
-            ...extraSelectors, // Primeiro o que você cadastrou no banco
-            "h1.DUwDve.lfPiob",
-            "h1.DUwDvf.lfPIob",
+            ...extraSelectors,
             "h1.DUwDve",
             "h1.DUwDbe",
             ".lfPiob",
-            "div[role='main'] h1",
             "h1",
           ];
-
           let name = "";
-          for (const selector of selectors) {
-            const el = document.querySelector(selector);
-            if (el) {
-              const text = el.innerText.trim();
-              // Validação: não pode ser vazio, nem "Resultados", nem apenas o texto do anúncio
-              if (
-                text &&
-                text !== "Resultados" &&
-                !text.includes("Patrocinado")
-              ) {
-                name = text;
-                break;
-              }
+          for (const s of selectors) {
+            const el = document.querySelector(s);
+            if (
+              el &&
+              el.innerText.trim() &&
+              !el.innerText.includes("Patrocinado")
+            ) {
+              name = el.innerText.trim();
+              break;
             }
           }
 
@@ -130,13 +91,14 @@ async function startScraping({ niche, location, limit, minRating }) {
           );
           const fullAddress = addressEl ? addressEl.innerText.trim() : "";
 
-          // Lógica de Bairro Robusta (Trata nomes e números)
+          // --- VOLTA DA LÓGICA DE BAIRRO ROBUSTA ---
           let neighborhood = "Não identificado";
           if (fullAddress.includes(",")) {
             const parts = fullAddress.split(",");
+            // Pega o que está entre a primeira vírgula e o próximo separador
             let possibleNb = parts[1] ? parts[1].split("-")[0].trim() : "";
 
-            // Se o bairro vier como número (ex: 123), tenta a parte após o traço
+            // Se o que encontramos for um número (ex: "123"), buscamos o que vem após o "-"
             if (/^\d+$/.test(possibleNb) && parts[1].includes("-")) {
               possibleNb = parts[1].split("-")[1]?.split(",")[0].trim();
             }
@@ -153,7 +115,7 @@ async function startScraping({ niche, location, limit, minRating }) {
             name,
             hasWebsite: !!website,
             phone: phoneEl
-              ? phoneEl.innerText.replace(/[^0-9()\- ]/g, "").trim()
+              ? phoneEl.innerText.replace(/[^0-9]/g, "").trim()
               : null,
             rating,
             neighborhood,
@@ -163,72 +125,73 @@ async function startScraping({ niche, location, limit, minRating }) {
           };
         }, dynamicSelectors);
 
-        lastProcessedName = data.name;
+        // --- VALIDAÇÃO E FORMATAÇÃO ---
+        const ehCelular = data.phone?.length === 11 && data.phone[2] === "9";
+        const phoneFormatado = ehCelular ? `55${data.phone}` : null;
+        const itemHeader = `🔎 [${data.name || "S/ Nome"}] | ⭐ ${data.rating} | 📍 ${data.neighborhood}`;
 
-        // LIMPEZA E VALIDAÇÃO DE CELULAR
-// --- 1. LIMPEZA E FORMATAÇÃO (O Padrão WhatsApp) ---
-const apenasNumeros = data.phone ? data.phone.replace(/\D/g, "") : "";
-const ehCelular = apenasNumeros.length === 11 && apenasNumeros[2] === "9";
+        if (
+          data.name &&
+          phoneFormatado &&
+          !data.hasWebsite &&
+          data.rating >= minRating
+        ) {
+          const jaExiste = await db.query(
+            "SELECT id FROM leads WHERE phone = $1",
+            [phoneFormatado],
+          );
 
-// Criamos o formato internacional: 55 + DDD + Numero (ex: 5511988887777)
-const phoneFormatado = ehCelular ? `55${apenasNumeros}` : null;
+          if (jaExiste.rowCount > 0) {
+            if (global.io)
+              global.io.emit("scraper-log", {
+                message: `${itemHeader} ⏭️ Já cadastrado.`,
+                type: "skip",
+              });
+          } else {
+            await db.query(
+              `INSERT INTO leads (name, phone, has_website, status, niche, rating, neighborhood, interest_level)
+               VALUES ($1, $2, $3, 'pending', $4, $5, $6, 0) ON CONFLICT DO NOTHING`,
+              [
+                data.name,
+                phoneFormatado,
+                false,
+                data.niche,
+                data.rating,
+                data.neighborhood,
+              ],
+            );
+            savedCount++;
+            if (global.io)
+              global.io.emit("scraper-log", {
+                message: `${itemHeader} ✨ SALVO! [${savedCount}/${limit}]`,
+                type: "success",
+              });
+          }
+        } else {
+          let reason = "Nota baixa";
+          if (!data.name) reason = "Erro leitura";
+          else if (data.hasWebsite) reason = "Já possui site";
+          else if (!phoneFormatado) reason = "Não é celular";
 
-// --- 2. FEEDBACK EM TEMPO REAL ---
-console.log(`🔎 Item ${currentIndex}: [${data.name || "NOME NÃO ENCONTRADO"}]`);
-console.log(`   📍 ${data.neighborhood} | ⭐ ${data.rating} | 📞 ${data.phone || "S/ Tel"}`);
-console.log(`   🌐 Site: ${data.hasWebsite ? "Sim ✅" : "Não ❌"}`);
-
-// --- 3. FILTROS E VALIDAÇÃO DE DUPLICIDADE ---
-if (data.name && phoneFormatado && !data.hasWebsite && data.rating >= minRating) {
-  
-  // VERIFICAÇÃO NO BANCO (Evita processar o que já temos)
-  const jaExiste = await db.query("SELECT id FROM leads WHERE phone = $1", [phoneFormatado]);
-
-  if (jaExiste.rowCount > 0) {
-    console.log(`   ⏩ STATUS: Já cadastrado no banco.`);
-  } else {
-    const res = await db.query(
-      `INSERT INTO leads (name, phone, has_website, status, niche, rating, neighborhood, interest_level)
-       VALUES ($1, $2, $3, 'pending', $4, $5, $6, 0)
-       ON CONFLICT (phone) DO NOTHING`,
-      [
-        data.name,
-        phoneFormatado, // Salvando já no padrão 55...
-        false,
-        data.niche,
-        data.rating,
-        data.neighborhood,
-      ]
-    );
-
-    if (res.rowCount > 0) {
-      savedCount++;
-      console.log(`   ✨ STATUS: SALVO! [${savedCount}/${limit}]`);
-    }
-  }
-} else {
-  // Lógica de motivos (Reason)
-  let reason = "Filtro de nota";
-  if (!data.name) reason = "Falha na leitura";
-  else if (data.hasWebsite) reason = "Já tem site";
-  else if (!data.phone) reason = "Sem telefone";
-  else if (!ehCelular) reason = "Não é celular (Fixo)";
-  else if (data.rating < minRating) reason = `Nota baixa (${data.rating})`;
-
-  console.log(`   ⏭️ STATUS: Pulado (${reason})`);
-}
-        console.log(`--------------------------------------------------`);
+          if (global.io)
+            global.io.emit("scraper-log", {
+              message: `${itemHeader} ⏭️ Pulado (${reason})`,
+              type: "skip",
+            });
+        }
       } catch (innerErr) {
-        console.log("⚠️ Erro ao processar item, tentando próximo...");
         continue;
       }
     }
   } catch (e) {
-    console.error("❌ ERRO FATAL NO SCRAPER:", e.message);
+    console.error("ERRO:", e.message);
   } finally {
     if (browser) await browser.disconnect();
-    console.log(`\n🏁 MISSÃO CUMPRIDA`);
-    console.log(`✅ ${savedCount} novos leads prontos para contato!\n`);
+    if (global.io)
+      global.io.emit("scraper-log", {
+        message: `🏁 MISSÃO CONCLUÍDA: ${savedCount} leads prontos!`,
+        type: "success",
+      });
   }
 }
 
