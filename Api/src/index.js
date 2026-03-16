@@ -6,6 +6,7 @@ const { startScraping } = require("./services/scraper");
 const leadsRoutes = require('./routes/leads');
 const http = require("http");
 const { Server } = require("socket.io");
+const { startAutomation } = require("./services/automationEngine");
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -24,6 +25,8 @@ const io = new Server(server, {
 
 // Tornamos o 'io' global para que o scraper consiga emitir logs
 global.io = io;
+
+startAutomation(); // Inicia o gerenciador de fila
 
 // Rotas Centralizadas (Agora acessíveis via /api/leads)
 app.use('/api/leads', leadsRoutes);

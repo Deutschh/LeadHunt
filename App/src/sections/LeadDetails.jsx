@@ -17,6 +17,7 @@ import {
   Clock,
   Award,
   X,
+  Save,
 } from "lucide-react";
 
 const LeadDetails = ({ leadId, onBack }) => {
@@ -52,10 +53,23 @@ const LeadDetails = ({ leadId, onBack }) => {
     fetchData();
   }, [leadId]);
 
-  // Sincroniza a mensagem quando os serviços ou observação mudam
+  // 1. Atualize o useEffect para observar serviços e observações
   useEffect(() => {
-    if (lead) setCustomMessage(generateBaseMessage());
-  }, [selectedServices, observation, lead]);
+    if (lead) {
+      // Se o lead JÁ TEM uma mensagem salva no banco e eu acabei de abrir o lead (não mudei serviços ainda)
+      // nós mantemos a do banco. Caso contrário, geramos a base.
+      if (
+        lead.custom_message &&
+        selectedServices.length === (lead.services_offered?.length || 0)
+      ) {
+        setCustomMessage(lead.custom_message);
+      } else {
+        setCustomMessage(generateBaseMessage());
+      }
+    }
+  }, [lead?.id, selectedServices, observation]);
+
+  const [isSaving, setIsSaving] = useState(false);
 
   const fetchData = async () => {
     try {
@@ -83,13 +97,15 @@ const LeadDetails = ({ leadId, onBack }) => {
     }
   };
 
-  // --- FUNÇÃO QUE ESTAVA FALTANDO (BUG FIX) ---
   const toggleService = (serviceId) => {
-    setSelectedServices((prev) =>
-      prev.includes(serviceId)
-        ? prev.filter((s) => s !== serviceId)
-        : [...prev, serviceId],
-    );
+    setSelectedServices((prev) => {
+      const isSelected = prev.includes(serviceId);
+      if (isSelected) {
+        return prev.filter((s) => s !== serviceId);
+      } else {
+        return [...prev, serviceId];
+      }
+    });
   };
 
   const updateServiceDeal = (serviceId, field, value) => {
@@ -117,23 +133,33 @@ const LeadDetails = ({ leadId, onBack }) => {
     setShowClosingModal(false);
   };
 
-  const generateBaseMessage = () => {
-    if (!lead) return "";
-    let msg = `Olá, tudo bem? Sou o Guilherme, vi a *${lead.name}* aqui no Google...\n\n`;
-    if (observation) msg += `*Análise:* ${observation}\n\n`;
-    selectedServices.forEach((s) => {
-      msg += `${templates[s]}\n\n`;
-    });
-    msg += "Podemos conversar sobre como implementar isso para você?";
-    return msg;
-  };
+// 3. Importante: Ajuste o generateBaseMessage para usar os estados locais!
+const generateBaseMessage = () => {
+  if (!lead) return "";
+  let msg = `Olá, tudo bem? Sou o Guilherme, vi a *${lead.name}* aqui no Google...\n\n`;
+  
+  // USA O ESTADO "observation" que você está digitando, não o do banco
+  if (observation) msg += `*Análise:* ${observation}\n\n`;
+  
+  // USA O ESTADO "selectedServices" que você está clicando
+  selectedServices.forEach((s) => {
+    if (templates[s]) msg += `${templates[s]}\n\n`;
+  });
+  
+  msg += "Podemos conversar sobre como implementar isso para você?";
+  return msg;
+};
 
   const handleUpdate = async (payload) => {
+    setIsSaving(true);
     try {
       await api.patch(`/leads/${leadId}`, payload);
-      fetchData(); // Recarrega para atualizar timeline
+      await fetchData();
+      // Mantém o ícone de check por 1.5 segundos
+      setTimeout(() => setIsSaving(false), 1500);
     } catch (err) {
       alert("Erro ao atualizar.");
+      setIsSaving(false);
     }
   };
 
@@ -334,6 +360,23 @@ const LeadDetails = ({ leadId, onBack }) => {
         </div>
 
         <div className="flex items-center gap-3">
+          <button
+            onClick={() =>
+              handleUpdate({
+                is_verified: !lead.is_verified,
+                custom_message: customMessage,
+              })
+            }
+            className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+              lead.is_verified
+                ? "bg-green-100 text-green-600 border-2 border-green-200"
+                : "bg-white text-slate-400 border-2 border-slate-100"
+            }`}
+          >
+            {lead.is_verified
+              ? "✓ Verificado para Automação"
+              : "Aprovar Automação"}
+          </button>
           <button
             onClick={handleDelete}
             className="p-3 text-red-400 hover:bg-red-50 rounded-2xl transition-all"
@@ -552,12 +595,35 @@ const LeadDetails = ({ leadId, onBack }) => {
               value={customMessage}
               onChange={(e) => setCustomMessage(e.target.value)}
             />
-            <button
-              onClick={handleSendWhatsApp}
-              className="w-full mt-6 bg-[#00b37e] hover:bg-[#00c98d] py-5 rounded-2xl font-black transition-all flex items-center justify-center gap-3 shadow-xl shadow-[#00b37e]/20"
-            >
-              <Send size={18} /> Disparar WhatsApp
-            </button>
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={handleSendWhatsApp}
+                className="flex-[4] bg-[#00b37e] hover:bg-[#00c98d] py-5 rounded-2xl font-black transition-all flex items-center justify-center gap-3 shadow-xl shadow-[#00b37e]/20"
+              >
+                <Send size={18} /> Disparar WhatsApp
+              </button>
+
+              {/* Botão de Salvar Rascunho */}
+              <button
+                onClick={() => handleUpdate({ custom_message: customMessage })}
+                disabled={isSaving}
+                className={`flex-1 rounded-2xl transition-all border border-white/10 flex items-center justify-center group ${
+                  isSaving
+                    ? "bg-blue-600 text-white"
+                    : "bg-white/10 hover:bg-white/20 text-white"
+                }`}
+                title="Salvar Rascunho no Banco"
+              >
+                {isSaving ? (
+                  <CheckCircle2 size={20} className="animate-in zoom-in" />
+                ) : (
+                  <Save
+                    size={20}
+                    className="group-hover:scale-110 transition-transform text-blue-400"
+                  />
+                )}
+              </button>
+            </div>
           </div>
         </div>
       </div>

@@ -17,14 +17,13 @@ import {
   Calendar as CalendarIcon,
   Trash2,
   Layout,
+  ChevronRight,
 } from "lucide-react";
 
 const Home = () => {
   const [logs, setLogs] = useState([]);
   const [leads, setLeads] = useState([]);
   const [notes, setNotes] = useState([]);
-
-  // Estados para o Modal de Notas
   const [showNoteModal, setShowNoteModal] = useState(false);
   const [newNote, setNewNote] = useState({
     title: "",
@@ -46,12 +45,10 @@ const Home = () => {
   useEffect(() => {
     fetchDashboardData();
     fetchNotes();
-
     const socket = io("http://localhost:3001");
-    socket.on("scraper-log", (newLog) => {
-      setLogs((prev) => [...prev, newLog].slice(-50));
-    });
-
+    socket.on("scraper-log", (newLog) =>
+      setLogs((prev) => [...prev, newLog].slice(-50)),
+    );
     return () => socket.disconnect();
   }, []);
 
@@ -59,15 +56,12 @@ const Home = () => {
     terminalEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [logs]);
 
-  // --- FUNÇÕES DE DADOS ---
-
   const fetchNotes = async () => {
     try {
-      // Usamos o prefixo /api/leads definido no App.jsx + a rota do leads.js
       const { data } = await api.get("/leads/notes/active");
       setNotes(data);
     } catch (err) {
-      console.error("Erro ao buscar notas", err);
+      console.error(err);
     }
   };
 
@@ -79,7 +73,7 @@ const Home = () => {
       setShowNoteModal(false);
       fetchNotes();
     } catch (err) {
-      alert("Erro ao salvar nota no banco.");
+      alert("Erro ao salvar nota.");
     }
   };
 
@@ -96,7 +90,6 @@ const Home = () => {
     try {
       const { data } = await api.get("/leads");
       setLeads(data);
-
       const today = new Date().toISOString().split("T")[0];
       const capturedToday = data.filter((l) =>
         l.created_at.startsWith(today),
@@ -106,7 +99,6 @@ const Home = () => {
         (acc, lead) => acc + (parseFloat(lead.deal_details?.totalValue) || 0),
         0,
       );
-
       const neighborhoods = data.map((l) => l.neighborhood).filter(Boolean);
       const topNb = neighborhoods
         .sort(
@@ -132,20 +124,15 @@ const Home = () => {
   };
 
   return (
-    <div className="p-10 max-w-[1600px] mx-auto animate-in fade-in duration-700 pb-20 relative">
-      {/* 1. MODAL DE ANOTAÇÕES (GLASSMORPISM) */}
+    <div className="p-10 max-w-[1600px] mx-auto animate-in fade-in duration-700 pb-20 relative text-slate-900">
+      {/* 1. MODAL DE NOTAS */}
       {showNoteModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md animate-in fade-in duration-300">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
           <div className="bg-white w-full max-w-md rounded-[3rem] shadow-2xl p-10 border border-white/20 animate-in zoom-in duration-200">
             <div className="flex justify-between items-center mb-8">
-              <div className="flex items-center gap-3">
-                <div className="p-3 bg-blue-600 rounded-2xl text-white shadow-lg shadow-blue-200">
-                  <Plus size={20} />
-                </div>
-                <h2 className="text-xl font-black tracking-tight text-slate-900">
-                  Nova Anotação
-                </h2>
-              </div>
+              <h2 className="text-xl font-black tracking-tight">
+                Nova Anotação
+              </h2>
               <button
                 onClick={() => setShowNoteModal(false)}
                 className="text-slate-400 hover:text-slate-900 transition-colors"
@@ -153,83 +140,58 @@ const Home = () => {
                 <X />
               </button>
             </div>
-
             <form onSubmit={handleCreateNote} className="space-y-6">
-              <div>
-                <label className="text-[10px] font-black uppercase text-slate-400 px-2 mb-2 block">
-                  Assunto
-                </label>
-                <input
-                  className="w-full p-4 bg-slate-50 rounded-2xl outline-none font-bold text-slate-800 focus:ring-2 focus:ring-blue-500 transition-all border-none"
-                  placeholder="Ex: Estratégia Zona Leste"
-                  value={newNote.title}
-                  onChange={(e) =>
-                    setNewNote({ ...newNote, title: e.target.value })
-                  }
-                  required
-                />
-              </div>
-              <div>
-                <label className="text-[10px] font-black uppercase text-slate-400 px-2 mb-2 block">
-                  Mensagem
-                </label>
-                <textarea
-                  className="w-full p-4 bg-slate-50 rounded-2xl outline-none min-h-[120px] resize-none text-slate-600 font-medium border-none focus:ring-2 focus:ring-blue-500 transition-all"
-                  placeholder="Digite aqui sua ideia ou lembrete..."
-                  value={newNote.content}
-                  onChange={(e) =>
-                    setNewNote({ ...newNote, content: e.target.value })
-                  }
-                />
-              </div>
-              <div>
-                <label className="text-[10px] font-black uppercase text-slate-400 px-2 mb-2 block">
-                  Exibir até:
-                </label>
-                <input
-                  type="date"
-                  className="w-full p-4 bg-slate-50 rounded-2xl outline-none font-bold text-slate-800 border-none"
-                  value={newNote.expires_at}
-                  onChange={(e) =>
-                    setNewNote({ ...newNote, expires_at: e.target.value })
-                  }
-                />
-              </div>
+              <input
+                className="w-full p-4 bg-slate-50 rounded-2xl outline-none font-bold"
+                placeholder="Assunto"
+                value={newNote.title}
+                onChange={(e) =>
+                  setNewNote({ ...newNote, title: e.target.value })
+                }
+                required
+              />
+              <textarea
+                className="w-full p-4 bg-slate-50 rounded-2xl outline-none min-h-[120px] resize-none"
+                placeholder="Mensagem..."
+                value={newNote.content}
+                onChange={(e) =>
+                  setNewNote({ ...newNote, content: e.target.value })
+                }
+              />
+              <input
+                type="date"
+                className="w-full p-4 bg-slate-50 rounded-2xl outline-none font-bold"
+                value={newNote.expires_at}
+                onChange={(e) =>
+                  setNewNote({ ...newNote, expires_at: e.target.value })
+                }
+              />
               <button
                 type="submit"
-                className="w-full py-5 bg-slate-900 text-white rounded-3xl font-black shadow-xl shadow-slate-200 transition-all hover:scale-[1.02] active:scale-95"
+                className="w-full py-5 bg-slate-900 text-white rounded-3xl font-black shadow-xl"
               >
-                Salvar no Banco de Dados
+                Salvar Nota
               </button>
             </form>
           </div>
         </div>
       )}
 
-      {/* 2. HEADER E META */}
+      {/* 2. HEADER E BARRA DE META */}
       <header className="mb-12 flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
         <div>
           <p className="text-[10px] font-black uppercase tracking-[0.4em] text-blue-600 mb-2">
             Dashboard Operacional
           </p>
-          <h1 className="text-5xl font-black tracking-tighter text-slate-900">
-            Visão Geral
-          </h1>
+          <h1 className="text-5xl font-black tracking-tighter">Visão Geral</h1>
         </div>
-
         <div className="flex items-center gap-4 w-full md:w-auto">
-          {/* BOTÃO DE NOTAS REFORMULADO */}
           <button
             onClick={() => setShowNoteModal(true)}
-            className="p-5 bg-white rounded-[2rem] shadow-sm border border-slate-100 hover:shadow-md transition-all text-blue-600 active:scale-90 flex items-center justify-center group"
-            title="Criar anotação"
+            className="p-5 bg-white rounded-[2rem] shadow-sm border border-slate-100 hover:shadow-md transition-all text-blue-600 active:scale-90"
           >
-            <Plus
-              size={24}
-              className="group-hover:rotate-90 transition-transform duration-300"
-            />
+            <Plus size={24} />
           </button>
-
           <div className="bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100 flex-1 md:w-80">
             <div className="flex justify-between items-center mb-3">
               <span className="text-[10px] font-black uppercase text-slate-400">
@@ -251,65 +213,116 @@ const Home = () => {
         </div>
       </header>
 
-      {/* 3. GRID DE CARDS */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
-        <StatCard
-          icon={<DollarSign size={20} className="text-green-600" />}
-          label="Faturamento Real"
-          value={`R$ ${stats.totalRevenue.toLocaleString("pt-BR")}`}
-          desc="Acumulado fechado"
-          trend="+ R$ 0,00 lucro/CAC"
-        />
-        <StatCard
-          icon={<Target size={20} className="text-blue-600" />}
-          label="Conversão"
-          value={`${stats.conversionRate}%`}
-          desc="Leads para Contratos"
-        />
-        <StatCard
-          icon={<MapPin size={20} className="text-orange-600" />}
-          label="Foco Geográfico"
-          value={stats.topNeighborhood}
-          desc="Bairro com mais leads"
-        />
-        <StatCard
-          icon={<TrendingUp size={20} className="text-indigo-600" />}
-          label="Captados Hoje"
-          value={stats.capturedToday}
-          desc="Leads minerados"
-        />
+      {/* 3. CONTAINERS SUPERIORES REFORMULADOS (GRID 2 COLUNAS) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-10">
+        {/* CARD FINANCEIRO (FATURAMENTO) */}
+        <div className="bg-white p-10 rounded-[3rem] border border-slate-100 shadow-sm flex items-center justify-between relative overflow-hidden group">
+          <div className="absolute -right-4 -bottom-4 opacity-5 group-hover:scale-110 transition-transform duration-700 text-green-600">
+            <DollarSign size={200} />
+          </div>
+          <div className="relative z-10">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-3 bg-green-50 rounded-2xl text-green-600">
+                <DollarSign size={24} />
+              </div>
+              <p className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em]">
+                Faturamento Real
+              </p>
+            </div>
+            <h2 className="text-5xl font-black tracking-tighter mb-2">
+              R$ {stats.totalRevenue.toLocaleString("pt-BR")}
+            </h2>
+            <p className="text-xs font-bold text-slate-400 italic">
+              Total acumulado em contratos fechados
+            </p>
+          </div>
+          <div className="text-right relative z-10">
+            <div className="flex items-center gap-1 text-green-600 font-black text-xs uppercase mb-1">
+              <TrendingUp size={16} /> ROI Estável
+            </div>
+            <p className="text-[10px] font-bold text-slate-300 uppercase">
+              Custo CAC: R$ 0,00
+            </p>
+          </div>
+        </div>
+
+        {/* POWER CARD: PERFORMANCE DO FUNIL (DADOS JUNTO COM CONVERSÃO) */}
+        <div className="bg-white p-10 rounded-[3rem] border border-slate-100 shadow-sm grid grid-cols-2 gap-8 relative overflow-hidden group">
+          <div>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-3 bg-blue-50 rounded-2xl text-blue-600">
+                <Target size={24} />
+              </div>
+              <p className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em]">
+                Funil & Conversão
+              </p>
+            </div>
+            <h2 className="text-5xl font-black tracking-tighter text-blue-600">
+              {stats.conversionRate}%
+            </h2>
+            <p className="text-[10px] font-black text-slate-300 uppercase mt-2">
+              Taxa de Eficiência
+            </p>
+          </div>
+
+          <div className="flex flex-col justify-center space-y-6 border-l border-slate-100 pl-8">
+            <div className="flex items-center gap-4">
+              <div className="p-2 bg-orange-50 rounded-xl text-orange-600">
+                <MapPin size={18} />
+              </div>
+              <div>
+                <p className="text-[9px] font-black text-slate-400 uppercase">
+                  Top Bairro
+                </p>
+                <p className="text-sm font-black text-slate-800">
+                  {stats.topNeighborhood}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-4">
+              <div className="p-2 bg-indigo-50 rounded-xl text-indigo-600">
+                <TrendingUp size={18} />
+              </div>
+              <div>
+                <p className="text-[9px] font-black text-slate-400 uppercase">
+                  Hoje
+                </p>
+                <p className="text-sm font-black text-slate-800">
+                  +{stats.capturedToday} Leads
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* 4. TERMINAL (RESTAURADO E TURBINADO) */}
+        {/* 4. TERMINAL (ESQUERDA - LG:8) */}
         <div className="lg:col-span-8">
-          <div className="bg-[#0B0F17] rounded-[2.5rem] shadow-2xl border border-white/5 overflow-hidden flex flex-col h-[520px]">
+          <div className="bg-[#0B0F17] rounded-[2.5rem] shadow-2xl border border-white/5 overflow-hidden flex flex-col h-[480px]">
             <div className="bg-[#161B26] px-6 py-4 flex items-center justify-between border-b border-white/5">
               <div className="flex items-center gap-2">
                 <div className="flex gap-1.5 mr-4">
-                  <div className="w-3 h-3 bg-[#FF5F56] rounded-full shadow-lg shadow-red-500/20"></div>
-                  <div className="w-3 h-3 bg-[#FFBD2E] rounded-full shadow-lg shadow-yellow-500/20"></div>
-                  <div className="w-3 h-3 bg-[#27C93F] rounded-full shadow-lg shadow-green-500/20"></div>
+                  <div className="w-3 h-3 bg-[#FF5F56] rounded-full"></div>
+                  <div className="w-3 h-3 bg-[#FFBD2E] rounded-full"></div>
+                  <div className="w-3 h-3 bg-[#27C93F] rounded-full"></div>
                 </div>
                 <div className="flex items-center gap-2 text-slate-500 font-mono text-[10px] font-bold uppercase tracking-widest">
-                  <Terminal size={12} />
-                  <span>Hunter_Shell_v3.0</span>
+                  <Terminal size={12} /> <span>Hunter_Shell_v3.0</span>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse shadow-[0_0_8px_#3b82f6]"></div>
-                <span className="text-[9px] font-black text-blue-500 uppercase tracking-tighter">
-                  Socket Online
-                </span>
-              </div>
+              
+              <span className="text-[9px] font-black text-[#27C93F] uppercase flex mr-2">
+                <div className="w-2.5 h-2.5 bg-[#27C93F] rounded-full mr-1.5 my-auto animate-pulse shadow-[0_0_8px_#27C93F]"></div>
+                Socket Online
+              </span>
             </div>
-
             <div className="flex-1 p-8 overflow-y-auto font-mono text-[11px] leading-relaxed scrollbar-thin scrollbar-thumb-white/10">
               {logs.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full text-slate-700 opacity-50 space-y-4">
-                  <Zap size={40} strokeWidth={1} className="animate-pulse" />
+                  <Zap size={40} className="animate-pulse" />
                   <p className="uppercase tracking-[0.3em]">
-                    Aguardando conexão com o robô...
+                    Aguardando conexão...
                   </p>
                 </div>
               ) : (
@@ -332,10 +345,58 @@ const Home = () => {
           </div>
         </div>
 
-        {/* 5. COLUNA DIREITA: NOTAS E TAREFAS */}
+        {/* 5. COLUNA LATERAL (TAREFAS, WINS E NOTAS - LG:4) */}
         <div className="lg:col-span-4 space-y-6">
-          {/* CARD DE ANOTAÇÕES DINÂMICO */}
-          <div className="bg-white p-8 rounded-[3rem] shadow-sm border border-slate-100 max-h-[480px] overflow-hidden flex flex-col">
+          {/* LISTA DE WINS (TROFÉU) - REESTABELECIDA */}
+          <div className="bg-white p-8 rounded-[3rem] shadow-sm border border-slate-100">
+            <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-6 flex items-center gap-2">
+              <Trophy size={16} className="text-yellow-500" /> Últimos
+              Fechamentos
+            </h3>
+            <div className="space-y-4">
+              {leads
+                .filter((l) => l.status === "closed")
+                .slice(0, 3)
+                .map((l) => (
+                  <div
+                    key={l.id}
+                    className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl group hover:bg-green-50 transition-colors"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center text-xs font-black shadow-sm group-hover:text-green-600">
+                        {l.name.charAt(0)}
+                      </div>
+                      <div>
+                        <p className="text-xs font-black text-slate-800">
+                          {l.name}
+                        </p>
+                        <p className="text-[9px] font-bold text-slate-400 uppercase">
+                          {l.niche}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs font-black text-green-600">
+                        R${" "}
+                        {l.deal_details?.totalValue?.toLocaleString("pt-BR") ||
+                          "0"}
+                      </p>
+                      <p className="text-[8px] font-black text-slate-300 uppercase">
+                        Success
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              {leads.filter((l) => l.status === "closed").length === 0 && (
+                <p className="text-xs text-slate-400 italic text-center py-4">
+                  Buscando o primeiro troféu...
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* CARD DE ANOTAÇÕES */}
+          <div className="bg-white p-8 rounded-[3rem] shadow-sm border border-slate-100 max-h-[350px] overflow-hidden flex flex-col">
             <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-6 flex items-center gap-2">
               <StickyNote size={16} className="text-blue-500" /> Notas do QG
             </h3>
@@ -347,7 +408,7 @@ const Home = () => {
                 >
                   <button
                     onClick={() => deleteNote(note.id)}
-                    className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 transition-all p-1"
+                    className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 text-red-400 transition-all p-1"
                   >
                     <Trash2 size={14} />
                   </button>
@@ -357,80 +418,15 @@ const Home = () => {
                   <p className="text-[11px] text-slate-500 font-medium leading-relaxed">
                     {note.content}
                   </p>
-                  {note.expires_at && (
-                    <p className="mt-3 text-[9px] font-black text-blue-500/60 flex items-center gap-1 uppercase">
-                      <CalendarIcon size={10} /> Até{" "}
-                      {new Date(note.expires_at).toLocaleDateString("pt-BR")}
-                    </p>
-                  )}
                 </div>
               ))}
-              {notes.length === 0 && (
-                <div className="flex flex-col items-center justify-center py-10 opacity-30">
-                  <Layout size={32} className="mb-2" />
-                  <p className="text-[10px] uppercase tracking-widest font-black">
-                    Nenhuma nota ativa
-                  </p>
-                </div>
-              )}
             </div>
           </div>
 
-          {/* TAREFAS CRÍTICAS */}
-          <div className="bg-slate-900 p-8 rounded-[3rem] shadow-xl relative overflow-hidden group">
-            <div className="absolute -right-4 -top-4 text-white opacity-5 group-hover:rotate-12 transition-transform duration-700">
-              <Clock size={150} />
-            </div>
-            <div className="relative z-10">
-              <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-400 mb-6">
-                Tarefas Críticas
-              </h3>
-              <div className="space-y-4">
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 bg-white/10 rounded-xl flex items-center justify-center text-white">
-                    <Clock size={18} />
-                  </div>
-                  <div>
-                    <p className="text-white text-sm font-black">
-                      {stats.pendingFollowups} Follow-ups
-                    </p>
-                    <p className="text-slate-400 text-[10px] font-bold">
-                      Aguardando retorno via WhatsApp
-                    </p>
-                  </div>
-                </div>
-                <button className="w-full mt-4 py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg shadow-blue-900/20">
-                  Resolver Agora
-                </button>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </div>
   );
 };
-
-const StatCard = ({ icon, label, value, desc, trend }) => (
-  <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm hover:shadow-md transition-all group relative overflow-hidden">
-    <div className="relative z-10">
-      <div className="p-3 bg-slate-50 w-fit rounded-2xl mb-6 group-hover:scale-110 transition-transform">
-        {icon}
-      </div>
-      <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">
-        {label}
-      </p>
-      <p className="text-3xl font-black text-slate-900 tracking-tighter mb-2">
-        {value}
-      </p>
-      <p className="text-[10px] font-bold text-slate-400 italic">{desc}</p>
-      {trend && (
-        <div className="mt-3 pt-3 border-t border-slate-50 flex items-center gap-1 text-green-600 font-black text-[9px] uppercase">
-          <ArrowUpRight size={12} /> {trend}
-        </div>
-      )}
-    </div>
-  </div>
-);
 
 export default Home;

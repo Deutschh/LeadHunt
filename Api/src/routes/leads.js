@@ -6,7 +6,7 @@ const db = require("../database/db");
 router.get("/", async (req, res) => {
   try {
     const result = await db.query(
-      "SELECT * FROM leads ORDER BY created_at DESC, id DESC"
+      "SELECT * FROM leads ORDER BY created_at DESC, id DESC",
     );
     res.json(result.rows);
   } catch (err) {
@@ -29,14 +29,13 @@ router.get("/:id", async (req, res) => {
   }
 });
 
-
 // GET /api/leads/:id/activities
 router.get("/:id/activities", async (req, res) => {
   try {
     const { id } = req.params;
     const result = await db.query(
       "SELECT * FROM lead_activities WHERE lead_id = $1 ORDER BY created_at DESC",
-      [id]
+      [id],
     );
     res.json(result.rows);
   } catch (err) {
@@ -48,7 +47,7 @@ router.get("/:id/activities", async (req, res) => {
 router.get("/notes/active", async (req, res) => {
   try {
     const result = await db.query(
-      "SELECT * FROM home_notes WHERE expires_at >= CURRENT_DATE OR expires_at IS NULL ORDER BY created_at DESC"
+      "SELECT * FROM home_notes WHERE expires_at >= CURRENT_DATE OR expires_at IS NULL ORDER BY created_at DESC",
     );
     res.json(result.rows);
   } catch (err) {
@@ -62,7 +61,7 @@ router.post("/notes", async (req, res) => {
   try {
     const result = await db.query(
       "INSERT INTO home_notes (title, content, expires_at) VALUES ($1, $2, $3) RETURNING *",
-      [title, content, expires_at || null]
+      [title, content, expires_at || null],
     );
     res.json(result.rows[0]);
   } catch (err) {
@@ -80,30 +79,97 @@ router.delete("/notes/:id", async (req, res) => {
   }
 });
 
+// 1. Rota para Verificar/Aprovar um lead para automação
+router.patch("/:id/verify", async (req, res) => {
+  const { id } = req.params;
+  const { is_verified } = req.body;
+  try {
+    const result = await db.query(
+      "UPDATE leads SET is_verified = $1 WHERE id = $2 RETURNING *",
+      [is_verified, id],
+    );
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao verificar lead." });
+  }
+});
+
+// 2. Rota para buscar configurações de automação
+router.get("/automation/settings", async (req, res) => {
+  try {
+    const result = await db.query(
+      "SELECT * FROM automation_settings WHERE id = 1",
+    );
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao buscar configurações." });
+  }
+});
+
+// 3. Rota para atualizar configurações de automação
+router.patch("/automation/settings", async (req, res) => {
+  const {
+    is_active,
+    min_interval_minutes,
+    max_interval_minutes,
+    daily_limit,
+    start_hour,
+    end_hour,
+  } = req.body;
+  try {
+    const query = `
+      UPDATE automation_settings 
+      SET is_active = COALESCE($1, is_active),
+          min_interval_minutes = COALESCE($2, min_interval_minutes),
+          max_interval_minutes = COALESCE($3, max_interval_minutes),
+          daily_limit = COALESCE($4, daily_limit),
+          start_hour = COALESCE($5, start_hour),
+          end_hour = COALESCE($6, end_hour),
+          updated_at = NOW()
+      WHERE id = 1 RETURNING *;
+    `;
+    const result = await db.query(query, [
+      is_active,
+      min_interval_minutes,
+      max_interval_minutes,
+      daily_limit,
+      start_hour,
+      end_hour,
+    ]);
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao salvar configurações." });
+  }
+});
+
 router.patch("/:id", async (req, res) => {
   const { id } = req.params;
-  const { 
-    status, 
-    market_observation, 
-    internal_notes, 
-    services_offered, 
+  const {
+    status,
+    market_observation,
+    internal_notes,
+    services_offered,
     competitor_url,
     interest_level,
     update_contact,
-    deal_details,      // Novo: detalhes do fechamento
-    snooze_until,      // Novo: data de retorno
-    acquisition_cost,  // Novo: custo de aquisição (ROI)
-    is_archived,       // Novo: para excluir/arquivar
-    name               // Novo: permitir editar o nome
+    deal_details,
+    snooze_until,
+    acquisition_cost,
+    is_archived,
+    name,
+    is_verified,
+    custom_message, // Recebendo a mensagem personalizada
   } = req.body;
 
   try {
-    // 1. Buscamos o estado atual do lead para saber o que mudou
-    const oldLead = await db.query("SELECT status, interest_level FROM leads WHERE id = $1", [id]);
-    
-    if (oldLead.rowCount === 0) return res.status(404).json({ error: "Lead não encontrado." });
+    const oldLead = await db.query(
+      "SELECT status, interest_level FROM leads WHERE id = $1",
+      [id],
+    );
 
-    // 2. Query de Atualização Principal
+    if (oldLead.rowCount === 0)
+      return res.status(404).json({ error: "Lead não encontrado." });
+
     const query = `
       UPDATE leads 
       SET 
@@ -118,49 +184,67 @@ router.patch("/:id", async (req, res) => {
         snooze_until = COALESCE($9, snooze_until),
         acquisition_cost = COALESCE($10, acquisition_cost),
         is_archived = COALESCE($11, is_archived),
-        name = COALESCE($12, name)
-      WHERE id = $13
-      RETURNING *;
+        name = COALESCE($12, name),
+        is_verified = COALESCE($13, is_verified), --olha a vírgula bem aqui
+        custom_message = COALESCE($14, custom_message)
+        WHERE id = $15
+        RETURNING *;
     `;
 
     const values = [
-      status, market_observation, internal_notes, 
+      status,
+      market_observation,
+      internal_notes,
       services_offered ? JSON.stringify(services_offered) : null,
-      competitor_url, interest_level, update_contact || false,
+      competitor_url,
+      interest_level,
+      update_contact || false,
       deal_details ? JSON.stringify(deal_details) : null,
-      snooze_until, acquisition_cost, is_archived, name, id
+      snooze_until,
+      acquisition_cost,
+      is_archived,
+      name,
+      is_verified, // $13
+      custom_message, // $14
+      id, // $15
     ];
 
     const result = await db.query(query, values);
     const updatedLead = result.rows[0];
 
     // 3. LOGICA DE ATIVIDADES AUTOMÁTICA
-    // Registra se o status mudou
     if (status && status !== oldLead.rows[0].status) {
       await db.query(
         "INSERT INTO lead_activities (lead_id, description, type) VALUES ($1, $2, $3)",
-        [id, `Status alterado para: ${status}`, 'status_change']
+        [id, `Status alterado para: ${status}`, "status_change"],
       );
     }
 
-    // Registra se o interesse mudou
-    if (interest_level !== undefined && interest_level !== oldLead.rows[0].interest_level) {
+    if (
+      interest_level !== undefined &&
+      interest_level !== oldLead.rows[0].interest_level
+    ) {
       await db.query(
         "INSERT INTO lead_activities (lead_id, description, type) VALUES ($1, $2, $3)",
-        [id, `Nível de interesse alterado para: ${interest_level}`, 'interest_change']
+        [
+          id,
+          `Nível de interesse alterado para: ${interest_level}`,
+          "interest_change",
+        ],
       );
     }
 
-    // Registra se mandou mensagem (update_contact foi true)
     if (update_contact) {
       await db.query(
         "INSERT INTO lead_activities (lead_id, description, type) VALUES ($1, $2, $3)",
-        [id, "Mensagem de abordagem enviada via WhatsApp", 'contact']
+        [id, "Mensagem de abordagem enviada via WhatsApp", "contact"],
       );
     }
 
-    res.json({ message: "Lead atualizado e atividade registrada!", lead: updatedLead });
-
+    res.json({
+      message: "Lead atualizado e atividade registrada!",
+      lead: updatedLead,
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Erro ao atualizar lead e histórico." });

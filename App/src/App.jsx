@@ -6,6 +6,7 @@ import SearchSection from "./sections/Search";
 import Configs from "./sections/config";
 import LeadDetails from "./sections/LeadDetails";
 import Home from "./sections/Home";
+import Automation from "./sections/Automation";
 
 const API_URL = "http://localhost:3001";
 
@@ -103,6 +104,7 @@ function App() {
             onBack={() => setActiveTab("leads")}
           />
         )}
+        {activeTab === "automation" && <Automation />}
         {activeTab === "settings" && <Configs />}
       </main>
     </div>
