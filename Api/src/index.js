@@ -50,22 +50,24 @@ app.get("/", (req, res) => {
 // Rota do Scraper (Lembrando que na nuvem ela falhará sem o Worker local)
 app.post("/run-scraper", async (req, res) => {
   const { niche, location, limit, minRating } = req.body;
-  if (!location)
-    return res.status(400).json({ error: "Localização obrigatória." });
+  
+  if (!location) return res.status(400).json({ error: "Localização obrigatória." });
 
-  startScraping({
-    niche,
-    location,
-    limit: parseInt(limit) || 10,
-    minRating: parseFloat(minRating) || 0,
-  }).catch((err) => console.error(`[LeadHunt] Erro no Scraper:`, err));
+  // Em vez de rodar aqui no servidor (onde não tem Chrome), 
+  // enviamos um "grito" via Socket que o seu PC vai ouvir.
+  io.emit("command-start-scraper", { niche, location, limit, minRating });
 
-  res.json({ message: "O robô LeadHunt foi lançado com sucesso! 🚀" });
+  res.json({ message: "Comando de busca enviado para o Worker local! 🔎" });
 });
 
 // Configuração do Socket
 io.on("connection", (socket) => {
-  console.log("⚡ Novo cliente conectado ao Terminal");
+  console.log("⚡ Novo dispositivo conectado ao Centro de Comando");
+
+  // O Worker (seu PC) envia um log -> A API repassa para o Celular
+  socket.on("worker-log", (data) => {
+    io.emit("automation-log", data); 
+  });
 });
 
 server.listen(PORT, () => {

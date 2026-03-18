@@ -8,8 +8,12 @@ let page = null;
 let isLoopRunning = false;
 
 const log = (message, type = "info") => {
-  const time = new Date().toLocaleTimeString();
-  if (global.io) {
+  // Se o remoteLog existir (no worker), ele envia para a nuvem
+  if (global.remoteLog) {
+    global.remoteLog(message, type);
+  } else if (global.io) {
+    // Se estiver rodando na API local
+    const time = new Date().toLocaleTimeString();
     global.io.emit("automation-log", { time, message, type });
   }
   console.log(`[Automação] ${message}`);
