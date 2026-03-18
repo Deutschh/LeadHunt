@@ -8,7 +8,9 @@ const socket = io("https://leadhunt-api.onrender.com");
 console.log("🤖 LeadHunt Worker Iniciado!");
 
 socket.on("connect", () => {
-  console.log("✅ Conectado ao Render! Aguardando comandos...");
+  console.log("✅ Conectado ao Render!");
+  // Avisa a API que este dispositivo é o motor de automação
+  socket.emit("worker-identify");
 });
 
 // OUVE O COMANDO DE BUSCA (Vindo do celular via Render)
