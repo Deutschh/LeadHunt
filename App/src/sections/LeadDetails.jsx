@@ -24,6 +24,7 @@ const LeadDetails = ({ leadId, onBack }) => {
   const [lead, setLead] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activities, setActivities] = useState([]);
+  const [isSaving, setIsSaving] = useState(false);
 
   // Estados de Edição
   const [selectedServices, setSelectedServices] = useState([]);
@@ -53,23 +54,20 @@ const LeadDetails = ({ leadId, onBack }) => {
     fetchData();
   }, [leadId]);
 
-  // 1. Atualize o useEffect para observar serviços e observações
-  useEffect(() => {
-    if (lead) {
-      // Se o lead JÁ TEM uma mensagem salva no banco e eu acabei de abrir o lead (não mudei serviços ainda)
-      // nós mantemos a do banco. Caso contrário, geramos a base.
-      if (
-        lead.custom_message &&
-        selectedServices.length === (lead.services_offered?.length || 0)
-      ) {
-        setCustomMessage(lead.custom_message);
-      } else {
-        setCustomMessage(generateBaseMessage());
-      }
-    }
-  }, [lead?.id, selectedServices, observation]);
+  // Função Auxiliar para gerar a mensagem baseada em dados atuais
+  const generateMessage = (currentLead, currentServices, currentObs) => {
+    if (!currentLead) return "";
+    let msg = `Sou o Guilherme, vi a *${currentLead.name}* aqui no Google...\n\n`;
 
-  const [isSaving, setIsSaving] = useState(false);
+    if (currentObs) msg += `*Análise:* ${currentObs}\n\n`;
+
+    currentServices.forEach((s) => {
+      if (templates[s]) msg += `${templates[s]}\n\n`;
+    });
+
+    msg += "Podemos conversar sobre como implementar isso para você?";
+    return msg;
+  };
 
   const fetchData = async () => {
     try {
@@ -79,16 +77,31 @@ const LeadDetails = ({ leadId, onBack }) => {
       ]);
 
       const data = leadRes.data;
+
+      // Tratamento de Serviços (Garante que seja Array)
+      let initialServices = [];
+      if (data.services_offered) {
+        initialServices = Array.isArray(data.services_offered)
+          ? data.services_offered
+          : JSON.parse(data.services_offered);
+      } else if (data.has_website === false) {
+        initialServices = ["website"];
+      }
+
       setLead(data);
       setObservation(data.market_observation || "");
       setInternalNotes(data.internal_notes || "");
       setInterestLevel(data.interest_level || 0);
       setActivities(activityRes.data);
+      setSelectedServices(initialServices);
 
-      if (data.services_offered && data.services_offered.length > 0) {
-        setSelectedServices(data.services_offered);
-      } else if (data.has_website === false) {
-        setSelectedServices(["website"]);
+      // Carregamento da Mensagem: Prioriza o que está salvo no banco
+      if (data.custom_message) {
+        setCustomMessage(data.custom_message);
+      } else {
+        setCustomMessage(
+          generateMessage(data, initialServices, data.market_observation || ""),
+        );
       }
 
       setLoading(false);
@@ -100,11 +113,14 @@ const LeadDetails = ({ leadId, onBack }) => {
   const toggleService = (serviceId) => {
     setSelectedServices((prev) => {
       const isSelected = prev.includes(serviceId);
-      if (isSelected) {
-        return prev.filter((s) => s !== serviceId);
-      } else {
-        return [...prev, serviceId];
-      }
+      const newServices = isSelected
+        ? prev.filter((s) => s !== serviceId)
+        : [...prev, serviceId];
+
+      // Atualiza a mensagem na hora que o serviço muda
+      setCustomMessage(generateMessage(lead, newServices, observation));
+
+      return newServices;
     });
   };
 
@@ -133,29 +149,11 @@ const LeadDetails = ({ leadId, onBack }) => {
     setShowClosingModal(false);
   };
 
-// 3. Importante: Ajuste o generateBaseMessage para usar os estados locais!
-const generateBaseMessage = () => {
-  if (!lead) return "";
-  let msg = `Olá, tudo bem? Sou o Guilherme, vi a *${lead.name}* aqui no Google...\n\n`;
-  
-  // USA O ESTADO "observation" que você está digitando, não o do banco
-  if (observation) msg += `*Análise:* ${observation}\n\n`;
-  
-  // USA O ESTADO "selectedServices" que você está clicando
-  selectedServices.forEach((s) => {
-    if (templates[s]) msg += `${templates[s]}\n\n`;
-  });
-  
-  msg += "Podemos conversar sobre como implementar isso para você?";
-  return msg;
-};
-
   const handleUpdate = async (payload) => {
     setIsSaving(true);
     try {
       await api.patch(`/leads/${leadId}`, payload);
       await fetchData();
-      // Mantém o ícone de check por 1.5 segundos
       setTimeout(() => setIsSaving(false), 1500);
     } catch (err) {
       alert("Erro ao atualizar.");
@@ -191,6 +189,10 @@ const generateBaseMessage = () => {
     );
   };
 
+  const handleResetMessage = () => {
+    setCustomMessage(generateMessage(lead, selectedServices, observation));
+  };
+
   if (loading)
     return (
       <div className="p-20 text-center font-black animate-pulse text-slate-400 uppercase tracking-widest">
@@ -200,7 +202,7 @@ const generateBaseMessage = () => {
 
   return (
     <div className="p-8 max-w-[1600px] mx-auto animate-in fade-in duration-700 pb-20 relative">
-      {/* 1. MODAL DE FECHAMENTO (Fica "por cima" de tudo) */}
+      {/* 1. MODAL DE FECHAMENTO */}
       {showClosingModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in zoom-in duration-300">
           <div className="bg-white w-full max-w-2xl rounded-[3rem] shadow-2xl overflow-hidden border border-white/20">
@@ -296,7 +298,7 @@ const generateBaseMessage = () => {
               </div>
               <button
                 onClick={handleFinalizeDeal}
-                className="bg-[#00b37e] text-white px-10 py-5 rounded-[2rem] font-black text-sm shadow-xl shadow-[#00b37e]/20 hover:scale-105 active:scale-95 transition-all"
+                className="bg-[#00b37e] text-white px-10 py-5 rounded-[2rem] font-black text-sm shadow-xl hover:scale-105 active:scale-95 transition-all"
               >
                 Confirmar Fechamento
               </button>
@@ -305,9 +307,9 @@ const generateBaseMessage = () => {
         </div>
       )}
 
-      {/* 2. BANNER DE SUCESSO (Aparece apenas se status for closed) */}
+      {/* 2. BANNER DE SUCESSO */}
       {lead.status === "closed" && (
-        <div className="mb-10 bg-green-500 text-white p-6 rounded-[2.5rem] flex items-center justify-between shadow-xl shadow-green-500/20 border border-green-400 animate-in slide-in-from-top duration-500">
+        <div className="mb-10 bg-green-500 text-white p-6 rounded-[2.5rem] flex items-center justify-between shadow-xl border border-green-400 animate-in slide-in-from-top duration-500">
           <div className="flex items-center gap-4">
             <div className="bg-white/20 p-3 rounded-2xl">
               <Award size={32} />
@@ -404,50 +406,7 @@ const generateBaseMessage = () => {
 
       {/* 4. MAIN GRID */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* COLUNA ESQUERDA (Atividades e Notas) */}
         <div className="lg:col-span-8 space-y-8">
-          {/* SEÇÃO DE CONTRATO FECHADO (Resumo do Deal) */}
-          {lead.status === "closed" && lead.deal_details?.services && (
-            <div className="bg-white p-8 rounded-[2.5rem] border-2 border-green-100 shadow-sm mb-8 animate-in zoom-in duration-500">
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="font-black text-xs uppercase tracking-[0.2em] text-green-600 flex items-center gap-2">
-                  <Award size={18} /> Detalhes do Contrato Fechado
-                </h3>
-                <button
-                  onClick={() => setShowClosingModal(true)}
-                  className="text-[10px] font-black uppercase text-blue-600 hover:underline flex items-center gap-1"
-                >
-                  <Edit3 size={12} /> Editar Valores/Prazos
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                {Object.entries(lead.deal_details.services).map(
-                  ([service, details]) => (
-                    <div
-                      key={service}
-                      className="bg-green-50/50 p-4 rounded-2xl border border-green-100"
-                    >
-                      <p className="text-[10px] font-black text-green-700 uppercase mb-1">
-                        {service}
-                      </p>
-                      <p className="text-lg font-black text-slate-900">
-                        R$ {parseFloat(details.price).toLocaleString("pt-BR")}
-                      </p>
-                      <p className="text-[10px] font-bold text-slate-400 mt-1 flex items-center gap-1">
-                        <Calendar size={10} />{" "}
-                        {details.deadline
-                          ? new Date(details.deadline).toLocaleDateString(
-                              "pt-BR",
-                            )
-                          : "Sem data"}
-                      </p>
-                    </div>
-                  ),
-                )}
-              </div>
-            </div>
-          )}
           {/* TERMÔMETRO */}
           <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
             <div className="flex items-center justify-between mb-6">
@@ -534,9 +493,8 @@ const generateBaseMessage = () => {
           </div>
         </div>
 
-        {/* COLUNA DIREITA (Mensagem e Serviços) */}
+        {/* COLUNA DIREITA */}
         <div className="lg:col-span-4 space-y-6">
-          {/* ROI / INVESTIMENTO */}
           <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm">
             <h3 className="font-black text-[10px] uppercase tracking-[0.2em] text-slate-400 mb-4 flex items-center gap-2">
               <DollarSign size={16} className="text-green-500" /> CAC (Custo de
@@ -547,7 +505,7 @@ const generateBaseMessage = () => {
               <input
                 type="number"
                 className="bg-transparent border-none outline-none font-bold text-slate-900 w-full"
-                value={lead.acquisition_cost || ""}
+                value={lead?.acquisition_cost || ""}
                 onChange={(e) =>
                   handleUpdate({ acquisition_cost: e.target.value })
                 }
@@ -556,6 +514,7 @@ const generateBaseMessage = () => {
             </div>
           </div>
 
+          {/* SERVIÇOS SELECIONADOS */}
           <div className="bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100">
             <div className="grid grid-cols-2 gap-3">
               {[
@@ -567,7 +526,11 @@ const generateBaseMessage = () => {
                 <button
                   key={s.id}
                   onClick={() => toggleService(s.id)}
-                  className={`flex flex-col items-center p-4 rounded-2xl border-2 transition-all ${selectedServices.includes(s.id) ? "border-blue-600 bg-blue-50 text-blue-600" : "border-slate-50 bg-slate-50 text-slate-300"}`}
+                  className={`flex flex-col items-center p-4 rounded-2xl border-2 transition-all ${
+                    selectedServices.includes(s.id)
+                      ? "border-blue-600 bg-blue-50 text-blue-600"
+                      : "border-slate-50 bg-slate-50 text-slate-300"
+                  }`}
                 >
                   <span className="text-2xl mb-1">{s.icon}</span>
                   <span className="text-[9px] font-black uppercase tracking-tighter">
@@ -584,7 +547,7 @@ const generateBaseMessage = () => {
                 Abordagem
               </h3>
               <button
-                onClick={() => setCustomMessage(generateBaseMessage())}
+                onClick={handleResetMessage}
                 className="text-[9px] font-black uppercase text-slate-500 underline"
               >
                 Resetar
@@ -603,15 +566,16 @@ const generateBaseMessage = () => {
                 <Send size={18} /> Disparar WhatsApp
               </button>
 
-              {/* Botão de Salvar Rascunho */}
               <button
-                onClick={() => handleUpdate({ custom_message: customMessage })}
+                onClick={() =>
+                  handleUpdate({
+                    custom_message: customMessage,
+                    market_observation: observation,
+                    services_offered: selectedServices,
+                  })
+                }
                 disabled={isSaving}
-                className={`flex-1 rounded-2xl transition-all border border-white/10 flex items-center justify-center group ${
-                  isSaving
-                    ? "bg-blue-600 text-white"
-                    : "bg-white/10 hover:bg-white/20 text-white"
-                }`}
+                className={`flex-1 rounded-2xl transition-all border border-white/10 flex items-center justify-center group ${isSaving ? "bg-blue-600 text-white" : "bg-white/10 hover:bg-white/20 text-white"}`}
                 title="Salvar Rascunho no Banco"
               >
                 {isSaving ? (

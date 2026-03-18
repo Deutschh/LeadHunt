@@ -7,12 +7,18 @@ let browser = null;
 let page = null;
 let isLoopRunning = false;
 
+// FUNÇÃO AUXILIAR: Pega saudação baseada na hora atual
+const getGreeting = () => {
+  const hour = new Date().getHours();
+  if (hour >= 5 && hour < 12) return "Bom dia";
+  if (hour >= 12 && hour < 18) return "Boa tarde";
+  return "Boa noite";
+};
+
 const log = (message, type = "info") => {
-  // Se o remoteLog existir (no worker), ele envia para a nuvem
   if (global.remoteLog) {
     global.remoteLog(message, type);
   } else if (global.io) {
-    // Se estiver rodando na API local
     const time = new Date().toLocaleTimeString();
     global.io.emit("automation-log", { time, message, type });
   }
@@ -86,44 +92,79 @@ const startAutomation = async () => {
         return;
       }
 
-      log(`🎯 Preparando abordagem para: ${lead.name}`, "info");
+      log(`🎯 Iniciando abordagem em 3 etapas para: ${lead.name}`, "info");
 
-      // PEGA A MENSAGEM (Customizada ou Gera uma nova)
-      const message = lead.custom_message || generateFallbackMessage(lead);
-      const whatsappUrl = `https://web.whatsapp.com/send?phone=${lead.phone}&text=${encodeURIComponent(message)}`;
+      // --- PASSO 1: BALÃO 1 (CUMPRIMENTO) ---
+      const greetingMsg = `${getGreeting()}! Tudo bem?`;
+      const whatsappUrl = `https://web.whatsapp.com/send?phone=${lead.phone}&text=${encodeURIComponent(greetingMsg)}`;
 
       await page.goto(whatsappUrl, { waitUntil: "networkidle2" });
 
-      // Espera a caixa de texto aparecer (garante que o chat carregou)
-      try {
-        await page.waitForSelector('div[contenteditable="true"]', {
-          timeout: 30000,
-        });
-        await new Promise((r) => setTimeout(r, 3000)); // Pausa humana para carregar o texto
+      const inputSelector = 'div[contenteditable="true"]';
+      await page.waitForSelector(inputSelector, { timeout: 40000 });
+      await new Promise((r) => setTimeout(r, 3000));
 
-        // APERTA ENTER (O tiro certeiro para enviar)
-        await page.keyboard.press("Enter");
+      await page.keyboard.press("Enter");
+      log(`👋 Balão 1 (Cumprimento) enviado.`, "info");
 
-        log(`✅ Mensagem enviada para ${lead.name}`, "success");
+      // --- ESPERA ENTRE BALÃO 1 E 2 ---
+      const waitTime1 = Math.floor(Math.random() * (15000 - 10000 + 1)) + 10000;
+      log(`⏳ Aguardando ${waitTime1 / 1000}s para o Balão 2...`, "info");
+      await new Promise((r) => setTimeout(r, waitTime1));
 
-        await db.query(
-          "UPDATE leads SET status = 'contacted', last_contact = NOW() WHERE id = $1",
-          [lead.id],
-        );
+      // --- PASSO 2: BALÃO 2 (CORPO DA MENSAGEM) ---
+      let rawMessage = lead.custom_message || generateFallbackMessage(lead);
 
-        await db.query(
-          "INSERT INTO lead_activities (lead_id, description, type) VALUES ($1, $2, $3)",
-          [lead.id, "Mensagem automática enviada via Motor Hunter", "contact"],
-        );
-      } catch (err) {
-        log(`❌ Erro no envio para ${lead.name}. O Zap está logado?`, "error");
-      }
+      // LIMPEZA: Removemos a saudação e o fechamento (que será o balão 3)
+      let bodyMessage = rawMessage
+        .replace(/Olá, tudo bem\? /gi, "")
+        .replace(/Bom dia! /gi, "")
+        .replace(/Boa tarde! /gi, "")
+        .replace(/Boa noite! /gi, "")
+        .replace(
+          /Podemos conversar sobre como implementar isso para você\?/gi,
+          "",
+        )
+        .trim();
 
+      await page.click(inputSelector);
+      await page.type(inputSelector, bodyMessage, { delay: 15 });
+      await new Promise((r) => setTimeout(r, 500));
+      await page.keyboard.press("Enter");
+      log(`✅ Balão 2 (Corpo) enviado.`, "info");
+
+      // --- ESPERA ENTRE BALÃO 2 E 3 (Simula reflexão humana) ---
+      const waitTime2 = Math.floor(Math.random() * (5000 - 3000 + 1)) + 3000;
+      await new Promise((r) => setTimeout(r, waitTime2));
+
+      // --- PASSO 3: BALÃO 3 (FECHAMENTO / CTA) ---
+      const ctaMessage =
+        "Podemos conversar sobre como implementar isso para você?";
+      await page.type(inputSelector, ctaMessage, { delay: 30 });
+      await new Promise((r) => setTimeout(r, 500));
+      await page.keyboard.press("Enter");
+      log(`🚀 Balão 3 (Chamada) enviado para ${lead.name}`, "success");
+
+      // Atualiza banco de dados
+      await db.query(
+        "UPDATE leads SET status = 'contacted', last_contact = NOW() WHERE id = $1",
+        [lead.id],
+      );
+      await db.query(
+        "INSERT INTO lead_activities (lead_id, description, type) VALUES ($1, $2, $3)",
+        [
+          lead.id,
+          "Sequência de 3 mensagens enviada (Cumprimento + Proposta + CTA)",
+          "contact",
+        ],
+      );
+
+      // Intervalo entre leads
       const min = parseInt(settings.min_interval_minutes);
       const max = parseInt(settings.max_interval_minutes);
       const waitMinutes = Math.floor(Math.random() * (max - min + 1)) + min;
 
-      log(`⏳ Próximo disparo em ${waitMinutes} minutos...`, "info");
+      log(`⏳ Próximo lead em ${waitMinutes} minutos...`, "info");
       setTimeout(loop, waitMinutes * 60000);
     } catch (err) {
       log(`💥 Erro crítico: ${err.message}`, "error");
@@ -134,7 +175,6 @@ const startAutomation = async () => {
   loop();
 };
 
-// Se não houver mensagem customizada, ele gera uma baseada nos serviços
 function generateFallbackMessage(lead) {
   const templates = {
     website: "Notei que sua empresa ainda não tem um site oficial...",
@@ -143,7 +183,7 @@ function generateFallbackMessage(lead) {
     social: "Seu Instagram tem potencial, vamos profissionalizar?",
   };
 
-  let msg = `Olá, tudo bem? Sou o Guilherme, vi a *${lead.name}* aqui no Google...\n\n`;
+  let msg = `Vi a *${lead.name}* aqui no Google e analisei o perfil de vocês.\n\n`;
   if (lead.market_observation)
     msg += `*Minha análise:* ${lead.market_observation}\n\n`;
 
@@ -155,7 +195,7 @@ function generateFallbackMessage(lead) {
       if (templates[s]) msg += `${templates[s]}\n\n`;
     });
   }
-  msg += "Podemos conversar sobre como implementar isso para você?";
+  // Removida a linha final daqui, pois o robô enviará separadamente no Balão 3
   return msg;
 }
 
