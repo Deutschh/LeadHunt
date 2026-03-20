@@ -7,13 +7,48 @@ let browser = null;
 let page = null;
 let isLoopRunning = false;
 
-// FUNÇÃO AUXILIAR: Pega saudação baseada na hora atual
+// FUNÇÃO AUXILIAR: Saudação
 const getGreeting = () => {
   const hour = new Date().getHours();
   if (hour >= 5 && hour < 12) return "Bom dia";
   if (hour >= 12 && hour < 18) return "Boa tarde";
   return "Boa noite";
 };
+
+/**
+ * FUNÇÃO MESTRE: Envia balões separados e unifica parágrafos
+ * @param {boolean} isMultiline - Se true, usa Shift+Enter com delays para não disparar o balão
+ */
+async function sendBubble(page, selector, text, isMultiline = false) {
+  await page.waitForSelector(selector);
+  await page.click(selector);
+
+  if (isMultiline) {
+    const lines = text.split("\n");
+    for (let i = 0; i < lines.length; i++) {
+      // Digita a linha atual (sem delay entre letras para não demorar demais)
+      await page.keyboard.type(lines[i]);
+
+      // Se não for a última linha, faz a manobra do Shift+Enter
+      if (i < lines.length - 1) {
+        await page.keyboard.down("Shift"); // 1. Aperta Shift
+        await new Promise((r) => setTimeout(r, 150)); // 2. DELAY para o navegador registrar o Shift
+        await page.keyboard.press("Enter"); // 3. Aperta Enter
+        await new Promise((r) => setTimeout(r, 150)); // 4. DELAY para o Enter ser processado
+        await page.keyboard.up("Shift"); // 5. Solta o Shift
+      }
+    }
+  } else {
+    await page.keyboard.type(text);
+  }
+
+  // Finaliza enviando o balão completo
+  await new Promise((r) => setTimeout(r, 600));
+  await page.keyboard.press("Enter");
+
+  // ESPERA CRÍTICA: Aguarda o balão subir antes de o robô começar a próxima tarefa
+  await new Promise((r) => setTimeout(r, 2000));
+}
 
 const log = (message, type = "info") => {
   if (global.remoteLog) {
@@ -29,7 +64,7 @@ const startAutomation = async () => {
   if (isLoopRunning) return;
   isLoopRunning = true;
 
-  log("⚙️ Motor iniciado. Aguardando ativação via Dashboard...", "info");
+  log("⚙️ Motor iniciado. Aguardando ativação...", "info");
 
   const loop = async () => {
     try {
@@ -40,7 +75,7 @@ const startAutomation = async () => {
 
       if (!settings || !settings.is_active) {
         if (browser) {
-          log("⏸️ Motor pausado. Fechando conexão...", "info");
+          log("⏸️ Motor pausado.", "info");
           await browser.disconnect().catch(() => {});
           browser = null;
           page = null;
@@ -49,15 +84,16 @@ const startAutomation = async () => {
         return;
       }
 
+      // Verificação de Horário
       const now = new Date();
       const currentMinTotal = now.getHours() * 60 + now.getMinutes();
       const [startH, startM] = settings.start_hour.split(":").map(Number);
       let [endH, endM] = settings.end_hour.split(":").map(Number);
       if (endH === 0 && endM === 0) endH = 24;
-      const startMinTotal = startH * 60 + startM;
-      const endMinTotal = endH * 60 + endM;
-
-      if (currentMinTotal < startMinTotal || currentMinTotal >= endMinTotal) {
+      if (
+        currentMinTotal < startH * 60 + startM ||
+        currentMinTotal >= endH * 60 + endM
+      ) {
         log(
           `💤 Fora do horário (${settings.start_hour} - ${settings.end_hour})`,
           "info",
@@ -69,7 +105,6 @@ const startAutomation = async () => {
       const leadRes = await db.query(
         "SELECT * FROM leads WHERE is_verified = true AND status = 'pending' ORDER BY created_at ASC LIMIT 1",
       );
-
       if (leadRes.rowCount === 0) {
         log("📭 Fila vazia. Aguardando novos leads...", "info");
         setTimeout(loop, 30000);
@@ -92,60 +127,49 @@ const startAutomation = async () => {
         return;
       }
 
-      log(`🎯 Iniciando abordagem em 3 etapas para: ${lead.name}`, "info");
+      log(`🎯 Abordagem estratégica iniciada para: ${lead.name}`, "info");
 
-      // --- PASSO 1: BALÃO 1 (CUMPRIMENTO) ---
-      const greetingMsg = `${getGreeting()}! Tudo bem?`;
-      const whatsappUrl = `https://web.whatsapp.com/send?phone=${lead.phone}&text=${encodeURIComponent(greetingMsg)}`;
-
+      const whatsappUrl = `https://web.whatsapp.com/send?phone=${lead.phone}`;
       await page.goto(whatsappUrl, { waitUntil: "networkidle2" });
 
       const inputSelector = 'div[contenteditable="true"]';
-      await page.waitForSelector(inputSelector, { timeout: 40000 });
-      await new Promise((r) => setTimeout(r, 3000));
+      await page.waitForSelector(inputSelector, { timeout: 45000 });
+      await new Promise((r) => setTimeout(r, 4000));
 
-      await page.keyboard.press("Enter");
-      log(`👋 Balão 1 (Cumprimento) enviado.`, "info");
+      // --- PASSO 1: BALÃO 1 (SAUDAÇÃO) ---
+      const greetingMsg = `${getGreeting()}! Tudo bem?`;
+      await sendBubble(page, inputSelector, greetingMsg);
+      log(`👋 Balão 1 (Saudação) enviado.`, "info");
 
-      // --- ESPERA ENTRE BALÃO 1 E 2 ---
+      // --- ESPERA ENTRE BALÃO 1 E 2 (Curiosidade) ---
       const waitTime1 = Math.floor(Math.random() * (15000 - 10000 + 1)) + 10000;
-      log(`⏳ Aguardando ${waitTime1 / 1000}s para o Balão 2...`, "info");
+      log(`⏳ Aguardando ${waitTime1 / 1000}s para a proposta...`, "info");
       await new Promise((r) => setTimeout(r, waitTime1));
 
-      // --- PASSO 2: BALÃO 2 (CORPO DA MENSAGEM) ---
+      // --- PASSO 2: BALÃO 2 (PROPOSTA UNIFICADA) ---
       let rawMessage = lead.custom_message || generateFallbackMessage(lead);
-
-      // LIMPEZA: Removemos a saudação e o fechamento (que será o balão 3)
       let bodyMessage = rawMessage
-        .replace(/Olá, tudo bem\? /gi, "")
-        .replace(/Bom dia! /gi, "")
-        .replace(/Boa tarde! /gi, "")
-        .replace(/Boa noite! /gi, "")
+        .replace(/^(Olá|Tudo bem|Bom dia|Boa tarde|Boa noite)[^]*?\?\s*/gi, "")
         .replace(
           /Podemos conversar sobre como implementar isso para você\?/gi,
           "",
         )
         .trim();
 
-      await page.click(inputSelector);
-      await page.type(inputSelector, bodyMessage, { delay: 15 });
-      await new Promise((r) => setTimeout(r, 500));
-      await page.keyboard.press("Enter");
-      log(`✅ Balão 2 (Corpo) enviado.`, "info");
+      // USA A FUNÇÃO COM DELAYS NO SHIFT+ENTER
+      await sendBubble(page, inputSelector, bodyMessage, true);
+      log(`✅ Balão 2 (Corpo Unificado) enviado.`, "info");
 
-      // --- ESPERA ENTRE BALÃO 2 E 3 (Simula reflexão humana) ---
-      const waitTime2 = Math.floor(Math.random() * (5000 - 3000 + 1)) + 3000;
-      await new Promise((r) => setTimeout(r, waitTime2));
+      // --- ESPERA ENTRE BALÃO 2 E 3 ---
+      await new Promise((r) => setTimeout(r, 5000));
 
       // --- PASSO 3: BALÃO 3 (FECHAMENTO / CTA) ---
       const ctaMessage =
         "Podemos conversar sobre como implementar isso para você?";
-      await page.type(inputSelector, ctaMessage, { delay: 30 });
-      await new Promise((r) => setTimeout(r, 500));
-      await page.keyboard.press("Enter");
-      log(`🚀 Balão 3 (Chamada) enviado para ${lead.name}`, "success");
+      await sendBubble(page, inputSelector, ctaMessage);
+      log(`🚀 Balão 3 (CTA) enviado com sucesso!`, "success");
 
-      // Atualiza banco de dados
+      // Banco de Dados
       await db.query(
         "UPDATE leads SET status = 'contacted', last_contact = NOW() WHERE id = $1",
         [lead.id],
@@ -154,7 +178,7 @@ const startAutomation = async () => {
         "INSERT INTO lead_activities (lead_id, description, type) VALUES ($1, $2, $3)",
         [
           lead.id,
-          "Sequência de 3 mensagens enviada (Cumprimento + Proposta + CTA)",
+          "Abordagem 1+1+1 (Saudação | Proposta Unificada | CTA)",
           "contact",
         ],
       );
@@ -163,8 +187,7 @@ const startAutomation = async () => {
       const min = parseInt(settings.min_interval_minutes);
       const max = parseInt(settings.max_interval_minutes);
       const waitMinutes = Math.floor(Math.random() * (max - min + 1)) + min;
-
-      log(`⏳ Próximo lead em ${waitMinutes} minutos...`, "info");
+      log(`⏳ Próximo disparo em ${waitMinutes} minutos...`, "info");
       setTimeout(loop, waitMinutes * 60000);
     } catch (err) {
       log(`💥 Erro crítico: ${err.message}`, "error");
@@ -177,25 +200,24 @@ const startAutomation = async () => {
 
 function generateFallbackMessage(lead) {
   const templates = {
-    website: "Notei que sua empresa ainda não tem um site oficial...",
-    automation: "Já pensou em colocar atendimento automático no WhatsApp?",
-    ads: "Seus concorrentes estão investindo em anúncios...",
-    social: "Seu Instagram tem potencial, vamos profissionalizar?",
+    website:
+      "Notei que sua empresa ainda não tem um site oficial. Isso faz com que você perca muitos clientes que buscam no Google.",
+    automation:
+      "Vi que vocês têm um fluxo alto. Já pensou em colocar um sistema de atendimento automático no WhatsApp?",
+    ads: "Analisei sua região e seus concorrentes estão investindo em anúncios. Podemos te colocar no topo hoje.",
+    social:
+      "Seu Instagram tem potencial, mas percebi que as postagens estão pouco frequentes. Vamos profissionalizar?",
   };
-
-  let msg = `Vi a *${lead.name}* aqui no Google e analisei o perfil de vocês.\n\n`;
+  let msg = `Sou o Guilherme, vi a *${lead.name}* aqui no Google...\n\n`;
   if (lead.market_observation)
     msg += `*Minha análise:* ${lead.market_observation}\n\n`;
-
   let services = lead.services_offered;
   if (typeof services === "string") services = JSON.parse(services);
-
   if (Array.isArray(services)) {
     services.forEach((s) => {
       if (templates[s]) msg += `${templates[s]}\n\n`;
     });
   }
-  // Removida a linha final daqui, pois o robô enviará separadamente no Balão 3
   return msg;
 }
 

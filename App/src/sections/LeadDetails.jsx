@@ -162,9 +162,17 @@ const LeadDetails = ({ leadId, onBack }) => {
   };
 
   const handleDelete = async () => {
-    if (window.confirm("Tem certeza que deseja excluir este lead?")) {
-      await api.patch(`/leads/${leadId}`, { is_archived: true });
-      onBack();
+    if (window.confirm(`Deseja realmente remover o lead "${lead.name}"?`)) {
+      try {
+        // Mudamos para o endpoint de PATCH enviando is_archived
+        await api.patch(`/leads/${leadId}`, { is_archived: true });
+
+        // Pequeno delay visual para o usuário sentir a ação
+        onBack(); // Volta para a listagem
+      } catch (err) {
+        console.error("Erro ao deletar lead:", err);
+        alert("Ocorreu um erro ao tentar excluir o lead.");
+      }
     }
   };
 

@@ -12,29 +12,43 @@ import {
   Plane,
   Flame,
   Handshake,
+  Zap,
+  ShieldCheck,
 } from "lucide-react";
 
-const Home = ({ leads, loading, onRefresh, onUpdateStatus, onOpenLead }) => {
+const MyLeads = ({ leads, loading, onRefresh, onUpdateStatus, onOpenLead }) => {
+  // Estados de visualização: pending (novos), verified (aprovados), contacted (em conversa)
   const [currentView, setCurrentView] = useState("pending");
 
-  // Contagem inteligente para o Pipeline
+  // Contagem inteligente para os cards de métricas
   const stats = {
     total: leads.length,
-    pending: leads.filter((l) => l.status === "pending").length,
-    contacted: leads.filter(
-      (l) => l.status === "contacted" && l.interest_level <= 1,
-    ).length,
-    negotiating: leads.filter(
-      (l) => l.interest_level >= 2 && l.interest_level <= 3,
-    ).length,
-    closed: leads.filter((l) => l.interest_level === 4).length,
+    pending: leads.filter((l) => l.status === "pending" && !l.is_verified)
+      .length,
+    verified: leads.filter((l) => l.status === "pending" && l.is_verified)
+      .length,
+    contacted: leads.filter((l) => l.status === "contacted").length,
+    closed: leads.filter((l) => l.status === "closed" || l.interest_level === 4)
+      .length,
   };
 
-  const filteredLeads = leads.filter((l) => l.status === currentView);
+  // Lógica de filtragem das listas
+  // No seu MyLeads.jsx, ajuste o filtro assim:
+  const filteredLeads = leads.filter((l) => {
+    // ADICIONE ISSO: Só mostra se NÃO estiver arquivado
+    if (l.is_archived) return false;
+
+    if (currentView === "pending")
+      return l.status === "pending" && !l.is_verified;
+    if (currentView === "verified")
+      return l.status === "pending" && l.is_verified;
+    if (currentView === "contacted") return l.status === "contacted";
+    return false;
+  });
 
   return (
-    <div className="p-10 max-w-[1600px] mx-auto w-full animate-in fade-in duration-500">
-      {/* SEÇÃO DE MÉTRICAS (STAT CARDS) PREMIUM */}
+    <div className="p-10 max-w-[1600px] mx-auto w-full animate-in fade-in duration-700">
+      {/* SEÇÃO DE MÉTRICAS */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-12">
         <StatCard
           label="Scanner Total"
@@ -43,23 +57,23 @@ const Home = ({ leads, loading, onRefresh, onUpdateStatus, onOpenLead }) => {
           color="slate"
         />
         <StatCard
-          label="Novos Leads"
+          label="Prospecção"
           value={stats.pending}
           icon={Users}
           color="red"
           pulse={stats.pending > 0}
         />
         <StatCard
+          label="Aguardando Robô"
+          value={stats.verified}
+          icon={Zap}
+          color="orange"
+        />
+        <StatCard
           label="Abordados"
           value={stats.contacted}
           icon={Plane}
           color="blue"
-        />
-        <StatCard
-          label="Em Negociação"
-          value={stats.negotiating}
-          icon={Flame}
-          color="orange"
         />
         <StatCard
           label="Fechamentos"
@@ -69,15 +83,19 @@ const Home = ({ leads, loading, onRefresh, onUpdateStatus, onOpenLead }) => {
         />
       </div>
 
-      {/* ... Restante do código (Switcher e Grid) permanece igual ... */}
-
-      {/* SWITCHER DE VISÃO (CRM TABS) */}
-      <div className="flex bg-slate-200/50 p-1.5 rounded-[2rem] w-fit mb-10 border border-white/50">
+      {/* SWITCHER DE VISÃO (AS 3 ABAS) */}
+      <div className="flex bg-slate-200/50 p-1.5 rounded-[2rem] w-fit mb-10 border border-white/50 shadow-inner">
         <button
           onClick={() => setCurrentView("pending")}
           className={`px-8 py-3 rounded-[1.5rem] font-black text-sm transition-all flex items-center gap-2 ${currentView === "pending" ? "bg-black text-white shadow-xl" : "text-slate-500 hover:text-black"}`}
         >
           <Users size={18} /> Prospecção
+        </button>
+        <button
+          onClick={() => setCurrentView("verified")}
+          className={`px-8 py-3 rounded-[1.5rem] font-black text-sm transition-all flex items-center gap-2 ${currentView === "verified" ? "bg-[#ff8c00] text-white shadow-xl" : "text-slate-500 hover:text-black"}`}
+        >
+          <ShieldCheck size={18} /> Leads Verificados
         </button>
         <button
           onClick={() => setCurrentView("contacted")}
@@ -87,18 +105,22 @@ const Home = ({ leads, loading, onRefresh, onUpdateStatus, onOpenLead }) => {
         </button>
       </div>
 
-      {/* LISTAGEM */}
+      {/* TÍTULOS DINÂMICOS */}
       <div className="flex items-center justify-between mb-8">
         <div>
           <h2 className="text-3xl font-black tracking-tight text-black">
             {currentView === "pending"
               ? "Novas Oportunidades"
-              : "Pipeline de Vendas"}
+              : currentView === "verified"
+                ? "Prontos para Disparo"
+                : "Pipeline de Vendas"}
           </h2>
           <p className="text-slate-400 font-medium">
             {currentView === "pending"
-              ? "Leads prontos para o primeiro contato."
-              : "Acompanhe a temperatura das suas negociações."}
+              ? "Analise e aprove esses leads para o robô entrar em ação."
+              : currentView === "verified"
+                ? "Estes leads estão na fila do Motor Hunter para hoje."
+                : "Acompanhe a temperatura das abordagens realizadas."}
           </p>
         </div>
         <button
@@ -112,6 +134,7 @@ const Home = ({ leads, loading, onRefresh, onUpdateStatus, onOpenLead }) => {
         </button>
       </div>
 
+      {/* GRID DE LEADS */}
       {filteredLeads.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
           {filteredLeads.map((lead) => (
@@ -121,15 +144,14 @@ const Home = ({ leads, loading, onRefresh, onUpdateStatus, onOpenLead }) => {
               onUpdateStatus={onUpdateStatus}
               onOpenLead={onOpenLead}
               showInterestScale={currentView === "contacted"}
+              currentView={currentView} // AQUI ESTAVA O ERRO: Agora passamos a prop!
             />
           ))}
         </div>
       ) : (
         <div className="bg-white/50 border-2 border-dashed border-slate-200 rounded-[3rem] p-20 text-center">
           <p className="text-slate-400 font-bold italic">
-            {currentView === "pending"
-              ? "Tudo limpo! Nenhuma pendência por aqui."
-              : "Nenhum contato em negociação no momento."}
+            Nenhum lead nesta etapa no momento.
           </p>
         </div>
       )}
@@ -140,7 +162,6 @@ const Home = ({ leads, loading, onRefresh, onUpdateStatus, onOpenLead }) => {
 /* --- COMPONENTES AUXILIARES --- */
 
 function StatCard({ label, value, icon: Icon, color, pulse = false }) {
-  // Mapeamento de Cores Premium (Tailwind)
   const colors = {
     slate: {
       text: "text-slate-500",
@@ -173,20 +194,15 @@ function StatCard({ label, value, icon: Icon, color, pulse = false }) {
       border: "border-[#00b37e]/20",
     },
   };
-
-  const c = colors[color] || colors.slate; // Fallback para slate
-
+  const c = colors[color] || colors.slate;
   return (
     <div
       className={`bg-white p-6 rounded-[2.5rem] border ${c.border} shadow-sm relative overflow-hidden group`}
     >
-      {/* Detalhe de fundo decorativo e sutil */}
       <div
         className={`absolute -right-4 -bottom-4 w-16 h-16 ${c.bg} rounded-full opacity-50 group-hover:scale-150 transition-transform duration-500`}
       ></div>
-
       <div className="relative z-10 flex flex-col gap-4">
-        {/* Topo com Ícone e Label */}
         <div className="flex items-center gap-3">
           <div
             className={`p-2.5 rounded-xl ${c.bg} ${pulse ? "animate-pulse" : ""}`}
@@ -197,8 +213,6 @@ function StatCard({ label, value, icon: Icon, color, pulse = false }) {
             {label}
           </p>
         </div>
-
-        {/* Número Grande */}
         <p className={`text-4xl font-black tracking-tighter ${c.number}`}>
           {value}
         </p>
@@ -207,12 +221,16 @@ function StatCard({ label, value, icon: Icon, color, pulse = false }) {
   );
 }
 
-function LeadCard({ lead, onUpdateStatus, onOpenLead, showInterestScale }) {
-  const rawPhone = lead.phone || "";
+function LeadCard({
+  lead,
+  onUpdateStatus,
+  onOpenLead,
+  showInterestScale,
+  currentView,
+}) {
   const cleanPhone = lead.phone?.replace(/\D/g, "");
   const displayPhone = lead.phone?.replace(/\n/g, "").trim();
 
-  // Mapeamento de cores da Escala Térmica
   const thermalColors = [
     "bg-slate-200",
     "bg-blue-400",
@@ -221,6 +239,29 @@ function LeadCard({ lead, onUpdateStatus, onOpenLead, showInterestScale }) {
     "bg-red-500",
   ];
   const thermalLabels = ["Frio", "Recusado", "Morno", "Quente", "Convertido"];
+
+  // LÓGICA DO SELO DE STATUS NO CARD
+  const renderStatusBadge = () => {
+    if (lead.status === "contacted" && lead.is_verified) {
+      return (
+        <div className="bg-blue-50 text-blue-500 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border border-blue-100 flex items-center gap-1 shadow-sm">
+          <Zap size={12} fill="currentColor" /> Automação Concluída
+        </div>
+      );
+    }
+    if (lead.is_verified) {
+      return (
+        <div className="bg-orange-50 text-orange-500 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border border-orange-100 flex items-center gap-1 shadow-sm">
+          <ShieldCheck size={12} /> Aprovado p/ Autom.
+        </div>
+      );
+    }
+    return (
+      <div className="bg-red-50 text-red-500 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border border-red-100 flex items-center gap-1">
+        <Globe size={12} /> {lead.has_website ? "Com Website" : "No Website"}
+      </div>
+    );
+  };
 
   return (
     <div className="bg-white border-none p-8 rounded-[3rem] shadow-sm hover:shadow-2xl hover:-translate-y-2 transition-all duration-500 group relative overflow-hidden">
@@ -236,24 +277,20 @@ function LeadCard({ lead, onUpdateStatus, onOpenLead, showInterestScale }) {
               <Star size={12} fill="currentColor" /> {lead.rating} (
               {lead.reviews_count})
             </div>
-            <div className="bg-red-50 text-red-500 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border border-red-100 flex items-center gap-1">
-              <Globe size={12} /> No Website
-            </div>
+            {renderStatusBadge()}
           </div>
         </div>
 
-                <button 
-         onClick={() => onOpenLead(lead.id)}
-         className="absolute left-8 top-8 opacity-0 group-hover:opacity-100 transition-opacity bg-blue-600 text-white p-2 rounded-full shadow-lg"
-       >
-         <Target size={16} />
-       </button>
+        <button
+          onClick={() => onOpenLead(lead.id)}
+          className="absolute left-8 top-8 opacity-0 group-hover:opacity-100 transition-opacity bg-blue-600 text-white p-2 rounded-full shadow-lg"
+        >
+          <Target size={16} />
+        </button>
 
         <h3 className="text-xl font-black mb-1 truncate pr-4 text-black">
           {lead.name}
         </h3>
-
-        {/* EXIBIÇÃO DO TELEFONE NO CARD */}
         <p className="text-slate-500 font-bold text-sm mb-4">
           {displayPhone || "Telefone não disponível"}
         </p>
@@ -267,7 +304,6 @@ function LeadCard({ lead, onUpdateStatus, onOpenLead, showInterestScale }) {
           </div>
         </div>
 
-        {/* ESCALA TÉRMICA (Apenas na aba Gestão) */}
         {showInterestScale && (
           <div className="mb-8 p-4 bg-slate-50 rounded-2xl">
             <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3">
@@ -295,10 +331,10 @@ function LeadCard({ lead, onUpdateStatus, onOpenLead, showInterestScale }) {
             className="flex-[2] bg-[#00b37e] text-white py-4 rounded-2xl font-black text-sm flex items-center justify-center gap-2 hover:brightness-110 transition-all shadow-lg shadow-[#00b37e]/20"
           >
             <Send size={18} />{" "}
-            {lead.status === "contacted" ? "Reenviar" : "WhatsApp"}
+            {lead.status === "contacted" ? "Reabrir Chat" : "WhatsApp"}
           </button>
 
-          {!showInterestScale && (
+          {currentView !== "contacted" && (
             <button
               onClick={() => onUpdateStatus(lead.id, "contacted", 0)}
               className="flex-1 bg-slate-100 text-slate-400 py-4 rounded-2xl hover:bg-black hover:text-white transition-all flex items-center justify-center"
@@ -312,4 +348,4 @@ function LeadCard({ lead, onUpdateStatus, onOpenLead, showInterestScale }) {
   );
 }
 
-export default Home;
+export default MyLeads;

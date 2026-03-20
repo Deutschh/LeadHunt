@@ -27,22 +27,30 @@ const Automation = () => {
   const [queue, setQueue] = useState([]);
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [isWorkerOnline, setIsWorkerOnline] = useState(false); // NOVO: Status do seu PC
+  const [isWorkerOnline, setIsWorkerOnline] = useState(false);
 
   useEffect(() => {
+    // 1. CARREGAR LOGS SALVOS (Persistência)
+    const savedLogs = localStorage.getItem("leadhunt_logs");
+    if (savedLogs) {
+      setLogs(JSON.parse(savedLogs));
+    }
+
     fetchData();
 
-    // CONEXÃO COM O RENDER (Mude para a sua URL)
     const socket = io("https://leadhunt-api.onrender.com");
 
-    // Ouve o status do seu PC em casa/escola
     socket.on("worker-status-update", (status) => {
       setIsWorkerOnline(status);
     });
 
-    // Ouve os logs que o Worker manda via nuvem
+    // 2. OUVIR E SALVAR LOGS NO LOCALSTORAGE
     socket.on("automation-log", (newLog) => {
-      setLogs((prev) => [newLog, ...prev].slice(0, 30));
+      setLogs((prev) => {
+        const updatedLogs = [newLog, ...prev].slice(0, 30);
+        localStorage.setItem("leadhunt_logs", JSON.stringify(updatedLogs));
+        return updatedLogs;
+      });
     });
 
     return () => socket.disconnect();
@@ -89,6 +97,12 @@ const Automation = () => {
     }
   };
 
+  // Função para limpar os logs manualmente se você quiser
+  const clearLogs = () => {
+    setLogs([]);
+    localStorage.removeItem("leadhunt_logs");
+  };
+
   if (loading)
     return (
       <div className="p-20 text-center font-black animate-pulse text-slate-400">
@@ -108,7 +122,6 @@ const Automation = () => {
           </h1>
         </div>
 
-        {/* LUZINHA DE STATUS DO WORKER */}
         <div
           className={`flex items-center gap-4 px-6 py-3 rounded-2xl border transition-all ${isWorkerOnline ? "bg-green-50 border-green-100" : "bg-red-50 border-red-100"}`}
         >
@@ -153,7 +166,6 @@ const Automation = () => {
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* LADO ESQUERDO: CONFIGURAÇÕES */}
         <div className="lg:col-span-4 space-y-8">
           <div className="bg-white p-8 rounded-[3rem] border border-slate-100 shadow-sm">
             <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-8 flex items-center gap-2">
@@ -214,7 +226,6 @@ const Automation = () => {
           </div>
         </div>
 
-        {/* LADO DIREITO: FILA E LOGS */}
         <div className="lg:col-span-8 space-y-8">
           <div className="bg-white p-8 rounded-[3rem] border border-slate-100 shadow-sm">
             <div className="flex items-center justify-between mb-8">
@@ -229,42 +240,55 @@ const Automation = () => {
               </button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {queue.slice(0, 4).map((lead, index) => (
-                <div
-                  key={lead.id}
-                  className="p-5 bg-slate-50 rounded-[2rem] border border-slate-100 flex items-center justify-between"
-                >
-                  <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center font-black text-slate-400 shadow-sm">
-                      {index + 1}
+            {/* CONTAINER ROLÁVEL DA FILA */}
+            <div className="max-h-[360px] overflow-y-auto pr-2 custom-scrollbar">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {queue.map((lead, index) => (
+                  <div
+                    key={lead.id}
+                    className="p-5 bg-slate-50 rounded-[2rem] border border-slate-100 flex items-center justify-between animate-in slide-in-from-bottom-2"
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center font-black text-slate-400 shadow-sm">
+                        {index + 1}
+                      </div>
+                      <div>
+                        <p className="text-sm font-black text-slate-800">
+                          {lead.name}
+                        </p>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase">
+                          {lead.neighborhood}
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-sm font-black text-slate-800">
-                        {lead.name}
-                      </p>
-                      <p className="text-[10px] font-bold text-slate-400 uppercase">
-                        {lead.neighborhood}
-                      </p>
+                    <div className="px-3 py-1 bg-green-100 text-green-600 rounded-full text-[9px] font-black uppercase">
+                      Pronto
                     </div>
                   </div>
-                  <div className="px-3 py-1 bg-green-100 text-green-600 rounded-full text-[9px] font-black uppercase">
-                    Pronto
+                ))}
+                {queue.length === 0 && (
+                  <div className="col-span-2 py-6 text-center text-slate-300 uppercase text-[10px] font-black">
+                    Fila vazia.
                   </div>
-                </div>
-              ))}
-              {queue.length === 0 && (
-                <div className="col-span-2 py-6 text-center text-slate-300 uppercase text-[10px] font-black">
-                  Fila vazia.
-                </div>
-              )}
+                )}
+              </div>
             </div>
           </div>
 
           <div className="bg-white p-8 rounded-[3rem] border border-slate-100 shadow-sm">
-            <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-8 flex items-center gap-2">
-              <Send size={16} /> Log em Tempo Real (Worker Remote)
-            </h3>
+            <div className="flex items-center justify-between mb-8">
+              <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 flex items-center gap-2">
+                <Send size={16} /> Log em Tempo Real (Worker Remote)
+              </h3>
+              {logs.length > 0 && (
+                <button
+                  onClick={clearLogs}
+                  className="text-[9px] font-black uppercase text-red-400 hover:text-red-600 transition-colors"
+                >
+                  Limpar Terminal
+                </button>
+              )}
+            </div>
             <div className="space-y-2 font-mono text-[11px] max-h-[300px] overflow-y-auto pr-4 scrollbar-hide">
               {logs.length === 0 ? (
                 <p className="text-slate-300 italic">
