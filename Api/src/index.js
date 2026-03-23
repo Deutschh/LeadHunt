@@ -53,6 +53,10 @@ io.on("connection", (socket) => {
     io.emit("automation-log", data);
   });
 
+  socket.on("scraper-log", (data) => {
+    io.emit("scraper-log", data); // Repassa para o Frontend
+  });
+
   // 4. Se o dispositivo desconectar, checamos se era o Worker
   socket.on("disconnect", () => {
     if (socket.id === workerSocketId) {

@@ -2,6 +2,14 @@ const puppeteer = require("puppeteer-extra");
 const StealthPlugin = require("puppeteer-extra-plugin-stealth");
 const db = require("../database/db");
 
+// Função para enviar os logs para a nuvem (Render) e depois para o Site
+const logScraper = (message, type = "info") => {
+  if (global.workerSocket) {
+    global.workerSocket.emit("scraper-log", { message, type });
+  }
+  console.log(`[Buscador] ${message}`);
+};
+
 puppeteer.use(StealthPlugin());
 
 async function startScraping({ niche, location, limit, minRating }) {
@@ -27,11 +35,8 @@ async function startScraping({ niche, location, limit, minRating }) {
     const query = `${niche} em ${location}`;
     const url = `https://www.google.com.br/maps/search/${encodeURIComponent(query)}`;
 
-    if (global.io)
-      global.io.emit("scraper-log", {
-        message: `🚀 MISSÃO INICIADA: Procurando ${limit} leads...`,
-        type: "info",
-      });
+    // CORRIGIDO: Usando logScraper
+    logScraper(`🚀 MISSÃO INICIADA: Procurando ${limit} leads...`, "info");
 
     await page.goto(url, { waitUntil: "networkidle2" });
     await page.waitForSelector("a.hfpxzc", { timeout: 15000 });
@@ -91,14 +96,10 @@ async function startScraping({ niche, location, limit, minRating }) {
           );
           const fullAddress = addressEl ? addressEl.innerText.trim() : "";
 
-          // --- VOLTA DA LÓGICA DE BAIRRO ROBUSTA ---
           let neighborhood = "Não identificado";
           if (fullAddress.includes(",")) {
             const parts = fullAddress.split(",");
-            // Pega o que está entre a primeira vírgula e o próximo separador
             let possibleNb = parts[1] ? parts[1].split("-")[0].trim() : "";
-
-            // Se o que encontramos for um número (ex: "123"), buscamos o que vem após o "-"
             if (/^\d+$/.test(possibleNb) && parts[1].includes("-")) {
               possibleNb = parts[1].split("-")[1]?.split(",")[0].trim();
             }
@@ -125,7 +126,6 @@ async function startScraping({ niche, location, limit, minRating }) {
           };
         }, dynamicSelectors);
 
-        // --- VALIDAÇÃO E FORMATAÇÃO ---
         const ehCelular = data.phone?.length === 11 && data.phone[2] === "9";
         const phoneFormatado = ehCelular ? `55${data.phone}` : null;
         const itemHeader = `🔎 [${data.name || "S/ Nome"}] | ⭐ ${data.rating} | 📍 ${data.neighborhood}`;
@@ -142,11 +142,8 @@ async function startScraping({ niche, location, limit, minRating }) {
           );
 
           if (jaExiste.rowCount > 0) {
-            if (global.io)
-              global.io.emit("scraper-log", {
-                message: `${itemHeader} ⏭️ Já cadastrado.`,
-                type: "skip",
-              });
+            // CORRIGIDO: Usando logScraper
+            logScraper(`${itemHeader} ⏭️ Já cadastrado.`, "skip");
           } else {
             await db.query(
               `INSERT INTO leads (name, phone, has_website, status, niche, rating, neighborhood, interest_level)
@@ -161,11 +158,11 @@ async function startScraping({ niche, location, limit, minRating }) {
               ],
             );
             savedCount++;
-            if (global.io)
-              global.io.emit("scraper-log", {
-                message: `${itemHeader} ✨ SALVO! [${savedCount}/${limit}]`,
-                type: "success",
-              });
+            // CORRIGIDO: Usando logScraper
+            logScraper(
+              `${itemHeader} ✨ SALVO! [${savedCount}/${limit}]`,
+              "success",
+            );
           }
         } else {
           let reason = "Nota baixa";
@@ -173,25 +170,19 @@ async function startScraping({ niche, location, limit, minRating }) {
           else if (data.hasWebsite) reason = "Já possui site";
           else if (!phoneFormatado) reason = "Não é celular";
 
-          if (global.io)
-            global.io.emit("scraper-log", {
-              message: `${itemHeader} ⏭️ Pulado (${reason})`,
-              type: "skip",
-            });
+          // CORRIGIDO: Usando logScraper
+          logScraper(`${itemHeader} ⏭️ Pulado (${reason})`, "skip");
         }
       } catch (innerErr) {
         continue;
       }
     }
   } catch (e) {
-    console.error("ERRO:", e.message);
+    logScraper(`❌ ERRO CRÍTICO: ${e.message}`, "error");
   } finally {
     if (browser) await browser.disconnect();
-    if (global.io)
-      global.io.emit("scraper-log", {
-        message: `🏁 MISSÃO CONCLUÍDA: ${savedCount} leads prontos!`,
-        type: "success",
-      });
+    // CORRIGIDO: Usando logScraper
+    logScraper(`🏁 MISSÃO CONCLUÍDA: ${savedCount} leads prontos!`, "success");
   }
 }
 

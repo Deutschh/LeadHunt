@@ -5,6 +5,8 @@ require("dotenv").config();
 // Conecta à API no Render
 const socket = io("https://leadhunt-api.onrender.com");
 
+global.workerSocket = socket;
+
 console.log("🤖 LeadHunt Worker Iniciado!");
 
 socket.on("connect", () => {

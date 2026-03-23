@@ -45,10 +45,25 @@ const Home = () => {
   useEffect(() => {
     fetchDashboardData();
     fetchNotes();
-    const socket = io("http://localhost:3001");
-    socket.on("scraper-log", (newLog) =>
-      setLogs((prev) => [...prev, newLog].slice(-50)),
-    );
+
+    const savedLogs = localStorage.getItem("scraper_logs");
+    if (savedLogs) setLogs(JSON.parse(savedLogs));
+
+    const socket = io("https://leadhunt-api.onrender.com");
+
+    socket.on("scraper-log", (newLog) => {
+      setLogs((prev) => {
+        // Garante que o log tenha um ID único ou use o timestamp para evitar problemas de key no React
+        const logWithTime = {
+          ...newLog,
+          timestamp: new Date().toLocaleTimeString(),
+        };
+        const updated = [...prev, logWithTime].slice(-50);
+        localStorage.setItem("scraper_logs", JSON.stringify(updated));
+        return updated;
+      });
+    });
+
     return () => socket.disconnect();
   }, []);
 
@@ -311,7 +326,7 @@ const Home = () => {
                   <Terminal size={12} /> <span>Hunter_Shell_v3.0</span>
                 </div>
               </div>
-              
+
               <span className="text-[9px] font-black text-[#27C93F] uppercase flex mr-2">
                 <div className="w-2.5 h-2.5 bg-[#27C93F] rounded-full mr-1.5 my-auto animate-pulse shadow-[0_0_8px_#27C93F]"></div>
                 Socket Online
@@ -422,7 +437,6 @@ const Home = () => {
               ))}
             </div>
           </div>
-
         </div>
       </div>
     </div>

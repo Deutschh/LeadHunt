@@ -10,3 +10,11 @@ body {
 .input-premium {
   @apply w-full bg-slate-100/50 rounded-2xl px-6 py-4 font-bold outline-none border border-transparent focus:border-black/10 focus:bg-white transition-all text-sm;
 }
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #e2e8f0;
+  border-radius: 10px;
+}
