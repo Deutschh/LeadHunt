@@ -43,7 +43,7 @@ async function startScraping({ niche, location, limit, minRating }) {
 
     let currentIndex = 3;
 
-    while (savedCount < limit && currentIndex < 80) {
+    while (savedCount < limit && currentIndex < 250) {
       const items = await page.$$("a.hfpxzc");
 
       if (currentIndex >= items.length) {
