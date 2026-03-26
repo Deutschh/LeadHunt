@@ -165,7 +165,7 @@ const startAutomation = async () => {
 
       // --- PASSO 3: BALÃO 3 (FECHAMENTO / CTA) ---
       const ctaMessage =
-        "Podemos conversar sobre como implementar isso para você?";
+        "Gostaria de ver como ficaria um esboço de um site para sua empresa de forma gratuita? sem compromisso nenhum.";
       await sendBubble(page, inputSelector, ctaMessage);
       log(`🚀 Balão 3 (CTA) enviado com sucesso!`, "success");
 

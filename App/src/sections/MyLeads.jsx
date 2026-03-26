@@ -21,15 +21,21 @@ const MyLeads = ({ leads, loading, onRefresh, onUpdateStatus, onOpenLead }) => {
   const [currentView, setCurrentView] = useState("pending");
 
   // Contagem inteligente para os cards de métricas
+  // Contagem inteligente para o Pipeline (Filtrando arquivados)
   const stats = {
-    total: leads.length,
-    pending: leads.filter((l) => l.status === "pending" && !l.is_verified)
+    total: leads.filter((l) => !l.is_archived).length,
+    pending: leads.filter(
+      (l) => l.status === "pending" && !l.is_verified && !l.is_archived,
+    ).length,
+    verified: leads.filter(
+      (l) => l.status === "pending" && l.is_verified && !l.is_archived,
+    ).length,
+    contacted: leads.filter((l) => l.status === "contacted" && !l.is_archived)
       .length,
-    verified: leads.filter((l) => l.status === "pending" && l.is_verified)
-      .length,
-    contacted: leads.filter((l) => l.status === "contacted").length,
-    closed: leads.filter((l) => l.status === "closed" || l.interest_level === 4)
-      .length,
+    closed: leads.filter(
+      (l) =>
+        (l.status === "closed" || l.interest_level === 4) && !l.is_archived,
+    ).length,
   };
 
   // Lógica de filtragem das listas
