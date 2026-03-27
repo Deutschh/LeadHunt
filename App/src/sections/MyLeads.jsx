@@ -14,14 +14,23 @@ import {
   Handshake,
   Zap,
   ShieldCheck,
-  AlertCircle, // Adicionado para o selo de erro
+  AlertCircle,
+  Ghost, // Ícone para o Limbo
+  Coffee, // Ícone para o Reaquecer
 } from "lucide-react";
 
 const MyLeads = ({ leads, loading, onRefresh, onUpdateStatus, onOpenLead }) => {
-  // Estados de visualização: pending (novos), verified (aprovados), contacted (em conversa)
   const [currentView, setCurrentView] = useState("pending");
 
-  // Contagem inteligente para o Pipeline (Filtrando arquivados)
+  // Função auxiliar para identificar se o lead deve estar no Limbo
+  const checkIsLimbo = (l) => {
+    if (!l.last_contact || l.interest_level > 0 || l.status !== "contacted")
+      return false;
+    const diasDesdeContato =
+      (new Date() - new Date(l.last_contact)) / (1000 * 60 * 60 * 24);
+    return diasDesdeContato > 4; // Regra dos 4 dias
+  };
+
   const stats = {
     total: leads.filter((l) => !l.is_archived).length,
     pending: leads.filter(
@@ -30,30 +39,34 @@ const MyLeads = ({ leads, loading, onRefresh, onUpdateStatus, onOpenLead }) => {
     verified: leads.filter(
       (l) => l.status === "pending" && l.is_verified && !l.is_archived,
     ).length,
-    contacted: leads.filter((l) => l.status === "contacted" && !l.is_archived)
-      .length,
+    contacted: leads.filter(
+      (l) => l.status === "contacted" && !l.is_archived && !checkIsLimbo(l),
+    ).length,
+    limbo: leads.filter((l) => !l.is_archived && checkIsLimbo(l)).length,
     closed: leads.filter(
       (l) =>
         (l.status === "closed" || l.interest_level === 4) && !l.is_archived,
     ).length,
   };
 
-  // Lógica de filtragem das listas
   const filteredLeads = leads.filter((l) => {
     if (l.is_archived) return false;
+    const isLimbo = checkIsLimbo(l);
 
     if (currentView === "pending")
       return l.status === "pending" && !l.is_verified;
     if (currentView === "verified")
       return l.status === "pending" && l.is_verified;
-    if (currentView === "contacted") return l.status === "contacted";
+    if (currentView === "contacted")
+      return l.status === "contacted" && !isLimbo;
+    if (currentView === "limbo") return isLimbo;
     return false;
   });
 
   return (
     <div className="p-10 max-w-[1600px] mx-auto w-full animate-in fade-in duration-700">
       {/* SEÇÃO DE MÉTRICAS */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-12">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-12">
         <StatCard
           label="Scanner Total"
           value={stats.total}
@@ -74,10 +87,16 @@ const MyLeads = ({ leads, loading, onRefresh, onUpdateStatus, onOpenLead }) => {
           color="orange"
         />
         <StatCard
-          label="Abordados"
+          label="Gestão"
           value={stats.contacted}
-          icon={Plane}
+          icon={Flame}
           color="blue"
+        />
+        <StatCard
+          label="Limbo"
+          value={stats.limbo}
+          icon={Ghost}
+          color="slate"
         />
         <StatCard
           label="Fechamentos"
@@ -87,25 +106,31 @@ const MyLeads = ({ leads, loading, onRefresh, onUpdateStatus, onOpenLead }) => {
         />
       </div>
 
-      {/* SWITCHER DE VISÃO (AS 3 ABAS) */}
-      <div className="flex bg-slate-200/50 p-1.5 rounded-[2rem] w-fit mb-10 border border-white/50 shadow-inner">
+      {/* SWITCHER DE VISÃO */}
+      <div className="flex bg-slate-200/50 p-1.5 rounded-[2rem] w-fit mb-10 border border-white/50 shadow-inner overflow-x-auto">
         <button
           onClick={() => setCurrentView("pending")}
-          className={`px-8 py-3 rounded-[1.5rem] font-black text-sm transition-all flex items-center gap-2 ${currentView === "pending" ? "bg-black text-white shadow-xl" : "text-slate-500 hover:text-black"}`}
+          className={`px-8 py-3 rounded-[1.5rem] font-black text-sm transition-all flex items-center gap-2 whitespace-nowrap ${currentView === "pending" ? "bg-black text-white shadow-xl" : "text-slate-500 hover:text-black"}`}
         >
           <Users size={18} /> Prospecção
         </button>
         <button
           onClick={() => setCurrentView("verified")}
-          className={`px-8 py-3 rounded-[1.5rem] font-black text-sm transition-all flex items-center gap-2 ${currentView === "verified" ? "bg-[#ff8c00] text-white shadow-xl" : "text-slate-500 hover:text-black"}`}
+          className={`px-8 py-3 rounded-[1.5rem] font-black text-sm transition-all flex items-center gap-2 whitespace-nowrap ${currentView === "verified" ? "bg-[#ff8c00] text-white shadow-xl" : "text-slate-500 hover:text-black"}`}
         >
-          <ShieldCheck size={18} /> Leads Verificados
+          <ShieldCheck size={18} /> Verificados
         </button>
         <button
           onClick={() => setCurrentView("contacted")}
-          className={`px-8 py-3 rounded-[1.5rem] font-black text-sm transition-all flex items-center gap-2 ${currentView === "contacted" ? "bg-black text-white shadow-xl" : "text-slate-500 hover:text-black"}`}
+          className={`px-8 py-3 rounded-[1.5rem] font-black text-sm transition-all flex items-center gap-2 whitespace-nowrap ${currentView === "contacted" ? "bg-black text-white shadow-xl" : "text-slate-500 hover:text-black"}`}
         >
-          <Flame size={18} /> Gestão de Funil
+          <Flame size={18} /> Funil Ativo
+        </button>
+        <button
+          onClick={() => setCurrentView("limbo")}
+          className={`px-8 py-3 rounded-[1.5rem] font-black text-sm transition-all flex items-center gap-2 whitespace-nowrap ${currentView === "limbo" ? "bg-slate-600 text-white shadow-xl" : "text-slate-500 hover:text-black"}`}
+        >
+          <Ghost size={18} /> Limbo
         </button>
       </div>
 
@@ -113,18 +138,18 @@ const MyLeads = ({ leads, loading, onRefresh, onUpdateStatus, onOpenLead }) => {
       <div className="flex items-center justify-between mb-8">
         <div>
           <h2 className="text-3xl font-black tracking-tight text-black">
-            {currentView === "pending"
-              ? "Novas Oportunidades"
-              : currentView === "verified"
-                ? "Prontos para Disparo"
-                : "Pipeline de Vendas"}
+            {currentView === "limbo"
+              ? "Zona de Espera (Limbo)"
+              : currentView === "contacted"
+                ? "Pipeline de Vendas"
+                : currentView === "pending"
+                  ? "Novas Oportunidades"
+                  : "Prontos para Disparo"}
           </h2>
           <p className="text-slate-400 font-medium">
-            {currentView === "pending"
-              ? "Analise e aprove esses leads para o robô entrar em ação."
-              : currentView === "verified"
-                ? "Estes leads estão na fila do Motor Hunter para hoje."
-                : "Acompanhe a temperatura das abordagens realizadas."}
+            {currentView === "limbo"
+              ? "Leads que não responderam nos últimos 4 dias. Tente reaquecer!"
+              : "Acompanhe a temperatura das abordagens realizadas."}
           </p>
         </div>
         <button
@@ -147,7 +172,9 @@ const MyLeads = ({ leads, loading, onRefresh, onUpdateStatus, onOpenLead }) => {
               lead={lead}
               onUpdateStatus={onUpdateStatus}
               onOpenLead={onOpenLead}
-              showInterestScale={currentView === "contacted"}
+              showInterestScale={
+                currentView === "contacted" || currentView === "limbo"
+              }
               currentView={currentView}
             />
           ))}
@@ -244,9 +271,7 @@ function LeadCard({
   ];
   const thermalLabels = ["Frio", "Recusado", "Morno", "Quente", "Convertido"];
 
-  // LÓGICA DO SELO DE STATUS NO CARD (Atualizada com Número Inválido)
   const renderStatusBadge = () => {
-    // Prioridade 1: Erro de Número (Selo Vermelho Pulsante)
     if (lead.is_invalid_number) {
       return (
         <div className="bg-red-50 text-red-600 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border border-red-200 flex items-center gap-1 shadow-sm animate-pulse">
@@ -254,7 +279,13 @@ function LeadCard({
         </div>
       );
     }
-    // Prioridade 2: Automação Feita
+    if (currentView === "limbo") {
+      return (
+        <div className="bg-slate-100 text-slate-500 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border border-slate-200 flex items-center gap-1 shadow-sm">
+          <Ghost size={12} /> Lead em Pausa
+        </div>
+      );
+    }
     if (lead.status === "contacted" && lead.is_verified) {
       return (
         <div className="bg-blue-50 text-blue-500 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border border-blue-100 flex items-center gap-1 shadow-sm">
@@ -262,7 +293,6 @@ function LeadCard({
         </div>
       );
     }
-    // Prioridade 3: Aprovado para disparo
     if (lead.is_verified) {
       return (
         <div className="bg-orange-50 text-orange-500 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border border-orange-100 flex items-center gap-1 shadow-sm">
@@ -270,7 +300,6 @@ function LeadCard({
         </div>
       );
     }
-    // Padrão: Status do Website
     return (
       <div className="bg-slate-50 text-slate-500 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border border-slate-100 flex items-center gap-1">
         <Globe size={12} /> {lead.has_website ? "Com Website" : "No Website"}
@@ -343,18 +372,33 @@ function LeadCard({
         <div className="flex gap-4">
           <button
             onClick={() => {
-              window.open(`https://wa.me/${cleanPhone}?text=Olá!`, "_blank");
+              const msg =
+                currentView === "limbo"
+                  ? "Olá! Gostaria de retomar nosso papo sobre o site da sua empresa?"
+                  : "Olá!";
+              window.open(
+                `https://wa.me/${cleanPhone}?text=${encodeURIComponent(msg)}`,
+                "_blank",
+              );
               if (lead.status === "pending")
                 onUpdateStatus(lead.id, "contacted", 0);
             }}
             disabled={lead.is_invalid_number}
-            className={`flex-[2] py-4 rounded-2xl font-black text-sm flex items-center justify-center gap-2 transition-all shadow-lg ${lead.is_invalid_number ? "bg-slate-100 text-slate-300 cursor-not-allowed shadow-none" : "bg-[#00b37e] text-white hover:brightness-110 shadow-[#00b37e]/20"}`}
+            className={`flex-[2] py-4 rounded-2xl font-black text-sm flex items-center justify-center gap-2 transition-all shadow-lg ${currentView === "limbo" ? "bg-slate-800 text-white shadow-slate-800/20" : lead.is_invalid_number ? "bg-slate-100 text-slate-300 cursor-not-allowed shadow-none" : "bg-[#00b37e] text-white hover:brightness-110 shadow-[#00b37e]/20"}`}
           >
-            <Send size={18} />{" "}
-            {lead.status === "contacted" ? "Reabrir Chat" : "WhatsApp"}
+            {currentView === "limbo" ? (
+              <Coffee size={18} />
+            ) : (
+              <Send size={18} />
+            )}
+            {currentView === "limbo"
+              ? "Reaquecer"
+              : lead.status === "contacted"
+                ? "Reabrir Chat"
+                : "WhatsApp"}
           </button>
 
-          {currentView !== "contacted" && (
+          {currentView !== "contacted" && currentView !== "limbo" && (
             <button
               onClick={() => onUpdateStatus(lead.id, "contacted", 0)}
               className="flex-1 bg-slate-100 text-slate-400 py-4 rounded-2xl hover:bg-black hover:text-white transition-all flex items-center justify-center"
