@@ -14,13 +14,13 @@ import {
   Handshake,
   Zap,
   ShieldCheck,
+  AlertCircle, // Adicionado para o selo de erro
 } from "lucide-react";
 
 const MyLeads = ({ leads, loading, onRefresh, onUpdateStatus, onOpenLead }) => {
   // Estados de visualização: pending (novos), verified (aprovados), contacted (em conversa)
   const [currentView, setCurrentView] = useState("pending");
 
-  // Contagem inteligente para os cards de métricas
   // Contagem inteligente para o Pipeline (Filtrando arquivados)
   const stats = {
     total: leads.filter((l) => !l.is_archived).length,
@@ -39,9 +39,7 @@ const MyLeads = ({ leads, loading, onRefresh, onUpdateStatus, onOpenLead }) => {
   };
 
   // Lógica de filtragem das listas
-  // No seu MyLeads.jsx, ajuste o filtro assim:
   const filteredLeads = leads.filter((l) => {
-    // ADICIONE ISSO: Só mostra se NÃO estiver arquivado
     if (l.is_archived) return false;
 
     if (currentView === "pending")
@@ -150,7 +148,7 @@ const MyLeads = ({ leads, loading, onRefresh, onUpdateStatus, onOpenLead }) => {
               onUpdateStatus={onUpdateStatus}
               onOpenLead={onOpenLead}
               showInterestScale={currentView === "contacted"}
-              currentView={currentView} // AQUI ESTAVA O ERRO: Agora passamos a prop!
+              currentView={currentView}
             />
           ))}
         </div>
@@ -246,8 +244,17 @@ function LeadCard({
   ];
   const thermalLabels = ["Frio", "Recusado", "Morno", "Quente", "Convertido"];
 
-  // LÓGICA DO SELO DE STATUS NO CARD
+  // LÓGICA DO SELO DE STATUS NO CARD (Atualizada com Número Inválido)
   const renderStatusBadge = () => {
+    // Prioridade 1: Erro de Número (Selo Vermelho Pulsante)
+    if (lead.is_invalid_number) {
+      return (
+        <div className="bg-red-50 text-red-600 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border border-red-200 flex items-center gap-1 shadow-sm animate-pulse">
+          <AlertCircle size={12} /> Número Inválido
+        </div>
+      );
+    }
+    // Prioridade 2: Automação Feita
     if (lead.status === "contacted" && lead.is_verified) {
       return (
         <div className="bg-blue-50 text-blue-500 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border border-blue-100 flex items-center gap-1 shadow-sm">
@@ -255,6 +262,7 @@ function LeadCard({
         </div>
       );
     }
+    // Prioridade 3: Aprovado para disparo
     if (lead.is_verified) {
       return (
         <div className="bg-orange-50 text-orange-500 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border border-orange-100 flex items-center gap-1 shadow-sm">
@@ -262,8 +270,9 @@ function LeadCard({
         </div>
       );
     }
+    // Padrão: Status do Website
     return (
-      <div className="bg-red-50 text-red-500 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border border-red-100 flex items-center gap-1">
+      <div className="bg-slate-50 text-slate-500 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border border-slate-100 flex items-center gap-1">
         <Globe size={12} /> {lead.has_website ? "Com Website" : "No Website"}
       </div>
     );
@@ -294,10 +303,14 @@ function LeadCard({
           <Target size={16} />
         </button>
 
-        <h3 className="text-xl font-black mb-1 truncate pr-4 text-black">
+        <h3
+          className={`text-xl font-black mb-1 truncate pr-4 ${lead.is_invalid_number ? "text-slate-400 line-through" : "text-black"}`}
+        >
           {lead.name}
         </h3>
-        <p className="text-slate-500 font-bold text-sm mb-4">
+        <p
+          className={`text-slate-500 font-bold text-sm mb-4 ${lead.is_invalid_number ? "text-red-400" : ""}`}
+        >
           {displayPhone || "Telefone não disponível"}
         </p>
 
@@ -334,7 +347,8 @@ function LeadCard({
               if (lead.status === "pending")
                 onUpdateStatus(lead.id, "contacted", 0);
             }}
-            className="flex-[2] bg-[#00b37e] text-white py-4 rounded-2xl font-black text-sm flex items-center justify-center gap-2 hover:brightness-110 transition-all shadow-lg shadow-[#00b37e]/20"
+            disabled={lead.is_invalid_number}
+            className={`flex-[2] py-4 rounded-2xl font-black text-sm flex items-center justify-center gap-2 transition-all shadow-lg ${lead.is_invalid_number ? "bg-slate-100 text-slate-300 cursor-not-allowed shadow-none" : "bg-[#00b37e] text-white hover:brightness-110 shadow-[#00b37e]/20"}`}
           >
             <Send size={18} />{" "}
             {lead.status === "contacted" ? "Reabrir Chat" : "WhatsApp"}
