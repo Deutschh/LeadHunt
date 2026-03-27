@@ -133,8 +133,33 @@ const startAutomation = async () => {
       await page.goto(whatsappUrl, { waitUntil: "networkidle2" });
 
       const inputSelector = 'div[contenteditable="true"]';
-      await page.waitForSelector(inputSelector, { timeout: 45000 });
-      await new Promise((r) => setTimeout(r, 4000));
+
+      try {
+        // Tenta encontrar o campo de mensagem por no máximo 15 segundos
+        await page.waitForSelector(inputSelector, { timeout: 15000 });
+        await new Promise((r) => setTimeout(r, 2000));
+
+        log(
+          `✅ Conexão estabelecida com ${lead.name}. Iniciando disparos...`,
+          "info",
+        );
+      } catch (err) {
+        // Se der timeout, o número provavelmente não tem WhatsApp
+        log(
+          `⚠️ Número inexistente ou inválido: ${lead.phone}. Pulando lead...`,
+          "error",
+        );
+
+        // Marca o lead como inválido para não tentar novamente e sai do try atual
+        await db.query(
+          "UPDATE leads SET is_invalid_number = true, status = 'contacted' WHERE id = $1",
+          [lead.id],
+        );
+
+        // Pula para o próximo loop sem travar o motor
+        setTimeout(loop, 5000);
+        return;
+      }
 
       // --- PASSO 1: BALÃO 1 (SAUDAÇÃO) ---
       const greetingMsg = `${getGreeting()}! Tudo bem?`;
