@@ -65,70 +65,77 @@ async function startScraping({ niche, location, limit, minRating }) {
         await new Promise((r) => setTimeout(r, 2000));
 
         const data = await page.evaluate((extraSelectors) => {
-          const selectors = [
-            ...extraSelectors,
-            "h1.DUwDve",
-            "h1.DUwDbe",
-            ".lfPiob",
-            "h1",
-          ];
-          let name = "";
-          for (const s of selectors) {
-            const el = document.querySelector(s);
-            if (
-              el &&
-              el.innerText.trim() &&
-              !el.innerText.includes("Patrocinado")
-            ) {
-              name = el.innerText.trim();
-              break;
+          const h1s = Array.from(document.querySelectorAll("h1"));
+          const nameEl = h1s.find(
+            (h) =>
+              h.innerText.trim() &&
+              !h.innerText.includes("Resultados") &&
+              !h.innerText.includes("Patrocinado"),
+          );
+
+          const name = nameEl ? nameEl.innerText.trim() : "Sem Nome";
+          const painel = nameEl
+            ? nameEl.closest('div[role="main"]')
+            : document.body;
+
+          // --- LOGICA DE AVALIAÇÕES CORRIGIDA ---
+          const ratingContainer = painel
+            ? painel.querySelector(".F7nice")
+            : null;
+          let rating = 0;
+          let reviewsCount = 0;
+
+          if (ratingContainer) {
+            const spans = Array.from(ratingContainer.querySelectorAll("span"));
+
+            // 1. Procuramos o span que contém a nota (procurando pela vírgula, ex: "4,8")
+            const ratingSpan = spans.find((s) => s.innerText.includes(","));
+            if (ratingSpan) {
+              rating = parseFloat(ratingSpan.innerText.replace(",", ".")) || 0;
+            }
+
+            // 2. Procuramos o span das avaliações (procurando pelo parênteses ou aria-label)
+            // Filtramos para garantir que não seja o mesmo span da nota
+            const reviewsSpan = spans.find(
+              (s) =>
+                (s.innerText.includes("(") && s !== ratingSpan) ||
+                (s.ariaLabel && s.ariaLabel.includes("avaliações")),
+            );
+
+            if (reviewsSpan) {
+              // Usamos o ariaLabel se existir (ex: "14 avaliações") ou o texto interno (ex: "(14)")
+              const rawReviews = reviewsSpan.ariaLabel || reviewsSpan.innerText;
+              reviewsCount = parseInt(rawReviews.replace(/\D/g, "")) || 0;
             }
           }
-
-          const website = document.querySelector(
-            'a[data-tooltip="Abrir website"]',
-          );
-          const phoneEl = document.querySelector(
-            'button[data-tooltip="Copiar número de telefone"]',
-          );
-          const addressEl = document.querySelector(
-            'button[data-item-id="address"]',
-          );
-          const fullAddress = addressEl ? addressEl.innerText.trim() : "";
-
-          let neighborhood = "Não identificado";
-          if (fullAddress.includes(",")) {
-            const parts = fullAddress.split(",");
-            let possibleNb = parts[1] ? parts[1].split("-")[0].trim() : "";
-            if (/^\d+$/.test(possibleNb) && parts[1].includes("-")) {
-              possibleNb = parts[1].split("-")[1]?.split(",")[0].trim();
-            }
-            neighborhood = possibleNb || "Centro";
-          }
-
-          const ratingText =
-            document.querySelector('span[role="img"][aria-label*="estrelas"]')
-              ?.ariaLabel || "0";
-          const rating =
-            parseFloat(ratingText.replace(",", ".").split(" ")[0]) || 0;
 
           return {
             name,
-            hasWebsite: !!website,
-            phone: phoneEl
-              ? phoneEl.innerText.replace(/[^0-9]/g, "").trim()
-              : null,
+            hasWebsite: !!painel?.querySelector(
+              'a[data-tooltip="Abrir website"]',
+            ),
+            phone:
+              painel
+                ?.querySelector(
+                  'button[data-tooltip="Copiar número de telefone"]',
+                )
+                ?.innerText.replace(/[^0-9]/g, "") || null,
             rating,
-            neighborhood,
+            reviewsCount,
+            neighborhood:
+              painel
+                ?.querySelector('button[data-item-id="address"]')
+                ?.innerText.split(",")[1]
+                ?.trim() || "Centro",
             niche:
-              document.querySelector('button[data-item-id="category"]')
+              painel?.querySelector('button[data-item-id="category"]')
                 ?.innerText || "Geral",
           };
         }, dynamicSelectors);
 
         const ehCelular = data.phone?.length === 11 && data.phone[2] === "9";
         const phoneFormatado = ehCelular ? `55${data.phone}` : null;
-        const itemHeader = `🔎 [${data.name || "S/ Nome"}] | ⭐ ${data.rating} | 📍 ${data.neighborhood}`;
+        const itemHeader = `🔎 [${data.name}] | ⭐ ${data.rating} (${data.reviewsCount} revs) | 📍 ${data.neighborhood}`;
 
         if (
           data.name &&
@@ -146,15 +153,16 @@ async function startScraping({ niche, location, limit, minRating }) {
             logScraper(`${itemHeader} ⏭️ Já cadastrado.`, "skip");
           } else {
             await db.query(
-              `INSERT INTO leads (name, phone, has_website, status, niche, rating, neighborhood, interest_level)
-               VALUES ($1, $2, $3, 'pending', $4, $5, $6, 0) ON CONFLICT DO NOTHING`,
+              `INSERT INTO leads (name, phone, has_website, status, niche, rating, neighborhood, reviews_count, interest_level)
+             VALUES ($1, $2, $3, 'pending', $4, $5, $6, $7, 0) ON CONFLICT DO NOTHING`,
               [
                 data.name,
                 phoneFormatado,
-                false,
+                data.hasWebsite,
                 data.niche,
                 data.rating,
                 data.neighborhood,
+                data.reviewsCount, // Adicionado o sétimo valor ($7)
               ],
             );
             savedCount++;
