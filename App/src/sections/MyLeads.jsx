@@ -325,9 +325,10 @@ function LeadCard({
     }
 
     // CORREÇÃO: Badge de sugestão da IA (Prioridade alta para revisão)
-    if (lead.is_ai_ready && !lead.is_verified) {
+    // CORREÇÃO: O selo aparece se a IA gerou a mensagem, independente de estar verificado ou não
+    if (lead.is_ai_ready && lead.status === "pending") {
       return (
-        <div className="bg-blue-50 text-blue-600 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border border-blue-200 flex items-center gap-1 shadow-sm">
+        <div className="bg-blue-50 text-blue-600 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border border-blue-200 flex items-center gap-1 shadow-sm animate-pulse">
           <Sparkles size={12} /> Sugestão de IA Pronta
         </div>
       );

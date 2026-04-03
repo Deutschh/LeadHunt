@@ -18,6 +18,8 @@ import {
   Award,
   X,
   Save,
+  Sparkles, // Ícone da IA adicionado
+  RotateCcw, // Ícone para resetar
 } from "lucide-react";
 
 const LeadDetails = ({ leadId, onBack }) => {
@@ -31,6 +33,7 @@ const LeadDetails = ({ leadId, onBack }) => {
   const [observation, setObservation] = useState("");
   const [internalNotes, setInternalNotes] = useState("");
   const [customMessage, setCustomMessage] = useState("");
+  const [aiSuggestion, setAiSuggestion] = useState(""); // Novo estado para sugestão da IA
   const [interestLevel, setInterestLevel] = useState(0);
 
   const [showClosingModal, setShowClosingModal] = useState(false);
@@ -54,17 +57,13 @@ const LeadDetails = ({ leadId, onBack }) => {
     fetchData();
   }, [leadId]);
 
-  // Função Auxiliar para gerar a mensagem baseada em dados atuais
   const generateMessage = (currentLead, currentServices, currentObs) => {
     if (!currentLead) return "";
     let msg = `Sou o Guilherme, vi a *${currentLead.name}* aqui no Google...\n\n`;
-
     if (currentObs) msg += `*Análise:* ${currentObs}\n\n`;
-
     currentServices.forEach((s) => {
       if (templates[s]) msg += `${templates[s]}\n\n`;
     });
-
     msg += "Podemos conversar sobre como implementar isso para você?";
     return msg;
   };
@@ -78,7 +77,6 @@ const LeadDetails = ({ leadId, onBack }) => {
 
       const data = leadRes.data;
 
-      // Tratamento de Serviços (Garante que seja Array)
       let initialServices = [];
       if (data.services_offered) {
         initialServices = Array.isArray(data.services_offered)
@@ -94,10 +92,16 @@ const LeadDetails = ({ leadId, onBack }) => {
       setInterestLevel(data.interest_level || 0);
       setActivities(activityRes.data);
       setSelectedServices(initialServices);
+      setAiSuggestion(data.ai_message_suggestion || ""); // Carrega a sugestão da IA
 
-      // Carregamento da Mensagem: Prioriza o que está salvo no banco
+      // Lógica de Mensagem:
+      // 1. Se já tem custom_message salva, usa ela.
+      // 2. Se não tem mas tem sugestão da IA, usa a IA.
+      // 3. Caso contrário, gera o padrão.
       if (data.custom_message) {
         setCustomMessage(data.custom_message);
+      } else if (data.ai_message_suggestion) {
+        setCustomMessage(data.ai_message_suggestion);
       } else {
         setCustomMessage(
           generateMessage(data, initialServices, data.market_observation || ""),
@@ -110,16 +114,19 @@ const LeadDetails = ({ leadId, onBack }) => {
     }
   };
 
+  const handleApplyAI = () => {
+    if (aiSuggestion) {
+      setCustomMessage(aiSuggestion);
+    }
+  };
+
   const toggleService = (serviceId) => {
     setSelectedServices((prev) => {
       const isSelected = prev.includes(serviceId);
       const newServices = isSelected
         ? prev.filter((s) => s !== serviceId)
         : [...prev, serviceId];
-
-      // Atualiza a mensagem na hora que o serviço muda
       setCustomMessage(generateMessage(lead, newServices, observation));
-
       return newServices;
     });
   };
@@ -139,13 +146,11 @@ const LeadDetails = ({ leadId, onBack }) => {
       (acc, curr) => acc + (parseFloat(curr.price) || 0),
       0,
     );
-
     await handleUpdate({
       status: "closed",
       interest_level: 4,
       deal_details: { ...dealData, totalValue: total },
     });
-
     setShowClosingModal(false);
   };
 
@@ -164,13 +169,9 @@ const LeadDetails = ({ leadId, onBack }) => {
   const handleDelete = async () => {
     if (window.confirm(`Deseja realmente remover o lead "${lead.name}"?`)) {
       try {
-        // Mudamos para o endpoint de PATCH enviando is_archived
         await api.patch(`/leads/${leadId}`, { is_archived: true });
-
-        // Pequeno delay visual para o usuário sentir a ação
-        onBack(); // Volta para a listagem
+        onBack();
       } catch (err) {
-        console.error("Erro ao deletar lead:", err);
         alert("Ocorreu um erro ao tentar excluir o lead.");
       }
     }
@@ -190,6 +191,7 @@ const LeadDetails = ({ leadId, onBack }) => {
       services_offered: selectedServices,
       update_contact: true,
       status: "contacted",
+      custom_message: customMessage,
     });
     window.open(
       `https://wa.me/${lead.phone}?text=${encodeURIComponent(customMessage)}`,
@@ -210,7 +212,7 @@ const LeadDetails = ({ leadId, onBack }) => {
 
   return (
     <div className="p-8 max-w-[1600px] mx-auto animate-in fade-in duration-700 pb-20 relative">
-      {/* 1. MODAL DE FECHAMENTO */}
+      {/* 1. MODAL DE FECHAMENTO (Mantido igual) */}
       {showClosingModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in zoom-in duration-300">
           <div className="bg-white w-full max-w-2xl rounded-[3rem] shadow-2xl overflow-hidden border border-white/20">
@@ -235,7 +237,6 @@ const LeadDetails = ({ leadId, onBack }) => {
                 <X size={24} />
               </button>
             </div>
-
             <div className="p-8 space-y-6 max-h-[60vh] overflow-y-auto scrollbar-hide">
               {selectedServices.map((s) => (
                 <div
@@ -288,7 +289,6 @@ const LeadDetails = ({ leadId, onBack }) => {
                 </div>
               ))}
             </div>
-
             <div className="p-8 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
               <div>
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">
@@ -315,7 +315,7 @@ const LeadDetails = ({ leadId, onBack }) => {
         </div>
       )}
 
-      {/* 2. BANNER DE SUCESSO */}
+      {/* 2. BANNER DE SUCESSO (Mantido igual) */}
       {lead.status === "closed" && (
         <div className="mb-10 bg-green-500 text-white p-6 rounded-[2.5rem] flex items-center justify-between shadow-xl border border-green-400 animate-in slide-in-from-top duration-500">
           <div className="flex items-center gap-4">
@@ -375,13 +375,10 @@ const LeadDetails = ({ leadId, onBack }) => {
               handleUpdate({
                 is_verified: !lead.is_verified,
                 custom_message: customMessage,
+                is_ai_ready: true, // Ao aprovar, marcamos que a IA está revisada
               })
             }
-            className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
-              lead.is_verified
-                ? "bg-green-100 text-green-600 border-2 border-green-200"
-                : "bg-white text-slate-400 border-2 border-slate-100"
-            }`}
+            className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${lead.is_verified ? "bg-green-100 text-green-600 border-2 border-green-200" : "bg-white text-slate-400 border-2 border-slate-100"}`}
           >
             {lead.is_verified
               ? "✓ Verificado para Automação"
@@ -415,7 +412,6 @@ const LeadDetails = ({ leadId, onBack }) => {
       {/* 4. MAIN GRID */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         <div className="lg:col-span-8 space-y-8">
-          {/* TERMÔMETRO */}
           <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
             <div className="flex items-center justify-between mb-6">
               <h3 className="font-black text-xs uppercase tracking-[0.2em] text-slate-400 flex items-center gap-2">
@@ -453,7 +449,6 @@ const LeadDetails = ({ leadId, onBack }) => {
                 className="w-full p-4 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium min-h-[120px] resize-none transition-all"
                 value={observation}
                 onChange={(e) => setObservation(e.target.value)}
-                placeholder="Link quebrado no Instagram, falta de site..."
               />
             </div>
             <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm">
@@ -464,12 +459,10 @@ const LeadDetails = ({ leadId, onBack }) => {
                 className="w-full p-4 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-slate-300 outline-none text-sm font-medium min-h-[120px] resize-none italic"
                 value={internalNotes}
                 onChange={(e) => setInternalNotes(e.target.value)}
-                placeholder="Dono prefere falar à tarde..."
               />
             </div>
           </div>
 
-          {/* TIMELINE */}
           <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
             <h3 className="font-black text-xs uppercase tracking-[0.2em] text-slate-400 mb-8 flex items-center gap-2">
               <History size={16} /> Histórico de Atividades
@@ -501,12 +494,11 @@ const LeadDetails = ({ leadId, onBack }) => {
           </div>
         </div>
 
-        {/* COLUNA DIREITA */}
+        {/* COLUNA DIREITA: ABORDAGEM INTELIGENTE */}
         <div className="lg:col-span-4 space-y-6">
           <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm">
             <h3 className="font-black text-[10px] uppercase tracking-[0.2em] text-slate-400 mb-4 flex items-center gap-2">
-              <DollarSign size={16} className="text-green-500" /> CAC (Custo de
-              Aquisição)
+              <DollarSign size={16} className="text-green-500" /> CAC
             </h3>
             <div className="flex items-center bg-slate-50 p-4 rounded-2xl">
               <span className="text-slate-400 font-black mr-2">R$</span>
@@ -517,12 +509,10 @@ const LeadDetails = ({ leadId, onBack }) => {
                 onChange={(e) =>
                   handleUpdate({ acquisition_cost: e.target.value })
                 }
-                placeholder="0,00"
               />
             </div>
           </div>
 
-          {/* SERVIÇOS SELECIONADOS */}
           <div className="bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100">
             <div className="grid grid-cols-2 gap-3">
               {[
@@ -534,11 +524,7 @@ const LeadDetails = ({ leadId, onBack }) => {
                 <button
                   key={s.id}
                   onClick={() => toggleService(s.id)}
-                  className={`flex flex-col items-center p-4 rounded-2xl border-2 transition-all ${
-                    selectedServices.includes(s.id)
-                      ? "border-blue-600 bg-blue-50 text-blue-600"
-                      : "border-slate-50 bg-slate-50 text-slate-300"
-                  }`}
+                  className={`flex flex-col items-center p-4 rounded-2xl border-2 transition-all ${selectedServices.includes(s.id) ? "border-blue-600 bg-blue-50 text-blue-600" : "border-slate-50 bg-slate-50 text-slate-300"}`}
                 >
                   <span className="text-2xl mb-1">{s.icon}</span>
                   <span className="text-[9px] font-black uppercase tracking-tighter">
@@ -549,23 +535,49 @@ const LeadDetails = ({ leadId, onBack }) => {
             </div>
           </div>
 
+          {/* CARD DE MENSAGEM (Onde a IA aparece) */}
           <div className="bg-slate-900 text-white p-8 rounded-[3rem] shadow-2xl relative overflow-hidden group">
+            {/* BLOCO DE SUGESTÃO IA (ADICIONADO) */}
+            {aiSuggestion && (
+              <div className="mb-6 p-4 bg-blue-600/20 border border-blue-500/30 rounded-2xl animate-in fade-in slide-in-from-top-2">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2 text-blue-400">
+                    <Sparkles size={14} className="animate-pulse" />
+                    <span className="text-[10px] font-black uppercase tracking-[0.2em]">
+                      Sugestão da IA
+                    </span>
+                  </div>
+                  <button
+                    onClick={handleApplyAI}
+                    className="bg-blue-600 hover:bg-blue-500 text-white text-[9px] font-black py-1 px-3 rounded-full transition-all active:scale-95"
+                  >
+                    APLICAR TEXTO
+                  </button>
+                </div>
+                <p className="text-[11px] text-blue-100/70 italic line-clamp-3 leading-relaxed">
+                  "{aiSuggestion}"
+                </p>
+              </div>
+            )}
+
             <div className="flex items-center justify-between mb-6">
               <h3 className="font-black text-[10px] uppercase tracking-[0.3em] text-blue-400">
-                Abordagem
+                Mensagem Final
               </h3>
               <button
                 onClick={handleResetMessage}
-                className="text-[9px] font-black uppercase text-slate-500 underline"
+                className="text-[9px] font-black uppercase text-slate-500 flex items-center gap-1 hover:text-white transition-colors"
               >
-                Resetar
+                <RotateCcw size={10} /> Resetar Padrão
               </button>
             </div>
+
             <textarea
               className="w-full bg-white/5 p-5 rounded-2xl border border-white/10 h-64 outline-none focus:border-blue-500 transition-all text-sm leading-relaxed italic opacity-90 resize-none scrollbar-hide"
               value={customMessage}
               onChange={(e) => setCustomMessage(e.target.value)}
             />
+
             <div className="flex gap-3 mt-6">
               <button
                 onClick={handleSendWhatsApp}
@@ -573,18 +585,15 @@ const LeadDetails = ({ leadId, onBack }) => {
               >
                 <Send size={18} /> Disparar WhatsApp
               </button>
-
               <button
                 onClick={() =>
                   handleUpdate({
                     custom_message: customMessage,
-                    market_observation: observation,
-                    services_offered: selectedServices,
+                    is_ai_ready: true,
                   })
                 }
                 disabled={isSaving}
                 className={`flex-1 rounded-2xl transition-all border border-white/10 flex items-center justify-center group ${isSaving ? "bg-blue-600 text-white" : "bg-white/10 hover:bg-white/20 text-white"}`}
-                title="Salvar Rascunho no Banco"
               >
                 {isSaving ? (
                   <CheckCircle2 size={20} className="animate-in zoom-in" />

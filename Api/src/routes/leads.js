@@ -262,15 +262,18 @@ UPDATE leads
 });
 
 // ROTA: Varinha Mágica - Geração em Massa via IA
+// ROTA: Varinha Mágica - Focada apenas em Novos Leads Verificados
 router.post("/generate-ai-mass", async (req, res) => {
   try {
-    // Busca leads aprovados (is_verified) que ainda não têm sugestão de IA
+    // AJUSTE: Agora ignora quem já tem status 'contacted' ou 'closed'
     const leads = await db.query(
-      "SELECT * FROM leads WHERE is_verified = true AND is_ai_ready = false AND is_archived = false",
+      "SELECT * FROM leads WHERE is_verified = true AND is_ai_ready = false AND is_archived = false AND status = 'pending'",
     );
 
     if (leads.rowCount === 0) {
-      return res.json({ message: "Nenhum lead pendente de IA encontrado." });
+      return res.json({
+        message: "Nenhum lead novo pendente de IA encontrado.",
+      });
     }
 
     for (let lead of leads.rows) {
@@ -281,18 +284,16 @@ router.post("/generate-ai-mass", async (req, res) => {
           [suggestion, lead.id],
         );
       } catch (aiErr) {
-        console.error(`Erro ao gerar IA para o lead ${lead.id}:`, aiErr);
-        // Continua para o próximo lead mesmo se um falhar
+        console.error(`Erro no lead ${lead.id}:`, aiErr);
       }
     }
 
     res.json({
       success: true,
-      message: `${leads.rowCount} mensagens personalizadas foram geradas!`,
+      message: `${leads.rowCount} novas sugestões geradas!`,
     });
   } catch (err) {
-    console.error("Erro na geração em massa:", err);
-    res.status(500).json({ error: "Erro interno no processamento de IA." });
+    res.status(500).json({ error: "Erro na geração em massa." });
   }
 });
 
