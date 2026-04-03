@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const db = require("../database/db");
+const { generateLeadMessage } = require("../services/aiService");
 
 // 1. Listar todos os leads (GET /api/leads)
 router.get("/", async (req, res) => {
@@ -115,6 +116,7 @@ router.patch("/automation/settings", async (req, res) => {
     daily_limit,
     start_hour,
     end_hour,
+    is_ai_enabled, // NOVO CAMPO
   } = req.body;
   try {
     const query = `
@@ -125,6 +127,7 @@ router.patch("/automation/settings", async (req, res) => {
           daily_limit = COALESCE($4, daily_limit),
           start_hour = COALESCE($5, start_hour),
           end_hour = COALESCE($6, end_hour),
+          is_ai_enabled = COALESCE($7, is_ai_enabled), -- NOVO CAMPO
           updated_at = NOW()
       WHERE id = 1 RETURNING *;
     `;
@@ -135,6 +138,7 @@ router.patch("/automation/settings", async (req, res) => {
       daily_limit,
       start_hour,
       end_hour,
+      is_ai_enabled, // $7
     ]);
     res.json(result.rows[0]);
   } catch (err) {
@@ -159,6 +163,8 @@ router.patch("/:id", async (req, res) => {
     name,
     is_verified,
     custom_message, // Recebendo a mensagem personalizada
+    ai_message_suggestion, // NOVO
+    is_ai_ready, // NOVO
   } = req.body;
 
   try {
@@ -171,7 +177,7 @@ router.patch("/:id", async (req, res) => {
       return res.status(404).json({ error: "Lead não encontrado." });
 
     const query = `
-      UPDATE leads 
+UPDATE leads 
       SET 
         status = COALESCE($1, status),
         market_observation = COALESCE($2, market_observation),
@@ -185,9 +191,11 @@ router.patch("/:id", async (req, res) => {
         acquisition_cost = COALESCE($10, acquisition_cost),
         is_archived = COALESCE($11, is_archived),
         name = COALESCE($12, name),
-        is_verified = COALESCE($13, is_verified), --olha a vírgula bem aqui
-        custom_message = COALESCE($14, custom_message)
-        WHERE id = $15
+        is_verified = COALESCE($13, is_verified),
+        custom_message = COALESCE($14, custom_message),
+        ai_message_suggestion = COALESCE($15, ai_message_suggestion), -- NOVO
+        is_ai_ready = COALESCE($16, is_ai_ready)                    -- NOVO
+        WHERE id = $17 -- ATUALIZE O INDEX DO ID PARA $17
         RETURNING *;
     `;
 
@@ -206,7 +214,9 @@ router.patch("/:id", async (req, res) => {
       name,
       is_verified, // $13
       custom_message, // $14
-      id, // $15
+      ai_message_suggestion, // $15
+      is_ai_ready, // $16
+      id, // $17
     ];
 
     const result = await db.query(query, values);
@@ -248,6 +258,41 @@ router.patch("/:id", async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Erro ao atualizar lead e histórico." });
+  }
+});
+
+// ROTA: Varinha Mágica - Geração em Massa via IA
+router.post("/generate-ai-mass", async (req, res) => {
+  try {
+    // Busca leads aprovados (is_verified) que ainda não têm sugestão de IA
+    const leads = await db.query(
+      "SELECT * FROM leads WHERE is_verified = true AND is_ai_ready = false AND is_archived = false",
+    );
+
+    if (leads.rowCount === 0) {
+      return res.json({ message: "Nenhum lead pendente de IA encontrado." });
+    }
+
+    for (let lead of leads.rows) {
+      try {
+        const suggestion = await generateLeadMessage(lead);
+        await db.query(
+          "UPDATE leads SET ai_message_suggestion = $1, is_ai_ready = true WHERE id = $2",
+          [suggestion, lead.id],
+        );
+      } catch (aiErr) {
+        console.error(`Erro ao gerar IA para o lead ${lead.id}:`, aiErr);
+        // Continua para o próximo lead mesmo se um falhar
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `${leads.rowCount} mensagens personalizadas foram geradas!`,
+    });
+  } catch (err) {
+    console.error("Erro na geração em massa:", err);
+    res.status(500).json({ error: "Erro interno no processamento de IA." });
   }
 });
 

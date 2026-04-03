@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import axios from "axios"; // ADICIONADO: Importação necessária para a Varinha Mágica
 import {
   RefreshCw,
   Globe,
@@ -15,12 +16,36 @@ import {
   Zap,
   ShieldCheck,
   AlertCircle,
-  Ghost, // Ícone para o Limbo
-  Coffee, // Ícone para o Reaquecer
+  Ghost,
+  Coffee,
+  Sparkles, // Ícone da IA
 } from "lucide-react";
 
 const MyLeads = ({ leads, loading, onRefresh, onUpdateStatus, onOpenLead }) => {
   const [currentView, setCurrentView] = useState("pending");
+  const [aiLoading, setAiLoading] = useState(false); // Estado para o carregamento da IA
+
+  // FUNÇÃO DA VARINHA MÁGICA (Geração em Massa)
+  const handleMassAI = async () => {
+    if (
+      !window.confirm(
+        "Deseja gerar mensagens personalizadas via IA para todos os leads verificados?",
+      )
+    )
+      return;
+    setAiLoading(true);
+    try {
+      const res = await axios.post(
+        "http://localhost:3001/api/leads/generate-ai-mass",
+      );
+      alert(res.data.message);
+      onRefresh(); // Atualiza a lista para mostrar os novos status
+    } catch (err) {
+      alert("Erro ao gerar mensagens via IA.");
+    } finally {
+      setAiLoading(false);
+    }
+  };
 
   // Função auxiliar para identificar se o lead deve estar no Limbo
   const checkIsLimbo = (l) => {
@@ -28,7 +53,7 @@ const MyLeads = ({ leads, loading, onRefresh, onUpdateStatus, onOpenLead }) => {
       return false;
     const diasDesdeContato =
       (new Date() - new Date(l.last_contact)) / (1000 * 60 * 60 * 24);
-    return diasDesdeContato > 4; // Regra dos 4 dias
+    return diasDesdeContato > 4;
   };
 
   const stats = {
@@ -152,15 +177,34 @@ const MyLeads = ({ leads, loading, onRefresh, onUpdateStatus, onOpenLead }) => {
               : "Acompanhe a temperatura das abordagens realizadas."}
           </p>
         </div>
-        <button
-          onClick={onRefresh}
-          className="bg-white p-4 rounded-2xl shadow-sm border border-black/5 hover:bg-slate-50 transition-all active:scale-95"
-        >
-          <RefreshCw
-            size={20}
-            className={`${loading ? "animate-spin" : ""} text-slate-600`}
-          />
-        </button>
+
+        <div className="flex gap-3">
+          {/* BOTÃO VARINHA MÁGICA (Exibido nas abas de prospecção/verificados) */}
+          {(currentView === "verified" || currentView === "pending") && (
+            <button
+              onClick={handleMassAI}
+              disabled={aiLoading || loading}
+              className="bg-blue-600 text-white px-6 py-4 rounded-2xl font-black text-sm flex items-center gap-2 shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all active:scale-95 disabled:opacity-50"
+            >
+              {aiLoading ? (
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+              ) : (
+                <Sparkles size={18} />
+              )}
+              VARINHA MÁGICA
+            </button>
+          )}
+
+          <button
+            onClick={onRefresh}
+            className="bg-white p-4 rounded-2xl shadow-sm border border-black/5 hover:bg-slate-50 transition-all active:scale-95"
+          >
+            <RefreshCw
+              size={20}
+              className={`${loading ? "animate-spin" : ""} text-slate-600`}
+            />
+          </button>
+        </div>
       </div>
 
       {/* GRID DE LEADS */}
@@ -279,6 +323,16 @@ function LeadCard({
         </div>
       );
     }
+
+    // CORREÇÃO: Badge de sugestão da IA (Prioridade alta para revisão)
+    if (lead.is_ai_ready && !lead.is_verified) {
+      return (
+        <div className="bg-blue-50 text-blue-600 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border border-blue-200 flex items-center gap-1 shadow-sm">
+          <Sparkles size={12} /> Sugestão de IA Pronta
+        </div>
+      );
+    }
+
     if (currentView === "limbo") {
       return (
         <div className="bg-slate-100 text-slate-500 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border border-slate-200 flex items-center gap-1 shadow-sm">
@@ -308,7 +362,10 @@ function LeadCard({
   };
 
   return (
-    <div className="bg-white border-none p-8 rounded-[3rem] shadow-sm hover:shadow-2xl hover:-translate-y-2 transition-all duration-500 group relative overflow-hidden">
+    // CORREÇÃO: Adicionado destaque visual (ring azul) se a IA estiver pronta
+    <div
+      className={`bg-white border-none p-8 rounded-[3rem] shadow-sm hover:shadow-2xl hover:-translate-y-2 transition-all duration-500 group relative overflow-hidden ${lead.is_ai_ready && !lead.is_verified ? "ring-2 ring-blue-500/20 bg-blue-50/10" : ""}`}
+    >
       <div className="absolute -right-4 -top-4 w-24 h-24 bg-slate-50 rounded-full group-hover:scale-[3] transition-transform duration-700 opacity-50"></div>
 
       <div className="relative z-10">

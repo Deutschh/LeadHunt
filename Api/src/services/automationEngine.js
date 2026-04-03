@@ -26,27 +26,22 @@ async function sendBubble(page, selector, text, isMultiline = false) {
   if (isMultiline) {
     const lines = text.split("\n");
     for (let i = 0; i < lines.length; i++) {
-      // Digita a linha atual (sem delay entre letras para não demorar demais)
       await page.keyboard.type(lines[i]);
 
-      // Se não for a última linha, faz a manobra do Shift+Enter
       if (i < lines.length - 1) {
-        await page.keyboard.down("Shift"); // 1. Aperta Shift
-        await new Promise((r) => setTimeout(r, 150)); // 2. DELAY para o navegador registrar o Shift
-        await page.keyboard.press("Enter"); // 3. Aperta Enter
-        await new Promise((r) => setTimeout(r, 150)); // 4. DELAY para o Enter ser processado
-        await page.keyboard.up("Shift"); // 5. Solta o Shift
+        await page.keyboard.down("Shift");
+        await new Promise((r) => setTimeout(r, 150));
+        await page.keyboard.press("Enter");
+        await new Promise((r) => setTimeout(r, 150));
+        await page.keyboard.up("Shift");
       }
     }
   } else {
     await page.keyboard.type(text);
   }
 
-  // Finaliza enviando o balão completo
   await new Promise((r) => setTimeout(r, 600));
   await page.keyboard.press("Enter");
-
-  // ESPERA CRÍTICA: Aguarda o balão subir antes de o robô começar a próxima tarefa
   await new Promise((r) => setTimeout(r, 2000));
 }
 
@@ -134,8 +129,8 @@ const startAutomation = async () => {
 
       const inputSelector = 'div[contenteditable="true"]';
 
+      // --- VALIDAÇÃO DE NÚMERO EXISTENTE ---
       try {
-        // Tenta encontrar o campo de mensagem por no máximo 15 segundos
         await page.waitForSelector(inputSelector, { timeout: 15000 });
         await new Promise((r) => setTimeout(r, 2000));
 
@@ -144,19 +139,16 @@ const startAutomation = async () => {
           "info",
         );
       } catch (err) {
-        // Se der timeout, o número provavelmente não tem WhatsApp
         log(
           `⚠️ Número inexistente ou inválido: ${lead.phone}. Pulando lead...`,
           "error",
         );
 
-        // Marca o lead como inválido para não tentar novamente e sai do try atual
         await db.query(
           "UPDATE leads SET is_invalid_number = true, status = 'contacted' WHERE id = $1",
           [lead.id],
         );
 
-        // Pula para o próximo loop sem travar o motor
         setTimeout(loop, 5000);
         return;
       }
@@ -166,26 +158,39 @@ const startAutomation = async () => {
       await sendBubble(page, inputSelector, greetingMsg);
       log(`👋 Balão 1 (Saudação) enviado.`, "info");
 
-      // --- ESPERA ENTRE BALÃO 1 E 2 (Curiosidade) ---
       const waitTime1 = Math.floor(Math.random() * (15000 - 10000 + 1)) + 10000;
       log(`⏳ Aguardando ${waitTime1 / 1000}s para a proposta...`, "info");
       await new Promise((r) => setTimeout(r, waitTime1));
 
-      // --- PASSO 2: BALÃO 2 (PROPOSTA UNIFICADA) ---
-      let rawMessage = lead.custom_message || generateFallbackMessage(lead);
-      let bodyMessage = rawMessage
-        .replace(/^(Olá|Tudo bem|Bom dia|Boa tarde|Boa noite)[^]*?\?\s*/gi, "")
-        .replace(
-          /Podemos conversar sobre como implementar isso para você\?/gi,
-          "",
-        )
-        .trim();
+      // --- PASSO 2: BALÃO 2 (PROPOSTA UNIFICADA COM IA) ---
+      let bodyMessage = "";
 
-      // USA A FUNÇÃO COM DELAYS NO SHIFT+ENTER
+      // Prioriza a sugestão da IA se o Master Switch estiver ligado e houver revisão
+      if (
+        settings.is_ai_enabled &&
+        lead.is_ai_ready &&
+        lead.ai_message_suggestion
+      ) {
+        log(`🤖 Usando sugestão personalizada da IA para ${lead.name}`, "info");
+        bodyMessage = lead.ai_message_suggestion;
+      } else {
+        log(`📝 Usando template padrão para ${lead.name}`, "info");
+        let rawMessage = lead.custom_message || generateFallbackMessage(lead);
+        bodyMessage = rawMessage
+          .replace(
+            /^(Olá|Tudo bem|Bom dia|Boa tarde|Boa noite)[^]*?\?\s*/gi,
+            "",
+          )
+          .replace(
+            /Podemos conversar sobre como implementar isso para você\?/gi,
+            "",
+          )
+          .trim();
+      }
+
       await sendBubble(page, inputSelector, bodyMessage, true);
       log(`✅ Balão 2 (Corpo Unificado) enviado.`, "info");
 
-      // --- ESPERA ENTRE BALÃO 2 E 3 ---
       await new Promise((r) => setTimeout(r, 5000));
 
       // --- PASSO 3: BALÃO 3 (FECHAMENTO / CTA) ---
@@ -208,7 +213,6 @@ const startAutomation = async () => {
         ],
       );
 
-      // Intervalo entre leads
       const min = parseInt(settings.min_interval_minutes);
       const max = parseInt(settings.max_interval_minutes);
       const waitMinutes = Math.floor(Math.random() * (max - min + 1)) + min;
