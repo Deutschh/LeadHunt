@@ -26,11 +26,13 @@ const generateLeadMessage = async (lead) => {
       - Nome da empresa: ${lead.name}
       - Avaliações no Google: ${lead.reviews_count}
       
-      REGRAS:
-      - Seja direto e profissional.
-      - Elogie a autoridade deles por terem ${lead.reviews_count} avaliações no Google.
-      - Mencione que em ${lead.lead_city} a concorrência está crescendo e um site é vital.
-      - Finalize com esta pergunta exata: ${strategy.call_to_action}
+      REGRAS DE FORMATAÇÃO (MUITO IMPORTANTE):
+      1. NUNCA use saudações.
+      2. DIVIDA sua resposta em duas partes separadas por "---".
+      
+      PARTE 1 (Análise): Elogie as ${lead.reviews_count} avaliações e faça a análise de mercado sobre Curitiba (ou a cidade do lead) e a importância do site.
+      
+      PARTE 2 (Gancho e CTA): Use o gancho estratégico (${strategy.hook}) e finalize com a pergunta exata: ${strategy.call_to_action} e a frase "Aguardo sua resposta!".
     `;
 
     const response = await openai.chat.completions.create({

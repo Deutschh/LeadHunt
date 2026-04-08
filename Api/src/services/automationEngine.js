@@ -162,42 +162,36 @@ const startAutomation = async () => {
       log(`⏳ Aguardando ${waitTime1 / 1000}s para a proposta...`, "info");
       await new Promise((r) => setTimeout(r, waitTime1));
 
-      // --- PASSO 2: BALÃO 2 (PROPOSTA UNIFICADA COM IA) ---
+      // --- PASSO 2: CORPO DA MENSAGEM ---
       let bodyMessage = "";
+      let isAiMessage = false;
 
-      // Prioriza a sugestão da IA se o Master Switch estiver ligado e houver revisão
-      if (
-        settings.is_ai_enabled &&
-        lead.is_ai_ready &&
-        lead.ai_message_suggestion
-      ) {
-        log(`🤖 Usando sugestão personalizada da IA para ${lead.name}`, "info");
-        bodyMessage = lead.ai_message_suggestion;
+      // --- PASSO 2 E 3: CORPO E FECHAMENTO ---
+      if (lead.custom_message) {
+        log(`🤖 Processando mensagem em partes para ${lead.name}`, "info");
+
+        // Dividimos a mensagem onde a IA colocou o "---"
+        const parts = lead.custom_message.split("---");
+
+        // BALÃO 2: A Análise/Elogio
+        const messagePart1 = parts[0].trim();
+        await sendBubble(page, inputSelector, messagePart1, true);
+        log(`✅ Balão 2 (Análise) enviado.`, "info");
+
+        // Pequena pausa entre a análise e o fechamento para parecer humano
+        const delayCTA = Math.floor(Math.random() * (8000 - 5000 + 1)) + 5000;
+        await new Promise((r) => setTimeout(r, delayCTA));
+
+        // BALÃO 3: O Gancho Estratégico + CTA
+        const messagePart2 = parts[1] ? parts[1].trim() : "Vamos conversar?";
+        await sendBubble(page, inputSelector, messagePart2, true);
+        log(`🚀 Balão 3 (Gancho + CTA) enviado.`, "success");
       } else {
+        // Fallback caso não tenha mensagem da IA
         log(`📝 Usando template padrão para ${lead.name}`, "info");
-        let rawMessage = lead.custom_message || generateFallbackMessage(lead);
-        bodyMessage = rawMessage
-          .replace(
-            /^(Olá|Tudo bem|Bom dia|Boa tarde|Boa noite)[^]*?\?\s*/gi,
-            "",
-          )
-          .replace(
-            /Podemos conversar sobre como implementar isso para você\?/gi,
-            "",
-          )
-          .trim();
+        const fallback = generateFallbackMessage(lead);
+        await sendBubble(page, inputSelector, fallback, true);
       }
-
-      await sendBubble(page, inputSelector, bodyMessage, true);
-      log(`✅ Balão 2 (Corpo Unificado) enviado.`, "info");
-
-      await new Promise((r) => setTimeout(r, 5000));
-
-      // --- PASSO 3: BALÃO 3 (FECHAMENTO / CTA) ---
-      const ctaMessage =
-        "Gostaria de ver como ficaria um esboço de um site para sua empresa de forma gratuita? sem compromisso nenhum.";
-      await sendBubble(page, inputSelector, ctaMessage);
-      log(`🚀 Balão 3 (CTA) enviado com sucesso!`, "success");
 
       // Banco de Dados
       await db.query(
