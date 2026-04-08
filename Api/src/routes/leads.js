@@ -162,9 +162,11 @@ router.patch("/:id", async (req, res) => {
     is_archived,
     name,
     is_verified,
-    custom_message, // Recebendo a mensagem personalizada
-    ai_message_suggestion, // NOVO
-    is_ai_ready, // NOVO
+    custom_message,
+    ai_message_suggestion,
+    is_ai_ready,
+    lead_category, // NOVO
+    lead_city, // NOVO
   } = req.body;
 
   try {
@@ -177,7 +179,7 @@ router.patch("/:id", async (req, res) => {
       return res.status(404).json({ error: "Lead não encontrado." });
 
     const query = `
-UPDATE leads 
+      UPDATE leads 
       SET 
         status = COALESCE($1, status),
         market_observation = COALESCE($2, market_observation),
@@ -193,10 +195,12 @@ UPDATE leads
         name = COALESCE($12, name),
         is_verified = COALESCE($13, is_verified),
         custom_message = COALESCE($14, custom_message),
-        ai_message_suggestion = COALESCE($15, ai_message_suggestion), -- NOVO
-        is_ai_ready = COALESCE($16, is_ai_ready)                    -- NOVO
-        WHERE id = $17 -- ATUALIZE O INDEX DO ID PARA $17
-        RETURNING *;
+        ai_message_suggestion = COALESCE($15, ai_message_suggestion),
+        is_ai_ready = COALESCE($16, is_ai_ready),
+        lead_category = COALESCE($17, lead_category), -- NOVO
+        lead_city = COALESCE($18, lead_city)           -- NOVO
+      WHERE id = $19 -- ID AGORA É $19
+      RETURNING *;
     `;
 
     const values = [
@@ -212,11 +216,13 @@ UPDATE leads
       acquisition_cost,
       is_archived,
       name,
-      is_verified, // $13
-      custom_message, // $14
-      ai_message_suggestion, // $15
-      is_ai_ready, // $16
-      id, // $17
+      is_verified,
+      custom_message,
+      ai_message_suggestion,
+      is_ai_ready,
+      lead_category, // $17
+      lead_city, // $18
+      id, // $19
     ];
 
     const result = await db.query(query, values);
@@ -262,21 +268,30 @@ UPDATE leads
 });
 
 router.post("/generate-ai-mass", async (req, res) => {
-  const { limit = 10, minRating = 0, status = "pending" } = req.body;
+  // Adicionamos 'category' aqui para receber o filtro do modal
+  const { limit = 10, minRating = 0, status = "pending", category } = req.body;
 
   try {
-    // Busca leads baseados nos seus novos filtros
-    const query = `
+    // A query agora filtra por categoria se ela for enviada
+    let query = `
       SELECT * FROM leads 
       WHERE status = $1 
       AND is_ai_ready = false 
       AND is_archived = false 
       AND rating >= $2
-      ORDER BY rating DESC, reviews_count DESC
-      LIMIT $3
     `;
 
-    const leads = await db.query(query, [status, minRating, limit]);
+    const queryParams = [status, minRating];
+
+    if (category) {
+      query += ` AND lead_category = $3`;
+      queryParams.push(category);
+    }
+
+    query += ` ORDER BY rating DESC, reviews_count DESC LIMIT $${queryParams.length + 1}`;
+    queryParams.push(limit);
+
+    const leads = await db.query(query, queryParams);
 
     if (leads.rowCount === 0) {
       return res.json({
@@ -286,8 +301,8 @@ router.post("/generate-ai-mass", async (req, res) => {
 
     for (let lead of leads.rows) {
       try {
+        // O generateLeadMessage agora terá lead.lead_category e lead.lead_city disponíveis!
         const suggestion = await generateLeadMessage(lead);
-        // Ao gerar a IA, já marcamos como 'is_verified' para ele avançar no funil
         await db.query(
           "UPDATE leads SET ai_message_suggestion = $1, is_ai_ready = true, is_verified = true WHERE id = $2",
           [suggestion, lead.id],
@@ -299,9 +314,11 @@ router.post("/generate-ai-mass", async (req, res) => {
 
     res.json({
       success: true,
-      message: `${leads.rowCount} leads processados e movidos para Verificados!`,
+      count: leads.rowCount,
+      message: `${leads.rowCount} leads processados com estratégia de nicho aplicada!`,
     });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ error: "Erro na geração inteligente." });
   }
 });

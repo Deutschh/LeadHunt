@@ -1,30 +1,51 @@
 const { OpenAI } = require("openai");
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
+const nicheStrategies = {
+  "Limpeza de Estofados": {
+    hook: "mostrar o antes e depois detalhado e destacar os benefícios para a saúde (ácaros e alergias)",
+    callToAction:
+      "Gostaria de ver como uma galeria de resultados no seu site poderia aumentar sua conversão?",
+  },
+  "Oficina Mecânica": {
+    hook: "transmitir confiança profissional e facilitar o agendamento de orçamentos online",
+    callToAction:
+      "Já pensou em ter uma página de agendamento que economiza o tempo da sua recepção?",
+  },
+  "Estética Automotiva": {
+    hook: "destacar o visual premium dos serviços (vitrificação/polimento) e criar um portfólio de luxo",
+    callToAction:
+      "Posso te mostrar como um site bem estruturado pode atrair donos de carros de luxo?",
+  },
+  "Clínica de Estética": {
+    hook: "reforçar a autoridade da profissional e organizar os diversos procedimentos em um cardápio digital",
+    callToAction:
+      "Vamos transformar suas avaliações do Google em um mural de depoimentos no seu próprio site?",
+  },
+};
+
 const generateLeadMessage = async (lead) => {
+  const strategy = nicheStrategies[lead.lead_category] || {
+    hook: "melhorar a presença digital",
+    callToAction: "Podemos conversar sobre um site?",
+  };
+
   const prompt = `
-    Você é o Guilherme, um consultor de Presença Digital focado em ajudar empresas locais a crescerem.
-    Sua tarefa é criar uma mensagem de abordagem estratégica para o WhatsApp.
-
-    DADOS TÉCNICOS DO LEAD (Use para contexto, não cite números frios):
-    - Nome Original: ${lead.name}
-    - Ramo/Nicho: ${lead.niche}
-    - Avaliação: ${lead.rating} estrelas
-    - Qtd. de Avaliações: ${lead.reviews_count}
-    - Ponto Fraco Identificado: ${lead.market_observation || "Empresa com boa nota mas sem site oficial"}
-
-    SUAS DIRETRIZES DE OURO:
-    1. LIMPEZA DE NOME: Identifique o nome comercial/marca da empresa. Ignore descrições técnicas como "Higienização de estofados", "LTDA" ou "EIRELI". Use apenas o nome que um cliente usaria ao falar com eles.
-    2. CONTEXTO DE AUTORIDADE: Note que eles têm ${lead.reviews_count} avaliações e nota ${lead.rating}. Use isso para elogiar a qualidade do serviço deles, mas aponte que é um pecado essa autoridade toda não estar em um site profissional.
-    3. A PROPOSTA: Ofereça explicitamente a criação de um "esboço da página inicial" ou "demonstração de como seria a cara da empresa na internet" de forma gratuita.
-    4. ESTRUTURA: Máximo 2 parágrafos curtos. Sem "Olá" ou saudações de tempo.
-    5. TOM DE VOZ: Consultivo, amigável e focado em gerar curiosidade. Termine com uma pergunta de engajamento sobre o site ou automação.
-
-    Exemplo de Saída Esperada:
-    "Vi que a Magic Clean é muito bem avaliada aqui na região, com dezenas de clientes elogiando o serviço. Estava analisando o perfil de vocês e notei que ainda não possuem um site oficial para converter essa autoridade em vendas automáticas.
-
-    Gostaria de ver um esboço de como ficaria a presença digital de vocês no Google? Posso montar uma demonstração da tela inicial sem compromisso."
-  `;
+  Você é o Guilherme, consultor de marketing.
+  Aborde a empresa ${lead.name} do nicho ${lead.lead_category} em ${lead.lead_city}.
+  
+  CONTEXTO ESTRATÉGICO:
+  Sua missão para este nicho é: ${strategy.hook}.
+  
+  DADOS DO LEAD:
+  - Nome: ${lead.name}
+  - Avaliações: ${lead.reviews_count} (use para elogiar a autoridade deles em ${lead.lead_city})
+  
+  REGRAS:
+  - Seja direto. Limpe o nome da empresa.
+  - Mencione que o trabalho deles de ${lead.lead_category} merece um site à altura.
+  - Finalize com: ${strategy.callToAction}
+`;
 
   const response = await openai.chat.completions.create({
     model: "gpt-4o-mini", // Integração oficial planejada [cite: 35]

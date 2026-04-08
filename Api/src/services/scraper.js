@@ -149,24 +149,30 @@ async function startScraping({ niche, location, limit, minRating }) {
           );
 
           if (jaExiste.rowCount > 0) {
-            // CORRIGIDO: Usando logScraper
             logScraper(`${itemHeader} ⏭️ Já cadastrado.`, "skip");
           } else {
+            // ATUALIZADO: Agora incluímos lead_category e lead_city no INSERT
             await db.query(
-              `INSERT INTO leads (name, phone, has_website, status, niche, rating, neighborhood, reviews_count, interest_level)
-             VALUES ($1, $2, $3, 'pending', $4, $5, $6, $7, 0) ON CONFLICT DO NOTHING`,
+              `INSERT INTO leads (
+                name, phone, has_website, status, niche, 
+                rating, neighborhood, reviews_count, interest_level,
+                lead_category, lead_city
+              )
+              VALUES ($1, $2, $3, 'pending', $4, $5, $6, $7, 0, $8, $9) 
+              ON CONFLICT DO NOTHING`,
               [
                 data.name,
                 phoneFormatado,
                 data.hasWebsite,
-                data.niche,
+                data.niche, // Este é o nicho que o Google Maps diz
                 data.rating,
                 data.neighborhood,
-                data.reviewsCount, // Adicionado o sétimo valor ($7)
+                data.reviewsCount,
+                niche, // $8 - O nicho estratégico que você escolheu no modal
+                location.split(",")[0].trim(), // $9 - A cidade estratégica (limpando o "SP" ou região se houver)
               ],
             );
             savedCount++;
-            // CORRIGIDO: Usando logScraper
             logScraper(
               `${itemHeader} ✨ SALVO! [${savedCount}/${limit}]`,
               "success",
