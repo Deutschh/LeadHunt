@@ -506,6 +506,9 @@ function LeadCard({
               {lead.reviews_count})
             </div>
             {renderStatusBadge()}
+            <div className="flex items-center gap-2 text-blue-500 text-[10px] font-black uppercase tracking-widest bg-blue-50 w-fit px-2 py-1 rounded-md mb-2">
+              <Target size={12} /> {lead.lead_category || "Geral"}
+            </div>
           </div>
         </div>
 

@@ -362,6 +362,9 @@ const LeadDetails = ({ leadId, onBack }) => {
               >
                 <Edit3 size={16} />
               </button>
+              <span className="bg-slate-100 text-rose-500 px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-widest border border-rose-500 ">
+                 {lead.lead_category} • {lead.lead_city}
+              </span>
             </div>
             <p className="text-slate-400 font-bold text-sm uppercase tracking-widest">
               {lead.niche} • {lead.neighborhood}
