@@ -98,7 +98,7 @@ const startAutomation = async () => {
       }
 
       const leadRes = await db.query(
-        "SELECT * FROM leads WHERE is_verified = true AND status = 'pending' ORDER BY created_at ASC LIMIT 1",
+        "SELECT * FROM leads WHERE is_verified = true AND status = 'pending' AND is_ai_ready = true ORDER BY RANDOM() LIMIT 1",
       );
       if (leadRes.rowCount === 0) {
         log("📭 Fila vazia. Aguardando novos leads...", "info");
