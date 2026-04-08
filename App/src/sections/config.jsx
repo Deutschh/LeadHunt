@@ -178,7 +178,7 @@ const Configs = () => {
                 placeholder="O que focar..."
               />
             </div>
-            <div className="flex items-end gap-2">
+            <div className="flex items-end gap-2 my-auto">
               <div className="flex-1 space-y-2">
                 <label className="text-[10px] font-black uppercase text-slate-400 ml-2">
                   CTA
