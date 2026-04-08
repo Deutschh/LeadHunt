@@ -2,14 +2,14 @@ const { Pool } = require('pg');
 require('dotenv').config();
 
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL + (process.env.DATABASE_URL.includes('?') ? '&' : '?') + 'sslmode=verify-full',
+  connectionString: process.env.DATABASE_URL,
   ssl: {
-    rejectUnauthorized: false // Mantém assim para o Neon funcionar
+    rejectUnauthorized: false
   },
-  // Adicione isso se quiser ser compatível com as versões futuras mencionadas no erro:
   max: 20,
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
+  // Aumentamos para 10 segundos para dar tempo do Neon responder
+  connectionTimeoutMillis: 10000, 
 });
 
 module.exports = {

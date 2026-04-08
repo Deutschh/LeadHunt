@@ -41,7 +41,9 @@ const generateLeadMessage = async (lead) => {
 
     return response.choices[0].message.content.trim();
   } catch (error) {
-    console.error("Erro na geração da IA:", error);
+    // LOGUE APENAS A MENSAGEM, NÃO O OBJETO TODO
+    console.error("❌ Erro na geração da IA:", error.message);
+
     return "Olá! Notei que sua empresa tem ótimas avaliações no Google. Já pensou em ter um site profissional para converter esses acessos em clientes?";
   }
 };

@@ -343,10 +343,16 @@ router.post("/generate-ai-mass", async (req, res) => {
 
     for (let lead of leads.rows) {
       try {
-        // O generateLeadMessage agora terá lead.lead_category e lead.lead_city disponíveis!
         const suggestion = await generateLeadMessage(lead);
+
+        // ATUALIZAÇÃO AQUI: Salvamos a sugestão também no 'custom_message'
         await db.query(
-          "UPDATE leads SET ai_message_suggestion = $1, is_ai_ready = true, is_verified = true WHERE id = $2",
+          `UPDATE leads 
+       SET ai_message_suggestion = $1, 
+           custom_message = $1,     -- Isso faz o lead já ter a mensagem pronta!
+           is_ai_ready = true, 
+           is_verified = true 
+       WHERE id = $2`,
           [suggestion, lead.id],
         );
       } catch (aiErr) {
