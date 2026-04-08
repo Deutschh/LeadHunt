@@ -167,30 +167,31 @@ const startAutomation = async () => {
       let isAiMessage = false;
 
       // --- PASSO 2 E 3: CORPO E FECHAMENTO ---
-      if (lead.custom_message) {
-        log(`🤖 Processando mensagem em partes para ${lead.name}`, "info");
+      // --- PASSO 2 E 3: CORPO E FECHAMENTO ---
+      if (lead.custom_message && lead.custom_message.includes("---")) {
+        log(`🤖 Mensagem dividida detectada para ${lead.name}`, "info");
 
-        // Dividimos a mensagem onde a IA colocou o "---"
         const parts = lead.custom_message.split("---");
 
-        // BALÃO 2: A Análise/Elogio
-        const messagePart1 = parts[0].trim();
+        // BALÃO 2: A Análise (Limpando possíveis assinaturas que a IA teime em colocar)
+        let messagePart1 = parts[0].trim();
         await sendBubble(page, inputSelector, messagePart1, true);
-        log(`✅ Balão 2 (Análise) enviado.`, "info");
 
-        // Pequena pausa entre a análise e o fechamento para parecer humano
-        const delayCTA = Math.floor(Math.random() * (8000 - 5000 + 1)) + 5000;
-        await new Promise((r) => setTimeout(r, delayCTA));
+        // Intervalo humano
+        await new Promise((r) => setTimeout(r, 6000));
 
-        // BALÃO 3: O Gancho Estratégico + CTA
-        const messagePart2 = parts[1] ? parts[1].trim() : "Vamos conversar?";
+        // BALÃO 3: O CTA Final
+        let messagePart2 = parts[1].trim();
         await sendBubble(page, inputSelector, messagePart2, true);
-        log(`🚀 Balão 3 (Gancho + CTA) enviado.`, "success");
+        log(`🚀 Fluxo de 3 balões concluído.`, "success");
       } else {
-        // Fallback caso não tenha mensagem da IA
-        log(`📝 Usando template padrão para ${lead.name}`, "info");
-        const fallback = generateFallbackMessage(lead);
-        await sendBubble(page, inputSelector, fallback, true);
+        // Se a IA falhou no separador ou é template antigo, manda o bloco todo e avisa no log
+        log(
+          `⚠️ Mensagem sem separador ou padrão. Enviando bloco único.`,
+          "info",
+        );
+        const msg = lead.custom_message || generateFallbackMessage(lead);
+        await sendBubble(page, inputSelector, msg, true);
       }
 
       // Banco de Dados

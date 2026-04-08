@@ -16,23 +16,22 @@ const generateLeadMessage = async (lead) => {
         "Podemos conversar sobre como um site profissional ajudaria seu negócio?",
     };
 
-    const prompt = `
+const prompt = `
       Você é o Guilherme, consultor de marketing especializado em ${lead.lead_category}.
-      Aborde a empresa ${lead.name} localizada em ${lead.lead_city}.
+      Aborde a empresa ${lead.name} em ${lead.lead_city}.
       
-      ESTRATÉGIA DO NICHO: ${strategy.hook}.
-      
-      DADOS DO LEAD:
-      - Nome da empresa: ${lead.name}
-      - Avaliações no Google: ${lead.reviews_count}
-      
-      REGRAS DE FORMATAÇÃO (MUITO IMPORTANTE):
-      1. NUNCA use saudações.
-      2. DIVIDA sua resposta em duas partes separadas por "---".
-      
-      PARTE 1 (Análise): Elogie as ${lead.reviews_count} avaliações e faça a análise de mercado sobre Curitiba (ou a cidade do lead) e a importância do site.
-      
-      PARTE 2 (Gancho e CTA): Use o gancho estratégico (${strategy.hook}) e finalize com a pergunta exata: ${strategy.call_to_action} e a frase "Aguardo sua resposta!".
+      ESTRATÉGIA: ${strategy.hook}.
+
+      REGRAS CRÍTICAS:
+      1. PROIBIDO saudações (Olá, Bom dia, etc).
+      2. PROIBIDO assinar (Atenciosamente, Guilherme, Consultor, etc).
+      3. Use o separador "---" exatamente entre a análise e a pergunta final.
+      4. NÃO invente textos fora das duas partes abaixo.
+
+      ESTRUTURA DA RESPOSTA:
+      Parte 1: Elogio sobre as ${lead.reviews_count} avaliações e análise curta sobre a necessidade de um site em ${lead.lead_city}.
+      ---
+      Parte 2: Pergunta direta baseada no gancho: ${strategy.call_to_action} e finalize apenas com "Aguardo sua resposta!".
     `;
 
     const response = await openai.chat.completions.create({
