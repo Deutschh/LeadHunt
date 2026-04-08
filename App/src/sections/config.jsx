@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import axios from "axios";
 import { ShieldCheck, Save, Code, Sparkles } from "lucide-react"; // Adicionado Sparkles
+import api from "../services/api"; // Importa a instância do Axios
 
 const Configs = () => {
   const [tags, setTags] = useState("h1.DUwDvf.lfPIob, h1.DUwDve, .lfPiob");
@@ -26,10 +27,10 @@ const Configs = () => {
     setLoading(true);
     try {
       // Salva os seletores (seu endpoint antigo)
-      await axios.post("http://localhost:3001/settings/selectors", { tags });
+      await api.post("/settings/selectors", { tags });
 
       // Salva o Master Switch da IA (nosso novo endpoint)
-      await axios.patch("http://localhost:3001/api/leads/automation/settings", {
+      await api.patch("/leads/automation/settings", {
         is_ai_enabled: isAiEnabled,
       });
 

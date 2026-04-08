@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import axios from "axios"; // ADICIONADO: Importação necessária para a Varinha Mágica
+import api from "../services/api";
 import {
   RefreshCw,
   Globe,
@@ -24,24 +24,24 @@ import {
 const MyLeads = ({ leads, loading, onRefresh, onUpdateStatus, onOpenLead }) => {
   const [currentView, setCurrentView] = useState("pending");
   const [aiLoading, setAiLoading] = useState(false); // Estado para o carregamento da IA
+  const [showAiModal, setShowAiModal] = useState(false);
+  const [aiConfig, setAiConfig] = useState({ limit: 10, minRating: 4.0 });
 
   // FUNÇÃO DA VARINHA MÁGICA (Geração em Massa)
-  const handleMassAI = async () => {
-    if (
-      !window.confirm(
-        "Deseja gerar mensagens personalizadas via IA para todos os leads verificados?",
-      )
-    )
-      return;
+  // Altere para receber o objeto de configuração (config)
+  const handleMassAI = async (config) => {
     setAiLoading(true);
     try {
-      const res = await axios.post(
-        "http://localhost:3001/api/leads/generate-ai-mass",
-      );
+      // O 'api' já contém a URL base correta (localhost ou produção)
+      const res = await api.post("/leads/generate-ai-mass", config);
+
       alert(res.data.message);
-      onRefresh(); // Atualiza a lista para mostrar os novos status
+      onRefresh();
     } catch (err) {
-      alert("Erro ao gerar mensagens via IA.");
+      console.error("Erro na Varinha Mágica:", err);
+      alert(
+        "Erro ao gerar mensagens via IA. Verifique a conexão com o servidor.",
+      );
     } finally {
       setAiLoading(false);
     }
@@ -182,16 +182,10 @@ const MyLeads = ({ leads, loading, onRefresh, onUpdateStatus, onOpenLead }) => {
           {/* BOTÃO VARINHA MÁGICA (Exibido nas abas de prospecção/verificados) */}
           {(currentView === "verified" || currentView === "pending") && (
             <button
-              onClick={handleMassAI}
-              disabled={aiLoading || loading}
-              className="bg-blue-600 text-white px-6 py-4 rounded-2xl font-black text-sm flex items-center gap-2 shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all active:scale-95 disabled:opacity-50"
+              onClick={() => setShowAiModal(true)}
+              className="bg-blue-600 text-white px-6 py-4 rounded-2xl font-black text-sm flex items-center gap-2 shadow-lg hover:bg-blue-700 transition-all"
             >
-              {aiLoading ? (
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-              ) : (
-                <Sparkles size={18} />
-              )}
-              VARINHA MÁGICA
+              <Sparkles size={18} /> VARINHA MÁGICA
             </button>
           )}
 
@@ -228,6 +222,71 @@ const MyLeads = ({ leads, loading, onRefresh, onUpdateStatus, onOpenLead }) => {
           <p className="text-slate-400 font-bold italic">
             Nenhum lead nesta etapa no momento.
           </p>
+        </div>
+      )}
+
+      {showAiModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+          <div className="bg-white w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl animate-in zoom-in duration-300">
+            <h2 className="text-2xl font-black mb-2 flex items-center gap-2">
+              <Sparkles className="text-blue-500" /> Configurar IA
+            </h2>
+            <p className="text-slate-400 text-sm font-medium mb-8">
+              Escolha quantos leads a IA deve processar agora.
+            </p>
+
+            <div className="space-y-6">
+              <div>
+                <label className="text-[10px] font-black uppercase text-slate-400 ml-2">
+                  Quantidade de Leads
+                </label>
+                <input
+                  type="number"
+                  className="w-full p-4 bg-slate-50 rounded-2xl border-none focus:ring-2 focus:ring-blue-500 outline-none font-bold"
+                  value={aiConfig.limit}
+                  onChange={(e) =>
+                    setAiConfig({ ...aiConfig, limit: e.target.value })
+                  }
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black uppercase text-slate-400 ml-2">
+                  Avaliação Mínima (★)
+                </label>
+                <select
+                  className="w-full p-4 bg-slate-50 rounded-2xl border-none focus:ring-2 focus:ring-blue-500 outline-none font-bold"
+                  value={aiConfig.minRating}
+                  onChange={(e) =>
+                    setAiConfig({ ...aiConfig, minRating: e.target.value })
+                  }
+                >
+                  <option value="0">Qualquer nota</option>
+                  <option value="3.5">Acima de 3.5</option>
+                  <option value="4.0">Acima de 4.0 (Recomendado)</option>
+                  <option value="4.5">Acima de 4.5 (Elite)</option>
+                </select>
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  onClick={() => setShowAiModal(false)}
+                  className="flex-1 py-4 font-black text-slate-400"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={() => {
+                    handleMassAI(aiConfig); // Passa a config para a função existente
+                    setShowAiModal(false);
+                  }}
+                  className="flex-[2] bg-blue-600 text-white py-4 rounded-2xl font-black shadow-lg shadow-blue-200"
+                >
+                  INICIAR GERAÇÃO
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>

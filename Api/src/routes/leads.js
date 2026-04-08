@@ -261,26 +261,35 @@ UPDATE leads
   }
 });
 
-// ROTA: Varinha Mágica - Geração em Massa via IA
-// ROTA: Varinha Mágica - Focada apenas em Novos Leads Verificados
 router.post("/generate-ai-mass", async (req, res) => {
+  const { limit = 10, minRating = 0, status = "pending" } = req.body;
+
   try {
-    // AJUSTE: Agora ignora quem já tem status 'contacted' ou 'closed'
-    const leads = await db.query(
-      "SELECT * FROM leads WHERE is_verified = true AND is_ai_ready = false AND is_archived = false AND status = 'pending'",
-    );
+    // Busca leads baseados nos seus novos filtros
+    const query = `
+      SELECT * FROM leads 
+      WHERE status = $1 
+      AND is_ai_ready = false 
+      AND is_archived = false 
+      AND rating >= $2
+      ORDER BY rating DESC, reviews_count DESC
+      LIMIT $3
+    `;
+
+    const leads = await db.query(query, [status, minRating, limit]);
 
     if (leads.rowCount === 0) {
       return res.json({
-        message: "Nenhum lead novo pendente de IA encontrado.",
+        message: "Nenhum lead encontrado com esses critérios.",
       });
     }
 
     for (let lead of leads.rows) {
       try {
         const suggestion = await generateLeadMessage(lead);
+        // Ao gerar a IA, já marcamos como 'is_verified' para ele avançar no funil
         await db.query(
-          "UPDATE leads SET ai_message_suggestion = $1, is_ai_ready = true WHERE id = $2",
+          "UPDATE leads SET ai_message_suggestion = $1, is_ai_ready = true, is_verified = true WHERE id = $2",
           [suggestion, lead.id],
         );
       } catch (aiErr) {
@@ -290,10 +299,10 @@ router.post("/generate-ai-mass", async (req, res) => {
 
     res.json({
       success: true,
-      message: `${leads.rowCount} novas sugestões geradas!`,
+      message: `${leads.rowCount} leads processados e movidos para Verificados!`,
     });
   } catch (err) {
-    res.status(500).json({ error: "Erro na geração em massa." });
+    res.status(500).json({ error: "Erro na geração inteligente." });
   }
 });
 
