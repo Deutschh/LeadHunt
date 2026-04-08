@@ -16,6 +16,48 @@ router.get("/", async (req, res) => {
   }
 });
 
+// ROTA: Listar todos os nichos estratégicos
+router.get("/niches", async (req, res) => {
+  try {
+    const result = await db.query(
+      "SELECT * FROM niche_strategies ORDER BY niche_name ASC",
+    );
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao buscar nichos." });
+  }
+});
+
+// ROTA: Adicionar ou Atualizar um nicho
+router.post("/niches", async (req, res) => {
+  const { niche_name, hook, call_to_action } = req.body;
+  try {
+    const query = `
+        INSERT INTO niche_strategies (niche_name, hook, call_to_action)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (niche_name) 
+        DO UPDATE SET hook = $2, call_to_action = $3
+        RETURNING *;
+      `;
+    const result = await db.query(query, [niche_name, hook, call_to_action]);
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao salvar nicho." });
+  }
+});
+
+// ROTA: Deletar um nicho
+router.delete("/niches/:id", async (req, res) => {
+  try {
+    await db.query("DELETE FROM niche_strategies WHERE id = $1", [
+      req.params.id,
+    ]);
+    res.json({ message: "Nicho removido com sucesso." });
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao deletar nicho." });
+  }
+});
+
 // 2. Buscar detalhes de UM lead (GET /api/leads/:id)
 router.get("/:id", async (req, res) => {
   try {
@@ -120,17 +162,17 @@ router.patch("/automation/settings", async (req, res) => {
   } = req.body;
   try {
     const query = `
-      UPDATE automation_settings 
-      SET is_active = COALESCE($1, is_active),
-          min_interval_minutes = COALESCE($2, min_interval_minutes),
-          max_interval_minutes = COALESCE($3, max_interval_minutes),
-          daily_limit = COALESCE($4, daily_limit),
-          start_hour = COALESCE($5, start_hour),
-          end_hour = COALESCE($6, end_hour),
-          is_ai_enabled = COALESCE($7, is_ai_enabled), -- NOVO CAMPO
-          updated_at = NOW()
-      WHERE id = 1 RETURNING *;
-    `;
+        UPDATE automation_settings 
+        SET is_active = COALESCE($1, is_active),
+            min_interval_minutes = COALESCE($2, min_interval_minutes),
+            max_interval_minutes = COALESCE($3, max_interval_minutes),
+            daily_limit = COALESCE($4, daily_limit),
+            start_hour = COALESCE($5, start_hour),
+            end_hour = COALESCE($6, end_hour),
+            is_ai_enabled = COALESCE($7, is_ai_enabled), -- NOVO CAMPO
+            updated_at = NOW()
+        WHERE id = 1 RETURNING *;
+      `;
     const result = await db.query(query, [
       is_active,
       min_interval_minutes,
@@ -179,29 +221,29 @@ router.patch("/:id", async (req, res) => {
       return res.status(404).json({ error: "Lead não encontrado." });
 
     const query = `
-      UPDATE leads 
-      SET 
-        status = COALESCE($1, status),
-        market_observation = COALESCE($2, market_observation),
-        internal_notes = COALESCE($3, internal_notes),
-        services_offered = COALESCE($4, services_offered),
-        competitor_url = COALESCE($5, competitor_url),
-        interest_level = COALESCE($6, interest_level),
-        last_contact = CASE WHEN $7 = true THEN NOW() ELSE last_contact END,
-        deal_details = COALESCE($8, deal_details),
-        snooze_until = COALESCE($9, snooze_until),
-        acquisition_cost = COALESCE($10, acquisition_cost),
-        is_archived = COALESCE($11, is_archived),
-        name = COALESCE($12, name),
-        is_verified = COALESCE($13, is_verified),
-        custom_message = COALESCE($14, custom_message),
-        ai_message_suggestion = COALESCE($15, ai_message_suggestion),
-        is_ai_ready = COALESCE($16, is_ai_ready),
-        lead_category = COALESCE($17, lead_category), -- NOVO
-        lead_city = COALESCE($18, lead_city)           -- NOVO
-      WHERE id = $19 -- ID AGORA É $19
-      RETURNING *;
-    `;
+        UPDATE leads 
+        SET 
+          status = COALESCE($1, status),
+          market_observation = COALESCE($2, market_observation),
+          internal_notes = COALESCE($3, internal_notes),
+          services_offered = COALESCE($4, services_offered),
+          competitor_url = COALESCE($5, competitor_url),
+          interest_level = COALESCE($6, interest_level),
+          last_contact = CASE WHEN $7 = true THEN NOW() ELSE last_contact END,
+          deal_details = COALESCE($8, deal_details),
+          snooze_until = COALESCE($9, snooze_until),
+          acquisition_cost = COALESCE($10, acquisition_cost),
+          is_archived = COALESCE($11, is_archived),
+          name = COALESCE($12, name),
+          is_verified = COALESCE($13, is_verified),
+          custom_message = COALESCE($14, custom_message),
+          ai_message_suggestion = COALESCE($15, ai_message_suggestion),
+          is_ai_ready = COALESCE($16, is_ai_ready),
+          lead_category = COALESCE($17, lead_category), -- NOVO
+          lead_city = COALESCE($18, lead_city)           -- NOVO
+        WHERE id = $19 -- ID AGORA É $19
+        RETURNING *;
+      `;
 
     const values = [
       status,
@@ -274,12 +316,12 @@ router.post("/generate-ai-mass", async (req, res) => {
   try {
     // A query agora filtra por categoria se ela for enviada
     let query = `
-      SELECT * FROM leads 
-      WHERE status = $1 
-      AND is_ai_ready = false 
-      AND is_archived = false 
-      AND rating >= $2
-    `;
+        SELECT * FROM leads 
+        WHERE status = $1 
+        AND is_ai_ready = false 
+        AND is_archived = false 
+        AND rating >= $2
+      `;
 
     const queryParams = [status, minRating];
 
