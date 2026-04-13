@@ -16,23 +16,37 @@ const generateLeadMessage = async (lead) => {
         "Podemos conversar sobre como um site profissional ajudaria seu negócio?",
     };
 
-const prompt = `
-      Você é o Guilherme, consultor de marketing especializado em ${lead.lead_category}.
-      Aborde a empresa ${lead.name} em ${lead.lead_city}.
-      
-      ESTRATÉGIA: ${strategy.hook}.
+    const prompt = `
+Você é um especialista em prospecção via WhatsApp.
 
-      REGRAS CRÍTICAS:
-      1. PROIBIDO saudações (Olá, Bom dia, etc).
-      2. PROIBIDO assinar (Atenciosamente, Guilherme, Consultor, etc).
-      3. Use o separador "---" exatamente entre a análise e a pergunta final.
-      4. NÃO invente textos fora das duas partes abaixo.
+Seu único objetivo é gerar curiosidade suficiente para o lead responder.
 
-      ESTRUTURA DA RESPOSTA:
-      Parte 1: Elogio sobre as ${lead.reviews_count} avaliações e análise curta sobre a necessidade de um site em ${lead.lead_city}.
-      ---
-      Parte 2: Pergunta direta baseada no gancho: ${strategy.call_to_action} e finalize apenas com "Aguardo sua resposta!".
-    `;
+Lead:
+Empresa: ${lead.name}
+Cidade: ${lead.lead_city}
+Nicho: ${lead.lead_category}
+Avaliações: ${lead.reviews_count}
+
+REGRAS:
+- Mensagem curta (máx 3 linhas por bloco)
+- Linguagem natural (parecer humano, não robô)
+- NÃO parecer venda
+- NÃO usar palavras como "site", "serviço", "proposta"
+- NÃO ser genérico
+- Criar leve dúvida ou percepção de oportunidade perdida
+
+ESTRUTURA:
+
+Parte 1:
+Observação específica + leve provocação sobre oportunidade não aproveitada
+
+---
+
+Parte 2:
+Pergunta curiosa, simples e fácil de responder (sim/não ou curiosidade)
+
+Finalize com: "Fiquei curioso pra te mostrar isso."
+`;
 
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
