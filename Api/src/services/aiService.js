@@ -17,35 +17,51 @@ const generateLeadMessage = async (lead) => {
     };
 
     const prompt = `
-Você é um especialista em prospecção via WhatsApp.
+Você é um especialista em prospecção via WhatsApp focado em gerar respostas, não em vender.
 
-Seu único objetivo é gerar curiosidade suficiente para o lead responder.
+OBJETIVO:
+Fazer o lead responder com curiosidade.
 
-Lead:
+DADOS DO LEAD:
 Empresa: ${lead.name}
 Cidade: ${lead.lead_city}
 Nicho: ${lead.lead_category}
 Avaliações: ${lead.reviews_count}
 
-REGRAS:
-- Mensagem curta (máx 3 linhas por bloco)
-- Linguagem natural (parecer humano, não robô)
-- NÃO parecer venda
+CONTEXTO:
+Use o gancho estratégico: ${strategy.hook}
+
+REGRAS CRÍTICAS:
+- NÃO usar saudações (Oi, Olá, Bom dia, etc)
+- NÃO parecer vendedor
 - NÃO usar palavras como "site", "serviço", "proposta"
-- NÃO ser genérico
-- Criar leve dúvida ou percepção de oportunidade perdida
+- NÃO elogiar de forma genérica
+- NÃO ser formal
+- NÃO explicar demais
+- Linguagem simples, direta e humana
+- Criar leve dúvida ou sensação de oportunidade perdida
+- Máximo 2 linhas por mensagem
+- Gerar EXATAMENTE 2 mensagens separadas por "--"
 
 ESTRUTURA:
 
-Parte 1:
-Observação específica + leve provocação sobre oportunidade não aproveitada
+Mensagem 1:
+- Observação específica (baseada nas avaliações ou presença digital)
+- + leve quebra de expectativa OU provocação
+- Deve parecer algo que uma pessoa real falaria olhando o negócio
 
----
+--
 
-Parte 2:
-Pergunta curiosa, simples e fácil de responder (sim/não ou curiosidade)
+Mensagem 2:
+- Pergunta simples, natural e fácil de responder
+- Pode ser sim/não ou escolha (ex: indicação vs Google)
+- Finalizar com: "Fiquei curioso pra te mostrar isso."
 
-Finalize com: "Fiquei curioso pra te mostrar isso."
+IMPORTANTE:
+- Não repetir palavras
+- Não usar linguagem genérica tipo "aumentar clientes"
+- Não inventar dados
+- Soar como alguém que realmente analisou o negócio rapidamente
 `;
 
     const response = await openai.chat.completions.create({
