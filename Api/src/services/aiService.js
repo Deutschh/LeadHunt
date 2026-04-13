@@ -16,52 +16,40 @@ const generateLeadMessage = async (lead) => {
         "Podemos conversar sobre como um site profissional ajudaria seu negócio?",
     };
 
-    const prompt = `
-Você é um especialista em prospecção via WhatsApp focado em gerar respostas, não em vender.
+const prompt = `
+Você é um especialista em prospecção via WhatsApp.
 
-OBJETIVO:
-Fazer o lead responder com curiosidade.
+Seu objetivo é fazer o lead responder por curiosidade ou leve desconforto.
 
-DADOS DO LEAD:
+Lead:
 Empresa: ${lead.name}
 Cidade: ${lead.lead_city}
 Nicho: ${lead.lead_category}
 Avaliações: ${lead.reviews_count}
 
-CONTEXTO:
-Use o gancho estratégico: ${strategy.hook}
-
-REGRAS CRÍTICAS:
-- NÃO usar saudações (Oi, Olá, Bom dia, etc)
-- NÃO parecer vendedor
+REGRAS:
+- Mensagem curta
+- Linguagem natural (parecer humano)
+- NÃO parecer venda
 - NÃO usar palavras como "site", "serviço", "proposta"
-- NÃO elogiar de forma genérica
-- NÃO ser formal
-- NÃO explicar demais
-- Linguagem simples, direta e humana
-- Criar leve dúvida ou sensação de oportunidade perdida
-- Máximo 2 linhas por mensagem
-- Gerar EXATAMENTE 2 mensagens separadas por "--"
+- NÃO ser genérico
+- NÃO fazer perguntas óbvias ou comuns
+- Sempre trazer uma observação que pareça real e específica
+- Criar leve desconforto ou sensação de oportunidade perdida
+- Use o separador "---" exatamente entre a parte 1 e a parte 2.
 
 ESTRUTURA:
 
-Mensagem 1:
-- Observação específica (baseada nas avaliações ou presença digital)
-- + leve quebra de expectativa OU provocação
-- Deve parecer algo que uma pessoa real falaria olhando o negócio
+Parte 1:
+Observação específica + insight que gere dúvida ou leve preocupação
+(evite frases genéricas como "presença digital baixa")
+---
+Parte 2:
+Pergunta simples, mas provocativa
+(deve fazer o lead parar e pensar, não responder automático)
 
---
-
-Mensagem 2:
-- Pergunta simples, natural e fácil de responder
-- Pode ser sim/não ou escolha (ex: indicação vs Google)
-- Finalizar com: "Fiquei curioso pra te mostrar isso."
-
-IMPORTANTE:
-- Não repetir palavras
-- Não usar linguagem genérica tipo "aumentar clientes"
-- Não inventar dados
-- Soar como alguém que realmente analisou o negócio rapidamente
+Finalize com:
+"Fiquei curioso pra te mostrar isso."
 `;
 
     const response = await openai.chat.completions.create({
