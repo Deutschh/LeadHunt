@@ -31,6 +31,7 @@ REGRAS:
 - Mensagem curta
 - Linguagem natural (parecer humano)
 - NÃO parecer venda
+- Sem saudação ou apresentação
 - NÃO usar palavras como "site", "serviço", "proposta"
 - NÃO ser genérico
 - NÃO fazer perguntas óbvias ou comuns

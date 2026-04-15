@@ -7,6 +7,7 @@ import Configs from "./sections/config";
 import LeadDetails from "./sections/LeadDetails";
 import Home from "./sections/Home";
 import Automation from "./sections/Automation";
+import Analysis from "./sections/Analisy";
 
 // Agora ele tenta pegar a URL da Vercel primeiro. Se não achar, usa o localhost.
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
@@ -106,6 +107,7 @@ function App() {
           />
         )}
         {activeTab === "automation" && <Automation />}
+        {activeTab === "analysis" && <Analysis />}
         {activeTab === "settings" && <Configs />}
       </main>
     </div>

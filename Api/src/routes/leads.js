@@ -371,4 +371,58 @@ router.post("/generate-ai-mass", async (req, res) => {
   }
 });
 
+
+// ROTA: Dashboard de Métricas
+router.get("/stats/dashboard", async (req, res) => {
+  try {
+    // 1. Métricas Gerais (Total, Contatados, Pendentes, Inválidos)
+    const generalStats = await db.query(`
+      SELECT 
+        COUNT(*) as total_leads,
+        COUNT(*) FILTER (WHERE status = 'contacted') as total_contacted,
+        COUNT(*) FILTER (WHERE status = 'pending') as total_pending,
+        COUNT(*) FILTER (WHERE is_invalid_number = true) as total_invalid,
+        COUNT(*) FILTER (WHERE interest_level > 0) as total_interested
+      FROM leads
+    `);
+
+    // 2. Performance por Cidade (Top 5 cidades com mais leads)
+    const cityStats = await db.query(`
+      SELECT lead_city, COUNT(*) as count 
+      FROM leads 
+      WHERE lead_city IS NOT NULL 
+      GROUP BY lead_city 
+      ORDER BY count DESC LIMIT 5
+    `);
+
+    // 3. Performance por Categoria (Top 5 nichos)
+    const categoryStats = await db.query(`
+      SELECT lead_category, COUNT(*) as count 
+      FROM leads 
+      WHERE lead_category IS NOT NULL 
+      GROUP BY lead_category 
+      ORDER BY count DESC LIMIT 5
+    `);
+
+    // 4. Atividade Recente (Envios nos últimos 7 dias)
+    const recentActivity = await db.query(`
+      SELECT TO_CHAR(last_contact, 'DD/MM') as day, COUNT(*) as count
+      FROM leads
+      WHERE last_contact >= CURRENT_DATE - INTERVAL '7 days'
+      GROUP BY day
+      ORDER BY day ASC
+    `);
+
+    res.json({
+      summary: generalStats.rows[0],
+      cities: cityStats.rows,
+      categories: categoryStats.rows,
+      activity: recentActivity.rows
+    });
+  } catch (err) {
+    console.error("Erro no Dashboard:", err);
+    res.status(500).json({ error: "Erro ao gerar métricas." });
+  }
+});
+
 module.exports = router;
