@@ -149,45 +149,6 @@ router.get("/automation/settings", async (req, res) => {
   }
 });
 
-// 3. Rota para atualizar configurações de automação
-router.patch("/automation/settings", async (req, res) => {
-  const {
-    is_active,
-    min_interval_minutes,
-    max_interval_minutes,
-    daily_limit,
-    start_hour,
-    end_hour,
-    is_ai_enabled, // NOVO CAMPO
-  } = req.body;
-  try {
-    const query = `
-        UPDATE automation_settings 
-        SET is_active = COALESCE($1, is_active),
-            min_interval_minutes = COALESCE($2, min_interval_minutes),
-            max_interval_minutes = COALESCE($3, max_interval_minutes),
-            daily_limit = COALESCE($4, daily_limit),
-            start_hour = COALESCE($5, start_hour),
-            end_hour = COALESCE($6, end_hour),
-            is_ai_enabled = COALESCE($7, is_ai_enabled), -- NOVO CAMPO
-            updated_at = NOW()
-        WHERE id = 1 RETURNING *;
-      `;
-    const result = await db.query(query, [
-      is_active,
-      min_interval_minutes,
-      max_interval_minutes,
-      daily_limit,
-      start_hour,
-      end_hour,
-      is_ai_enabled, // $7
-    ]);
-    res.json(result.rows[0]);
-  } catch (err) {
-    res.status(500).json({ error: "Erro ao salvar configurações." });
-  }
-});
-
 router.patch("/:id", async (req, res) => {
   const { id } = req.params;
   const {
@@ -196,7 +157,7 @@ router.patch("/:id", async (req, res) => {
     internal_notes,
     services_offered,
     competitor_url,
-    interest_level,
+    interest_level, // Pontuação manual (opcional)
     update_contact,
     deal_details,
     snooze_until,
@@ -207,105 +168,99 @@ router.patch("/:id", async (req, res) => {
     custom_message,
     ai_message_suggestion,
     is_ai_ready,
-    lead_category, // NOVO
-    lead_city, // NOVO
+    lead_category,
+    lead_city,
+    // --- NOVOS CAMPOS PARA SCORING ---
+    price_requested,
+    preview_sent,
+    sale_value
   } = req.body;
 
   try {
-    const oldLead = await db.query(
-      "SELECT status, interest_level FROM leads WHERE id = $1",
-      [id],
+    // 1. Busca estado atual para comparar mudanças e evitar pontuação duplicada
+    const oldRes = await db.query(
+      "SELECT status, interest_level, price_requested, preview_sent FROM leads WHERE id = $1",
+      [id]
     );
 
-    if (oldLead.rowCount === 0)
-      return res.status(404).json({ error: "Lead não encontrado." });
+    if (oldRes.rowCount === 0) return res.status(404).json({ error: "Lead não encontrado." });
+    const current = oldRes.rows[0];
+    
+    // 2. Lógica de Scoring Automático 
+    let newScore = current.interest_level || 0;
 
+    // Se o status mudou para 'responded' agora
+    if (status === 'responded' && current.status !== 'responded') {
+      newScore += 2;
+    }
+
+    // Se marcou que pediu preço agora
+    if (price_requested === true && current.price_requested === false) {
+      newScore += 3;
+    }
+
+    // Se enviou o preview agora
+    if (preview_sent === true && current.preview_sent === false) {
+      newScore += 2;
+    }
+
+    // 3. Update no Banco de Dados
     const query = `
-        UPDATE leads 
-        SET 
-          status = COALESCE($1, status),
-          market_observation = COALESCE($2, market_observation),
-          internal_notes = COALESCE($3, internal_notes),
-          services_offered = COALESCE($4, services_offered),
-          competitor_url = COALESCE($5, competitor_url),
-          interest_level = COALESCE($6, interest_level),
-          last_contact = CASE WHEN $7 = true THEN NOW() ELSE last_contact END,
-          deal_details = COALESCE($8, deal_details),
-          snooze_until = COALESCE($9, snooze_until),
-          acquisition_cost = COALESCE($10, acquisition_cost),
-          is_archived = COALESCE($11, is_archived),
-          name = COALESCE($12, name),
-          is_verified = COALESCE($13, is_verified),
-          custom_message = COALESCE($14, custom_message),
-          ai_message_suggestion = COALESCE($15, ai_message_suggestion),
-          is_ai_ready = COALESCE($16, is_ai_ready),
-          lead_category = COALESCE($17, lead_category), -- NOVO
-          lead_city = COALESCE($18, lead_city)           -- NOVO
-        WHERE id = $19 -- ID AGORA É $19
-        RETURNING *;
-      `;
+      UPDATE leads 
+      SET 
+        status = COALESCE($1, status),
+        market_observation = COALESCE($2, market_observation),
+        internal_notes = COALESCE($3, internal_notes),
+        services_offered = COALESCE($4, services_offered),
+        competitor_url = COALESCE($5, competitor_url),
+        interest_level = $6, -- Score atualizado
+        last_contact = CASE WHEN $7 = true THEN NOW() ELSE last_contact END,
+        deal_details = COALESCE($8, deal_details),
+        snooze_until = COALESCE($9, snooze_until),
+        acquisition_cost = COALESCE($10, acquisition_cost),
+        is_archived = COALESCE($11, is_archived),
+        name = COALESCE($12, name),
+        is_verified = COALESCE($13, is_verified),
+        custom_message = COALESCE($14, custom_message),
+        ai_message_suggestion = COALESCE($15, ai_message_suggestion),
+        is_ai_ready = COALESCE($16, is_ai_ready),
+        lead_category = COALESCE($17, lead_category),
+        lead_city = COALESCE($18, lead_city),
+        price_requested = COALESCE($19, price_requested),
+        preview_sent = COALESCE($20, preview_sent),
+        sale_value = COALESCE($21, sale_value),
+        responded_at = CASE WHEN $1 = 'responded' AND status != 'responded' THEN NOW() ELSE responded_at END,
+        preview_sent_at = CASE WHEN $20 = true AND preview_sent = false THEN NOW() ELSE preview_sent_at END
+      WHERE id = $22
+      RETURNING *;
+    `;
 
     const values = [
-      status,
-      market_observation,
-      internal_notes,
+      status, market_observation, internal_notes,
       services_offered ? JSON.stringify(services_offered) : null,
-      competitor_url,
-      interest_level,
-      update_contact || false,
+      competitor_url, newScore, update_contact || false,
       deal_details ? JSON.stringify(deal_details) : null,
-      snooze_until,
-      acquisition_cost,
-      is_archived,
-      name,
-      is_verified,
-      custom_message,
-      ai_message_suggestion,
-      is_ai_ready,
-      lead_category, // $17
-      lead_city, // $18
-      id, // $19
+      snooze_until, acquisition_cost, is_archived, name, is_verified,
+      custom_message, ai_message_suggestion, is_ai_ready,
+      lead_category, lead_city, price_requested, preview_sent, sale_value, id
     ];
 
     const result = await db.query(query, values);
     const updatedLead = result.rows[0];
 
-    // 3. LOGICA DE ATIVIDADES AUTOMÁTICA
-    if (status && status !== oldLead.rows[0].status) {
+    // 4. Registrar Atividades para o CRM 
+    if (newScore !== current.interest_level) {
       await db.query(
         "INSERT INTO lead_activities (lead_id, description, type) VALUES ($1, $2, $3)",
-        [id, `Status alterado para: ${status}`, "status_change"],
+        [id, `Temperatura subiu: Lead atingiu ${newScore} pontos de interesse.`, "interest_change"]
       );
     }
 
-    if (
-      interest_level !== undefined &&
-      interest_level !== oldLead.rows[0].interest_level
-    ) {
-      await db.query(
-        "INSERT INTO lead_activities (lead_id, description, type) VALUES ($1, $2, $3)",
-        [
-          id,
-          `Nível de interesse alterado para: ${interest_level}`,
-          "interest_change",
-        ],
-      );
-    }
+    res.json({ message: "Lead atualizado e temperatura recalculada!", lead: updatedLead });
 
-    if (update_contact) {
-      await db.query(
-        "INSERT INTO lead_activities (lead_id, description, type) VALUES ($1, $2, $3)",
-        [id, "Mensagem de abordagem enviada via WhatsApp", "contact"],
-      );
-    }
-
-    res.json({
-      message: "Lead atualizado e atividade registrada!",
-      lead: updatedLead,
-    });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: "Erro ao atualizar lead e histórico." });
+    res.status(500).json({ error: "Erro ao processar atualização e scoring." });
   }
 });
 
@@ -371,57 +326,60 @@ router.post("/generate-ai-mass", async (req, res) => {
   }
 });
 
-
-// ROTA: Dashboard de Métricas
+// ROTA: Dashboard de Métricas Profissional (V3.0)
 router.get("/stats/dashboard", async (req, res) => {
+  const { period = "30" } = req.query; // Padrão 30 dias
+  const interval = `${period} days`;
+
   try {
-    // 1. Métricas Gerais (Total, Contatados, Pendentes, Inválidos)
-    const generalStats = await db.query(`
+    const stats = await db.query(`
       SELECT 
         COUNT(*) as total_leads,
-        COUNT(*) FILTER (WHERE status = 'contacted') as total_contacted,
-        COUNT(*) FILTER (WHERE status = 'pending') as total_pending,
-        COUNT(*) FILTER (WHERE is_invalid_number = true) as total_invalid,
-        COUNT(*) FILTER (WHERE interest_level > 0) as total_interested
+        COUNT(*) FILTER (WHERE status = 'contacted') as sent,
+        COUNT(*) FILTER (WHERE status = 'responded') as replied,
+        COUNT(*) FILTER (WHERE status = 'interested') as engaged,
+        COUNT(*) FILTER (WHERE preview_sent = true) as previews,
+        COUNT(*) FILTER (WHERE status = 'negociacao') as negotiation,
+        COUNT(*) FILTER (WHERE status = 'fechado') as closed,
+        SUM(sale_value) as total_revenue
       FROM leads
+      WHERE (last_contact >= CURRENT_DATE - INTERVAL '${interval}' OR last_contact IS NULL)
     `);
 
-    // 2. Performance por Cidade (Top 5 cidades com mais leads)
-    const cityStats = await db.query(`
-      SELECT lead_city, COUNT(*) as count 
-      FROM leads 
-      WHERE lead_city IS NOT NULL 
-      GROUP BY lead_city 
-      ORDER BY count DESC LIMIT 5
-    `);
+    const s = stats.rows[0];
+    const sent = parseInt(s.sent || 0);
+    const replied = parseInt(s.replied || 0);
+    const engaged = parseInt(s.engaged || 0);
+    const closed = parseInt(s.closed || 0);
 
-    // 3. Performance por Categoria (Top 5 nichos)
-    const categoryStats = await db.query(`
-      SELECT lead_category, COUNT(*) as count 
+    // Cálculos de Taxas (%) [cite: 21, 202]
+    const response_rate = sent > 0 ? (replied / sent) * 100 : 0;
+    const interest_rate = replied > 0 ? (engaged / replied) * 100 : 0;
+    const conversion_rate = sent > 0 ? (closed / sent) * 100 : 0;
+
+    // Métricas por Nicho com Taxas [cite: 28, 100]
+    const nicheStats = await db.query(`
+      SELECT 
+        lead_category as nicho, 
+        COUNT(*) as leads,
+        COUNT(*) FILTER (WHERE status = 'responded') as respostas,
+        COUNT(*) FILTER (WHERE status = 'fechado') as vendas
       FROM leads 
-      WHERE lead_category IS NOT NULL 
+      WHERE (last_contact >= CURRENT_DATE - INTERVAL '${interval}' OR last_contact IS NULL)
       GROUP BY lead_category 
-      ORDER BY count DESC LIMIT 5
-    `);
-
-    // 4. Atividade Recente (Envios nos últimos 7 dias)
-    const recentActivity = await db.query(`
-      SELECT TO_CHAR(last_contact, 'DD/MM') as day, COUNT(*) as count
-      FROM leads
-      WHERE last_contact >= CURRENT_DATE - INTERVAL '7 days'
-      GROUP BY day
-      ORDER BY day ASC
+      ORDER BY leads DESC
     `);
 
     res.json({
-      summary: generalStats.rows[0],
-      cities: cityStats.rows,
-      categories: categoryStats.rows,
-      activity: recentActivity.rows
+      core: { ...s, response_rate, interest_rate, conversion_rate },
+      niches: nicheStats.rows.map((n) => ({
+        ...n,
+        taxa_res:
+          n.leads > 0 ? ((n.respostas / n.leads) * 100).toFixed(1) + "%" : "0%",
+      })),
     });
   } catch (err) {
-    console.error("Erro no Dashboard:", err);
-    res.status(500).json({ error: "Erro ao gerar métricas." });
+    res.status(500).json({ error: err.message });
   }
 });
 

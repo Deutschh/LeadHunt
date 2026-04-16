@@ -20,6 +20,8 @@ import {
   Save,
   Sparkles, // Ícone da IA adicionado
   RotateCcw, // Ícone para resetar
+  Flame, // Adicionado para temperatura
+  Receipt,
 } from "lucide-react";
 
 const LeadDetails = ({ leadId, onBack }) => {
@@ -362,9 +364,18 @@ const LeadDetails = ({ leadId, onBack }) => {
               >
                 <Edit3 size={16} />
               </button>
-              <span className="bg-slate-100 text-rose-500 px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-widest border border-rose-500 ">
-                 {lead.lead_category} • {lead.lead_city}
-              </span>
+              {/* Onde tem o span da categoria, substitua por isso: */}
+              <div className="flex items-center gap-2 mt-1">
+                <span className="bg-slate-100 text-rose-500 px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-widest border border-rose-100">
+                  {lead.lead_category} • {lead.lead_city}
+                </span>
+                <div
+                  className={`flex items-center gap-1 px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-widest border transition-all ${interestLevel >= 5 ? "bg-orange-500 text-white border-orange-600 animate-pulse" : "bg-blue-50 text-blue-600 border-blue-100"}`}
+                >
+                  <Flame size={12} />
+                  {interestLevel} PONTOS
+                </div>
+              </div>
             </div>
             <p className="text-slate-400 font-bold text-sm uppercase tracking-widest">
               {lead.niche} • {lead.neighborhood}
@@ -415,30 +426,64 @@ const LeadDetails = ({ leadId, onBack }) => {
       {/* 4. MAIN GRID */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         <div className="lg:col-span-8 space-y-8">
+          {/* Substitua o bloco <div className="bg-white p-8 rounded-[2.5rem] ..."> da Temperatura por este: */}
           <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
-            <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center justify-between mb-8">
               <h3 className="font-black text-xs uppercase tracking-[0.2em] text-slate-400 flex items-center gap-2">
-                <TrendingUp size={16} className="text-orange-500" /> Temperatura
-                do Lead
+                <TrendingUp size={16} className="text-orange-500" /> Ações de
+                Conversão (Scoring)
               </h3>
-              <span
-                className={`text-[10px] font-black uppercase px-3 py-1 rounded-full ${["bg-slate-100", "bg-blue-100 text-blue-600", "bg-yellow-100 text-yellow-600", "bg-orange-100 text-orange-600", "bg-green-100 text-green-600"][interestLevel]}`}
-              >
-                {
-                  ["Frio", "Recusado", "Morno", "Quente", "Convertido"][
-                    interestLevel
-                  ]
-                }
-              </span>
             </div>
-            <div className="flex gap-3">
-              {[0, 1, 2, 3, 4].map((num) => (
-                <button
-                  key={num}
-                  onClick={() => handleUpdate({ interest_level: num })}
-                  className={`h-4 flex-1 rounded-full transition-all duration-500 ${interestLevel >= num ? ["bg-slate-200", "bg-blue-400", "bg-yellow-400", "bg-orange-500", "bg-green-500"][num] : "bg-slate-50"}`}
-                />
-              ))}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <button
+                onClick={() => handleUpdate({ status: "responded" })}
+                disabled={lead.status === "responded"}
+                className={`p-5 rounded-3xl font-black text-[11px] uppercase tracking-widest transition-all flex items-center justify-center gap-3 ${lead.status === "responded" ? "bg-green-50 text-green-500 border border-green-100" : "bg-slate-900 text-white hover:bg-black shadow-lg shadow-black/10"}`}
+              >
+                {lead.status === "responded" ? (
+                  <CheckCircle2 size={16} />
+                ) : (
+                  <MessageSquare size={16} />
+                )}
+                {lead.status === "responded"
+                  ? "Lead Respondeu"
+                  : "Marcar Resposta (+2)"}
+              </button>
+
+              <button
+                onClick={() => handleUpdate({ preview_sent: true })}
+                disabled={lead.preview_sent}
+                className={`p-5 rounded-3xl font-black text-[11px] uppercase tracking-widest transition-all flex items-center justify-center gap-3 ${lead.preview_sent ? "bg-blue-50 text-blue-500 border border-blue-100" : "bg-blue-600 text-white hover:bg-blue-700 shadow-lg shadow-blue-600/20"}`}
+              >
+                {lead.preview_sent ? (
+                  <CheckCircle2 size={16} />
+                ) : (
+                  <Sparkles size={16} />
+                )}
+                {lead.preview_sent ? "Preview Enviado" : "Enviar Preview (+2)"}
+              </button>
+
+              <button
+                onClick={() => handleUpdate({ price_requested: true })}
+                disabled={lead.price_requested}
+                className={`p-5 rounded-3xl font-black text-[11px] uppercase tracking-widest transition-all flex items-center justify-center gap-3 ${lead.price_requested ? "bg-purple-50 text-purple-500 border border-purple-100" : "bg-purple-600 text-white hover:bg-purple-700 shadow-lg shadow-purple-600/20"}`}
+              >
+                {lead.price_requested ? (
+                  <CheckCircle2 size={16} />
+                ) : (
+                  <Receipt size={16} />
+                )}
+                {lead.price_requested ? "Pediu Orçamento" : "Pediu Preço (+3)"}
+              </button>
+
+              <button
+                onClick={() => setShowClosingModal(true)}
+                className="p-5 rounded-3xl font-black text-[11px] uppercase tracking-widest transition-all flex items-center justify-center gap-3 bg-green-500 text-white hover:bg-green-600 shadow-lg shadow-green-500/20"
+              >
+                <DollarSign size={16} />
+                Fechar Negócio
+              </button>
             </div>
           </div>
 
