@@ -19,6 +19,8 @@ import {
   RotateCcw,
   Flame,
   Receipt,
+  BellRing,
+  Target,
 } from "lucide-react";
 
 const LeadDetails = ({ leadId, onBack }) => {
@@ -93,6 +95,150 @@ const LeadDetails = ({ leadId, onBack }) => {
     return {
       label: "Frio",
       classes: "bg-blue-50 text-blue-600 border-blue-100",
+    };
+  };
+
+  const formatDateTime = (value) => {
+    if (!value) return "—";
+    return new Date(value).toLocaleString("pt-BR");
+  };
+
+  const getFollowupStatus = () => {
+    if (!lead) return { label: "Sem dados", color: "text-slate-400" };
+
+    if (lead.last_reply_at) {
+      return {
+        label: "Lead respondeu — follow-up pausado",
+        color: "text-green-600",
+      };
+    }
+
+    if (lead.status !== "contacted") {
+      return {
+        label: "Follow-up não aplicável no momento",
+        color: "text-slate-400",
+      };
+    }
+
+    if (lead.next_followup_at) {
+      const now = new Date();
+      const next = new Date(lead.next_followup_at);
+
+      if (next <= now) {
+        return { label: "Pronto para follow-up", color: "text-orange-600" };
+      }
+
+      return { label: "Aguardando próximo follow-up", color: "text-blue-600" };
+    }
+
+    return { label: "Sem follow-up agendado", color: "text-slate-400" };
+  };
+
+  const getSuggestedAction = () => {
+    if (!lead) {
+      return {
+        title: "Sem dados",
+        description: "Carregando informações do lead.",
+        classes: "bg-slate-50 text-slate-500 border-slate-200",
+      };
+    }
+
+    const score = lead.lead_score ?? lead.interest_level ?? 0;
+
+    if (lead.status === "closed" || lead.pipeline_stage === "closed") {
+      return {
+        title: "Negócio fechado",
+        description: "Agora foque na entrega e no pós-venda.",
+        classes: "bg-green-50 text-green-700 border-green-200",
+      };
+    }
+
+    if (lead.is_invalid_number) {
+      return {
+        title: "Número inválido",
+        description: "Retire esse lead do fluxo ou tente outro contato.",
+        classes: "bg-red-50 text-red-700 border-red-200",
+      };
+    }
+
+    if (lead.status === "pending" && !lead.is_verified) {
+      return {
+        title: "Revisar e aprovar para automação",
+        description: "Esse lead ainda não foi validado para entrar no fluxo.",
+        classes: "bg-slate-50 text-slate-700 border-slate-200",
+      };
+    }
+
+    if (lead.status === "pending" && lead.is_verified && lead.is_ai_ready) {
+      return {
+        title: "Pronto para primeira abordagem",
+        description: "O lead já está validado e com mensagem pronta.",
+        classes: "bg-blue-50 text-blue-700 border-blue-200",
+      };
+    }
+
+    if (
+      lead.status === "contacted" &&
+      !lead.last_reply_at &&
+      !lead.preview_sent
+    ) {
+      if (
+        lead.next_followup_at &&
+        new Date(lead.next_followup_at) <= new Date()
+      ) {
+        return {
+          title: "Follow-up atrasado / pronto para envio",
+          description: "O lead não respondeu e já pode receber novo toque.",
+          classes: "bg-orange-50 text-orange-700 border-orange-200",
+        };
+      }
+
+      return {
+        title: "Aguardar follow-up automático",
+        description: "O lead já foi abordado e o sistema fará o próximo toque.",
+        classes: "bg-blue-50 text-blue-700 border-blue-200",
+      };
+    }
+
+    if (lead.status === "responded" && !lead.preview_sent) {
+      return {
+        title: "Enviar preview",
+        description:
+          "Esse é o melhor próximo passo para aumentar percepção de valor.",
+        classes: "bg-purple-50 text-purple-700 border-purple-200",
+      };
+    }
+
+    if (lead.preview_sent && !lead.price_requested) {
+      return {
+        title: "Conduzir para orçamento",
+        description:
+          "O lead já viu valor. Tente levar a conversa para preço/escopo.",
+        classes: "bg-indigo-50 text-indigo-700 border-indigo-200",
+      };
+    }
+
+    if (lead.price_requested && lead.status !== "closed") {
+      return {
+        title: "Pronto para fechamento",
+        description: "Lead pediu preço. Momento de negociar e fechar.",
+        classes: "bg-green-50 text-green-700 border-green-200",
+      };
+    }
+
+    if (score >= 7 && lead.status !== "closed") {
+      return {
+        title: "Lead muito quente",
+        description: "Priorize esse lead. Ele está próximo de conversão.",
+        classes: "bg-red-50 text-red-700 border-red-200",
+      };
+    }
+
+    return {
+      title: "Acompanhar evolução",
+      description:
+        "Mantenha o lead em observação e avance conforme a resposta.",
+      classes: "bg-slate-50 text-slate-700 border-slate-200",
     };
   };
 
@@ -246,6 +392,8 @@ const LeadDetails = ({ leadId, onBack }) => {
 
   const score = lead?.lead_score ?? lead?.interest_level ?? 0;
   const temp = getTemperatureMeta(score, lead?.temperature_band || "cold");
+  const followupStatus = getFollowupStatus();
+  const suggestedAction = getSuggestedAction();
 
   return (
     <div className="p-8 max-w-[1600px] mx-auto animate-in fade-in duration-700 pb-20 relative">
@@ -486,6 +634,27 @@ const LeadDetails = ({ leadId, onBack }) => {
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         <div className="lg:col-span-8 space-y-8">
+          <div
+            className={`p-6 rounded-[2.5rem] border shadow-sm ${suggestedAction.classes}`}
+          >
+            <div className="flex items-start gap-3">
+              <div className="p-3 rounded-2xl bg-white/60 border border-white/50">
+                <Target size={20} />
+              </div>
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-70 mb-2">
+                  Próxima ação sugerida
+                </p>
+                <h3 className="text-lg font-black tracking-tight mb-1">
+                  {suggestedAction.title}
+                </h3>
+                <p className="text-sm font-medium opacity-90">
+                  {suggestedAction.description}
+                </p>
+              </div>
+            </div>
+          </div>
+
           <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
             <div className="flex items-center justify-between mb-8">
               <h3 className="font-black text-xs uppercase tracking-[0.2em] text-slate-400 flex items-center gap-2">
@@ -558,6 +727,33 @@ const LeadDetails = ({ leadId, onBack }) => {
             </div>
           </div>
 
+          <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
+            <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+              <h3 className="font-black text-xs uppercase tracking-[0.2em] text-slate-400 flex items-center gap-2">
+                <BellRing size={16} className="text-blue-500" /> Follow-up
+                Automático
+              </h3>
+              <span className={`text-sm font-bold ${followupStatus.color}`}>
+                {followupStatus.label}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <InfoMiniCard
+                label="Follow-ups enviados"
+                value={lead.followup_count ?? 0}
+              />
+              <InfoMiniCard
+                label="Último follow-up"
+                value={formatDateTime(lead.last_followup_at)}
+              />
+              <InfoMiniCard
+                label="Próximo agendado"
+                value={formatDateTime(lead.next_followup_at)}
+              />
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm">
               <h3 className="font-black text-[10px] uppercase tracking-[0.2em] text-slate-400 mb-4 flex items-center gap-2">
@@ -595,6 +791,8 @@ const LeadDetails = ({ leadId, onBack }) => {
                     <div className="w-8 h-8 rounded-full bg-slate-50 border border-slate-100 flex items-center justify-center text-slate-400">
                       {act.type === "contact" ? (
                         <Send size={12} />
+                      ) : act.type === "followup" ? (
+                        <BellRing size={12} />
                       ) : (
                         <Clock size={12} />
                       )}
@@ -743,5 +941,14 @@ const LeadDetails = ({ leadId, onBack }) => {
     </div>
   );
 };
+
+const InfoMiniCard = ({ label, value }) => (
+  <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100">
+    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-2">
+      {label}
+    </p>
+    <p className="text-sm font-bold text-slate-800 break-words">{value}</p>
+  </div>
+);
 
 export default LeadDetails;

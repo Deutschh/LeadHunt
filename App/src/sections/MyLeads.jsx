@@ -18,13 +18,14 @@ import {
   Ghost,
   Coffee,
   Sparkles,
+  BellRing,
 } from "lucide-react";
 
 const MyLeads = ({ leads, loading, onRefresh, onUpdateStatus, onOpenLead }) => {
   const [currentView, setCurrentView] = useState("pending");
   const [showAiModal, setShowAiModal] = useState(false);
   const [aiConfig, setAiConfig] = useState({ limit: 10, minRating: 4.0 });
-  const [aiStep, setAiStep] = useState("idle"); // idle, processing, success, error
+  const [aiStep, setAiStep] = useState("idle");
   const [generatedCount, setGeneratedCount] = useState(0);
 
   const handleMassAI = async (config) => {
@@ -205,7 +206,7 @@ const MyLeads = ({ leads, loading, onRefresh, onUpdateStatus, onOpenLead }) => {
           <p className="text-slate-400 font-medium">
             {currentView === "limbo"
               ? "Leads que não responderam nos últimos 4 dias. Tente reaquecer!"
-              : "Acompanhe a temperatura e a evolução das abordagens realizadas."}
+              : "Acompanhe a temperatura e a próxima ação recomendada para cada lead."}
           </p>
         </div>
 
@@ -464,6 +465,92 @@ function getTemperatureMeta(score = 0, band = "cold") {
   return { label: "Frio", color: "bg-slate-300" };
 }
 
+function getSuggestedAction(lead) {
+  const score = lead.lead_score ?? lead.interest_level ?? 0;
+
+  if (lead.status === "closed" || lead.pipeline_stage === "closed") {
+    return {
+      label: "Entregar / pós-venda",
+      tone: "bg-green-50 text-green-700 border-green-200",
+    };
+  }
+
+  if (lead.is_invalid_number) {
+    return {
+      label: "Número inválido",
+      tone: "bg-red-50 text-red-700 border-red-200",
+    };
+  }
+
+  if (lead.status === "pending" && !lead.is_verified) {
+    return {
+      label: "Revisar e aprovar",
+      tone: "bg-slate-50 text-slate-700 border-slate-200",
+    };
+  }
+
+  if (lead.status === "pending" && lead.is_verified && lead.is_ai_ready) {
+    return {
+      label: "Pronto para abordagem",
+      tone: "bg-blue-50 text-blue-700 border-blue-200",
+    };
+  }
+
+  if (
+    lead.status === "contacted" &&
+    !lead.last_reply_at &&
+    !lead.preview_sent
+  ) {
+    if (
+      lead.next_followup_at &&
+      new Date(lead.next_followup_at) <= new Date()
+    ) {
+      return {
+        label: "Follow-up pronto",
+        tone: "bg-orange-50 text-orange-700 border-orange-200",
+      };
+    }
+
+    return {
+      label: "Aguardar follow-up",
+      tone: "bg-blue-50 text-blue-700 border-blue-200",
+    };
+  }
+
+  if (lead.status === "responded" && !lead.preview_sent) {
+    return {
+      label: "Enviar preview",
+      tone: "bg-purple-50 text-purple-700 border-purple-200",
+    };
+  }
+
+  if (lead.preview_sent && !lead.price_requested) {
+    return {
+      label: "Conduzir p/ orçamento",
+      tone: "bg-indigo-50 text-indigo-700 border-indigo-200",
+    };
+  }
+
+  if (lead.price_requested && lead.status !== "closed") {
+    return {
+      label: "Pronto para fechar",
+      tone: "bg-green-50 text-green-700 border-green-200",
+    };
+  }
+
+  if (score >= 7 && lead.status !== "closed") {
+    return {
+      label: "Prioridade máxima",
+      tone: "bg-red-50 text-red-700 border-red-200",
+    };
+  }
+
+  return {
+    label: "Acompanhar evolução",
+    tone: "bg-slate-50 text-slate-700 border-slate-200",
+  };
+}
+
 function LeadCard({
   lead,
   onUpdateStatus,
@@ -476,6 +563,7 @@ function LeadCard({
 
   const score = lead.lead_score ?? lead.interest_level ?? 0;
   const temp = getTemperatureMeta(score, lead.temperature_band);
+  const action = getSuggestedAction(lead);
 
   const renderStatusBadge = () => {
     if (lead.is_invalid_number) {
@@ -549,7 +637,7 @@ function LeadCard({
 
             {renderStatusBadge()}
 
-            <div className="flex items-center gap-2 text-blue-500 text-[10px] font-black uppercase tracking-widest bg-blue-50 w-fit px-2 py-1 rounded-md mb-2">
+            <div className="flex items-center gap-2 text-blue-500 text-[10px] font-black uppercase tracking-widest bg-blue-50 w-fit px-2 py-1 rounded-md">
               <Target size={12} /> {lead.lead_category || "Geral"}
             </div>
           </div>
@@ -589,16 +677,34 @@ function LeadCard({
           </div>
         </div>
 
+        <div className={`mb-5 rounded-2xl border px-4 py-3 ${action.tone}`}>
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-70 mb-1">
+            Próxima ação
+          </p>
+          <p className="text-sm font-bold">{action.label}</p>
+        </div>
+
         {showInterestScale && (
           <div className="mb-8 p-4 bg-slate-50 rounded-2xl">
-            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3">
-              Temperatura: {temp.label}
-            </p>
-            <div className="flex items-center gap-3">
-              <div className={`w-3 h-3 rounded-full ${temp.color}`}></div>
-              <span className="text-sm font-bold text-slate-700">
-                Score: {score}
-              </span>
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3">
+                  Temperatura: {temp.label}
+                </p>
+                <div className="flex items-center gap-3">
+                  <div className={`w-3 h-3 rounded-full ${temp.color}`}></div>
+                  <span className="text-sm font-bold text-slate-700">
+                    Score: {score}
+                  </span>
+                </div>
+              </div>
+
+              {lead.followup_count > 0 && (
+                <div className="inline-flex items-center gap-2 px-3 py-2 rounded-full bg-blue-50 text-blue-700 text-[11px] font-black uppercase tracking-widest border border-blue-100">
+                  <BellRing size={12} />
+                  {lead.followup_count} follow-up(s)
+                </div>
+              )}
             </div>
           </div>
         )}

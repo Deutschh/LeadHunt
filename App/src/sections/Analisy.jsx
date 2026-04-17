@@ -5,19 +5,25 @@ const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
 
 const Analysis = () => {
   const [data, setData] = useState(null);
+  const [leads, setLeads] = useState([]);
   const [period, setPeriod] = useState("30");
   const [loading, setLoading] = useState(true);
 
   const loadStats = async () => {
     try {
       setLoading(true);
-      const response = await axios.get(
-        `${API_URL}/api/leads/stats/dashboard?period=${period}`,
-      );
-      setData(response.data);
+
+      const [statsResponse, leadsResponse] = await Promise.all([
+        axios.get(`${API_URL}/api/leads/stats/dashboard?period=${period}`),
+        axios.get(`${API_URL}/api/leads`),
+      ]);
+
+      setData(statsResponse.data);
+      setLeads(leadsResponse.data || []);
     } catch (error) {
       console.error("Erro ao carregar dashboard:", error);
       setData(null);
+      setLeads([]);
     } finally {
       setLoading(false);
     }
@@ -59,6 +65,73 @@ const Analysis = () => {
     };
   }, [data]);
 
+  const filteredLeadsByPeriod = useMemo(() => {
+    const days = Number(period);
+    const now = new Date();
+
+    return leads.filter((lead) => {
+      if (!lead.created_at) return false;
+      const createdAt = new Date(lead.created_at);
+      const diffDays = (now - createdAt) / (1000 * 60 * 60 * 24);
+      return diffDays <= days;
+    });
+  }, [leads, period]);
+
+  const followupMetrics = useMemo(() => {
+    const leadsWithFollowup = filteredLeadsByPeriod.filter(
+      (lead) => Number(lead.followup_count || 0) > 0,
+    );
+
+    const totalFollowupsSent = leadsWithFollowup.reduce(
+      (acc, lead) => acc + Number(lead.followup_count || 0),
+      0,
+    );
+
+    const scheduledFollowups = filteredLeadsByPeriod.filter(
+      (lead) =>
+        lead.status === "contacted" &&
+        !lead.last_reply_at &&
+        !!lead.next_followup_at &&
+        !lead.is_archived,
+    ).length;
+
+    const recoveredByFollowup = filteredLeadsByPeriod.filter(
+      (lead) =>
+        Number(lead.followup_count || 0) > 0 &&
+        (lead.status === "responded" ||
+          lead.pipeline_stage === "responded" ||
+          lead.pipeline_stage === "interested" ||
+          lead.pipeline_stage === "preview_sent" ||
+          lead.pipeline_stage === "negotiation" ||
+          lead.pipeline_stage === "closed"),
+    ).length;
+
+    const leadsInFollowup = filteredLeadsByPeriod.filter(
+      (lead) =>
+        Number(lead.followup_count || 0) > 0 &&
+        !lead.last_reply_at &&
+        lead.status === "contacted" &&
+        !lead.is_archived,
+    ).length;
+
+    const followupRate =
+      core.sent > 0 ? (totalFollowupsSent / core.sent) * 100 : 0;
+
+    const recoveryRate =
+      leadsWithFollowup.length > 0
+        ? (recoveredByFollowup / leadsWithFollowup.length) * 100
+        : 0;
+
+    return {
+      totalFollowupsSent,
+      scheduledFollowups,
+      recoveredByFollowup,
+      leadsInFollowup,
+      followupRate,
+      recoveryRate,
+    };
+  }, [filteredLeadsByPeriod, core.sent]);
+
   const safeTotalForFunnel = Math.max(core.total_leads, 1);
   const avgRevenuePerClosed =
     core.closed > 0 ? core.total_revenue / core.closed : 0;
@@ -97,7 +170,7 @@ const Analysis = () => {
             Inteligência de Mercado
           </h1>
           <p className="text-slate-400 text-sm font-medium mt-1">
-            Veja onde estão as respostas, negociações e fechamentos.
+            Veja onde estão as respostas, negociações, follow-ups e fechamentos.
           </p>
         </div>
 
@@ -206,6 +279,49 @@ const Analysis = () => {
             value={core.closed}
             color="bg-green-500"
             total={safeTotalForFunnel}
+          />
+        </div>
+      </div>
+
+      {/* Métricas de follow-up */}
+      <div className="bg-white p-8 rounded-[40px] border border-slate-100 shadow-sm">
+        <h3 className="font-bold mb-6 text-slate-800">
+          Performance de Follow-up
+        </h3>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+          <MiniCard
+            title="Follow-ups enviados"
+            value={followupMetrics.totalFollowupsSent}
+            desc="Total de tentativas automáticas"
+          />
+          <MiniCard
+            title="Leads em follow-up"
+            value={followupMetrics.leadsInFollowup}
+            desc="Ainda sem resposta"
+          />
+          <MiniCard
+            title="Follow-ups agendados"
+            value={followupMetrics.scheduledFollowups}
+            desc="Próximas ações do sistema"
+          />
+          <MiniCard
+            title="Leads recuperados"
+            value={followupMetrics.recoveredByFollowup}
+            desc="Responderam após follow-up"
+          />
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+          <RateCard
+            title="Taxa de uso de Follow-up"
+            value={`${followupMetrics.followupRate.toFixed(1)}%`}
+            desc="Follow-ups enviados vs leads enviados"
+          />
+          <RateCard
+            title="Taxa de Recuperação"
+            value={`${followupMetrics.recoveryRate.toFixed(1)}%`}
+            desc="Leads recuperados vs leads com follow-up"
           />
         </div>
       </div>
