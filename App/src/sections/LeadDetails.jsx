@@ -3,14 +3,11 @@ import api from "../services/api";
 import {
   ArrowLeft,
   Send,
-  Star,
   ShieldCheck,
   MessageSquare,
-  Briefcase,
   History,
   TrendingUp,
   DollarSign,
-  Calendar,
   Trash2,
   Edit3,
   CheckCircle2,
@@ -18,9 +15,9 @@ import {
   Award,
   X,
   Save,
-  Sparkles, // Ícone da IA adicionado
-  RotateCcw, // Ícone para resetar
-  Flame, // Adicionado para temperatura
+  Sparkles,
+  RotateCcw,
+  Flame,
   Receipt,
 } from "lucide-react";
 
@@ -30,13 +27,11 @@ const LeadDetails = ({ leadId, onBack }) => {
   const [activities, setActivities] = useState([]);
   const [isSaving, setIsSaving] = useState(false);
 
-  // Estados de Edição
   const [selectedServices, setSelectedServices] = useState([]);
   const [observation, setObservation] = useState("");
   const [internalNotes, setInternalNotes] = useState("");
   const [customMessage, setCustomMessage] = useState("");
-  const [aiSuggestion, setAiSuggestion] = useState(""); // Novo estado para sugestão da IA
-  const [interestLevel, setInterestLevel] = useState(0);
+  const [aiSuggestion, setAiSuggestion] = useState("");
 
   const [showClosingModal, setShowClosingModal] = useState(false);
   const [dealData, setDealData] = useState({
@@ -61,13 +56,44 @@ const LeadDetails = ({ leadId, onBack }) => {
 
   const generateMessage = (currentLead, currentServices, currentObs) => {
     if (!currentLead) return "";
+
     let msg = `Sou o Guilherme, vi a *${currentLead.name}* aqui no Google...\n\n`;
-    if (currentObs) msg += `*Análise:* ${currentObs}\n\n`;
+
+    if (currentObs) {
+      msg += `*Análise:* ${currentObs}\n\n`;
+    }
+
     currentServices.forEach((s) => {
       if (templates[s]) msg += `${templates[s]}\n\n`;
     });
+
     msg += "Podemos conversar sobre como implementar isso para você?";
     return msg;
+  };
+
+  const getTemperatureMeta = (score = 0, band = "cold") => {
+    if (band === "converted") {
+      return {
+        label: "Convertido",
+        classes: "bg-green-500 text-white border-green-600",
+      };
+    }
+    if (band === "hot" || score >= 7) {
+      return {
+        label: "Quente",
+        classes: "bg-red-500 text-white border-red-600 animate-pulse",
+      };
+    }
+    if (band === "warm" || score >= 3) {
+      return {
+        label: "Morno",
+        classes: "bg-orange-100 text-orange-700 border-orange-200",
+      };
+    }
+    return {
+      label: "Frio",
+      classes: "bg-blue-50 text-blue-600 border-blue-100",
+    };
   };
 
   const fetchData = async () => {
@@ -91,15 +117,10 @@ const LeadDetails = ({ leadId, onBack }) => {
       setLead(data);
       setObservation(data.market_observation || "");
       setInternalNotes(data.internal_notes || "");
-      setInterestLevel(data.interest_level || 0);
       setActivities(activityRes.data);
       setSelectedServices(initialServices);
-      setAiSuggestion(data.ai_message_suggestion || ""); // Carrega a sugestão da IA
+      setAiSuggestion(data.ai_message_suggestion || "");
 
-      // Lógica de Mensagem:
-      // 1. Se já tem custom_message salva, usa ela.
-      // 2. Se não tem mas tem sugestão da IA, usa a IA.
-      // 3. Caso contrário, gera o padrão.
       if (data.custom_message) {
         setCustomMessage(data.custom_message);
       } else if (data.ai_message_suggestion) {
@@ -108,6 +129,10 @@ const LeadDetails = ({ leadId, onBack }) => {
         setCustomMessage(
           generateMessage(data, initialServices, data.market_observation || ""),
         );
+      }
+
+      if (data.deal_details?.services) {
+        setDealData(data.deal_details);
       }
 
       setLoading(false);
@@ -128,6 +153,7 @@ const LeadDetails = ({ leadId, onBack }) => {
       const newServices = isSelected
         ? prev.filter((s) => s !== serviceId)
         : [...prev, serviceId];
+
       setCustomMessage(generateMessage(lead, newServices, observation));
       return newServices;
     });
@@ -148,11 +174,13 @@ const LeadDetails = ({ leadId, onBack }) => {
       (acc, curr) => acc + (parseFloat(curr.price) || 0),
       0,
     );
+
     await handleUpdate({
       status: "closed",
-      interest_level: 4,
+      sale_value: total,
       deal_details: { ...dealData, totalValue: total },
     });
+
     setShowClosingModal(false);
   };
 
@@ -163,6 +191,7 @@ const LeadDetails = ({ leadId, onBack }) => {
       await fetchData();
       setTimeout(() => setIsSaving(false), 1500);
     } catch (err) {
+      console.error(err);
       alert("Erro ao atualizar.");
       setIsSaving(false);
     }
@@ -174,6 +203,7 @@ const LeadDetails = ({ leadId, onBack }) => {
         await api.patch(`/leads/${leadId}`, { is_archived: true });
         onBack();
       } catch (err) {
+        console.error(err);
         alert("Ocorreu um erro ao tentar excluir o lead.");
       }
     }
@@ -195,6 +225,7 @@ const LeadDetails = ({ leadId, onBack }) => {
       status: "contacted",
       custom_message: customMessage,
     });
+
     window.open(
       `https://wa.me/${lead.phone}?text=${encodeURIComponent(customMessage)}`,
       "_blank",
@@ -205,16 +236,19 @@ const LeadDetails = ({ leadId, onBack }) => {
     setCustomMessage(generateMessage(lead, selectedServices, observation));
   };
 
-  if (loading)
+  if (loading) {
     return (
       <div className="p-20 text-center font-black animate-pulse text-slate-400 uppercase tracking-widest">
         Iniciando Protocolo de Inteligência...
       </div>
     );
+  }
+
+  const score = lead?.lead_score ?? lead?.interest_level ?? 0;
+  const temp = getTemperatureMeta(score, lead?.temperature_band || "cold");
 
   return (
     <div className="p-8 max-w-[1600px] mx-auto animate-in fade-in duration-700 pb-20 relative">
-      {/* 1. MODAL DE FECHAMENTO (Mantido igual) */}
       {showClosingModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in zoom-in duration-300">
           <div className="bg-white w-full max-w-2xl rounded-[3rem] shadow-2xl overflow-hidden border border-white/20">
@@ -232,6 +266,7 @@ const LeadDetails = ({ leadId, onBack }) => {
                   </p>
                 </div>
               </div>
+
               <button
                 onClick={() => setShowClosingModal(false)}
                 className="p-2 hover:bg-white/10 rounded-full transition-all"
@@ -239,6 +274,7 @@ const LeadDetails = ({ leadId, onBack }) => {
                 <X size={24} />
               </button>
             </div>
+
             <div className="p-8 space-y-6 max-h-[60vh] overflow-y-auto scrollbar-hide">
               {selectedServices.map((s) => (
                 <div
@@ -259,6 +295,7 @@ const LeadDetails = ({ leadId, onBack }) => {
                       {s}
                     </h4>
                   </div>
+
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2 mb-1 block">
@@ -274,6 +311,7 @@ const LeadDetails = ({ leadId, onBack }) => {
                         }
                       />
                     </div>
+
                     <div>
                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2 mb-1 block">
                         Data de Entrega
@@ -291,6 +329,7 @@ const LeadDetails = ({ leadId, onBack }) => {
                 </div>
               ))}
             </div>
+
             <div className="p-8 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
               <div>
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">
@@ -306,6 +345,7 @@ const LeadDetails = ({ leadId, onBack }) => {
                     .toLocaleString("pt-BR")}
                 </p>
               </div>
+
               <button
                 onClick={handleFinalizeDeal}
                 className="bg-[#00b37e] text-white px-10 py-5 rounded-[2rem] font-black text-sm shadow-xl hover:scale-105 active:scale-95 transition-all"
@@ -317,7 +357,6 @@ const LeadDetails = ({ leadId, onBack }) => {
         </div>
       )}
 
-      {/* 2. BANNER DE SUCESSO (Mantido igual) */}
       {lead.status === "closed" && (
         <div className="mb-10 bg-green-500 text-white p-6 rounded-[2.5rem] flex items-center justify-between shadow-xl border border-green-400 animate-in slide-in-from-top duration-500">
           <div className="flex items-center gap-4">
@@ -333,18 +372,21 @@ const LeadDetails = ({ leadId, onBack }) => {
               </p>
             </div>
           </div>
+
           <div className="text-right">
             <p className="text-[10px] font-black uppercase tracking-widest opacity-70">
               Valor Total
             </p>
             <p className="text-3xl font-black tracking-tighter">
-              R$ {dealData.totalValue?.toLocaleString("pt-BR")}
+              R${" "}
+              {(lead.sale_value || dealData.totalValue || 0).toLocaleString(
+                "pt-BR",
+              )}
             </p>
           </div>
         </div>
       )}
 
-      {/* 3. HEADER */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-10">
         <div className="flex items-center gap-4">
           <button
@@ -353,58 +395,73 @@ const LeadDetails = ({ leadId, onBack }) => {
           >
             <ArrowLeft size={20} />
           </button>
+
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-3xl font-black tracking-tighter text-slate-900">
                 {lead.name}
               </h1>
+
               <button
                 onClick={handleEditName}
                 className="text-slate-300 hover:text-blue-500 transition-colors p-1"
               >
                 <Edit3 size={16} />
               </button>
-              {/* Onde tem o span da categoria, substitua por isso: */}
-              <div className="flex items-center gap-2 mt-1">
-                <span className="bg-slate-100 text-rose-500 px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-widest border border-rose-100">
-                  {lead.lead_category} • {lead.lead_city}
-                </span>
+
+              <span className="bg-slate-100 text-rose-500 px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-widest border border-rose-100">
+                {lead.lead_category} • {lead.lead_city}
+              </span>
+
+              <div className="flex items-center gap-2">
                 <div
-                  className={`flex items-center gap-1 px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-widest border transition-all ${interestLevel >= 5 ? "bg-orange-500 text-white border-orange-600 animate-pulse" : "bg-blue-50 text-blue-600 border-blue-100"}`}
+                  className={`flex items-center gap-1 px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-widest border ${temp.classes}`}
                 >
                   <Flame size={12} />
-                  {interestLevel} PONTOS
+                  {temp.label}
+                </div>
+
+                <div className="flex items-center gap-1 px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-widest border bg-slate-50 text-slate-700 border-slate-200">
+                  {score} pontos
                 </div>
               </div>
             </div>
+
             <p className="text-slate-400 font-bold text-sm uppercase tracking-widest">
               {lead.niche} • {lead.neighborhood}
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <button
             onClick={() =>
               handleUpdate({
                 is_verified: !lead.is_verified,
                 custom_message: customMessage,
-                is_ai_ready: true, // Ao aprovar, marcamos que a IA está revisada
+                is_ai_ready: true,
               })
             }
-            className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${lead.is_verified ? "bg-green-100 text-green-600 border-2 border-green-200" : "bg-white text-slate-400 border-2 border-slate-100"}`}
+            className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+              lead.is_verified
+                ? "bg-green-100 text-green-600 border-2 border-green-200"
+                : "bg-white text-slate-400 border-2 border-slate-100"
+            }`}
           >
             {lead.is_verified
               ? "✓ Verificado para Automação"
               : "Aprovar Automação"}
           </button>
+
           <button
             onClick={handleDelete}
             className="p-3 text-red-400 hover:bg-red-50 rounded-2xl transition-all"
           >
             <Trash2 size={20} />
           </button>
+
           <div className="h-10 w-[1px] bg-slate-200 mx-2"></div>
+
           <div className="flex bg-slate-100 p-1 rounded-2xl">
             {["pending", "contacted", "closed"].map((st) => (
               <button
@@ -414,7 +471,11 @@ const LeadDetails = ({ leadId, onBack }) => {
                     ? setShowClosingModal(true)
                     : handleUpdate({ status: st })
                 }
-                className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${lead.status === st ? "bg-white shadow-sm text-blue-600" : "text-slate-400"}`}
+                className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                  lead.status === st
+                    ? "bg-white shadow-sm text-blue-600"
+                    : "text-slate-400"
+                }`}
               >
                 {st}
               </button>
@@ -423,10 +484,8 @@ const LeadDetails = ({ leadId, onBack }) => {
         </div>
       </div>
 
-      {/* 4. MAIN GRID */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         <div className="lg:col-span-8 space-y-8">
-          {/* Substitua o bloco <div className="bg-white p-8 rounded-[2.5rem] ..."> da Temperatura por este: */}
           <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
             <div className="flex items-center justify-between mb-8">
               <h3 className="font-black text-xs uppercase tracking-[0.2em] text-slate-400 flex items-center gap-2">
@@ -439,7 +498,11 @@ const LeadDetails = ({ leadId, onBack }) => {
               <button
                 onClick={() => handleUpdate({ status: "responded" })}
                 disabled={lead.status === "responded"}
-                className={`p-5 rounded-3xl font-black text-[11px] uppercase tracking-widest transition-all flex items-center justify-center gap-3 ${lead.status === "responded" ? "bg-green-50 text-green-500 border border-green-100" : "bg-slate-900 text-white hover:bg-black shadow-lg shadow-black/10"}`}
+                className={`p-5 rounded-3xl font-black text-[11px] uppercase tracking-widest transition-all flex items-center justify-center gap-3 ${
+                  lead.status === "responded"
+                    ? "bg-green-50 text-green-500 border border-green-100"
+                    : "bg-slate-900 text-white hover:bg-black shadow-lg shadow-black/10"
+                }`}
               >
                 {lead.status === "responded" ? (
                   <CheckCircle2 size={16} />
@@ -454,7 +517,11 @@ const LeadDetails = ({ leadId, onBack }) => {
               <button
                 onClick={() => handleUpdate({ preview_sent: true })}
                 disabled={lead.preview_sent}
-                className={`p-5 rounded-3xl font-black text-[11px] uppercase tracking-widest transition-all flex items-center justify-center gap-3 ${lead.preview_sent ? "bg-blue-50 text-blue-500 border border-blue-100" : "bg-blue-600 text-white hover:bg-blue-700 shadow-lg shadow-blue-600/20"}`}
+                className={`p-5 rounded-3xl font-black text-[11px] uppercase tracking-widest transition-all flex items-center justify-center gap-3 ${
+                  lead.preview_sent
+                    ? "bg-blue-50 text-blue-500 border border-blue-100"
+                    : "bg-blue-600 text-white hover:bg-blue-700 shadow-lg shadow-blue-600/20"
+                }`}
               >
                 {lead.preview_sent ? (
                   <CheckCircle2 size={16} />
@@ -467,7 +534,11 @@ const LeadDetails = ({ leadId, onBack }) => {
               <button
                 onClick={() => handleUpdate({ price_requested: true })}
                 disabled={lead.price_requested}
-                className={`p-5 rounded-3xl font-black text-[11px] uppercase tracking-widest transition-all flex items-center justify-center gap-3 ${lead.price_requested ? "bg-purple-50 text-purple-500 border border-purple-100" : "bg-purple-600 text-white hover:bg-purple-700 shadow-lg shadow-purple-600/20"}`}
+                className={`p-5 rounded-3xl font-black text-[11px] uppercase tracking-widest transition-all flex items-center justify-center gap-3 ${
+                  lead.price_requested
+                    ? "bg-purple-50 text-purple-500 border border-purple-100"
+                    : "bg-purple-600 text-white hover:bg-purple-700 shadow-lg shadow-purple-600/20"
+                }`}
               >
                 {lead.price_requested ? (
                   <CheckCircle2 size={16} />
@@ -499,6 +570,7 @@ const LeadDetails = ({ leadId, onBack }) => {
                 onChange={(e) => setObservation(e.target.value)}
               />
             </div>
+
             <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm">
               <h3 className="font-black text-[10px] uppercase tracking-[0.2em] text-slate-400 mb-4 flex items-center gap-2">
                 <MessageSquare size={16} /> Notas Estratégicas
@@ -515,6 +587,7 @@ const LeadDetails = ({ leadId, onBack }) => {
             <h3 className="font-black text-xs uppercase tracking-[0.2em] text-slate-400 mb-8 flex items-center gap-2">
               <History size={16} /> Histórico de Atividades
             </h3>
+
             <div className="space-y-6 max-h-[400px] overflow-y-auto pr-2 scrollbar-hide">
               {activities.map((act) => (
                 <div key={act.id} className="flex gap-4 relative">
@@ -528,6 +601,7 @@ const LeadDetails = ({ leadId, onBack }) => {
                     </div>
                     <div className="w-[2px] h-full bg-slate-50 mt-2"></div>
                   </div>
+
                   <div className="pb-6">
                     <p className="text-sm font-bold text-slate-800">
                       {act.description}
@@ -542,12 +616,12 @@ const LeadDetails = ({ leadId, onBack }) => {
           </div>
         </div>
 
-        {/* COLUNA DIREITA: ABORDAGEM INTELIGENTE */}
         <div className="lg:col-span-4 space-y-6">
           <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm">
             <h3 className="font-black text-[10px] uppercase tracking-[0.2em] text-slate-400 mb-4 flex items-center gap-2">
               <DollarSign size={16} className="text-green-500" /> CAC
             </h3>
+
             <div className="flex items-center bg-slate-50 p-4 rounded-2xl">
               <span className="text-slate-400 font-black mr-2">R$</span>
               <input
@@ -572,7 +646,11 @@ const LeadDetails = ({ leadId, onBack }) => {
                 <button
                   key={s.id}
                   onClick={() => toggleService(s.id)}
-                  className={`flex flex-col items-center p-4 rounded-2xl border-2 transition-all ${selectedServices.includes(s.id) ? "border-blue-600 bg-blue-50 text-blue-600" : "border-slate-50 bg-slate-50 text-slate-300"}`}
+                  className={`flex flex-col items-center p-4 rounded-2xl border-2 transition-all ${
+                    selectedServices.includes(s.id)
+                      ? "border-blue-600 bg-blue-50 text-blue-600"
+                      : "border-slate-50 bg-slate-50 text-slate-300"
+                  }`}
                 >
                   <span className="text-2xl mb-1">{s.icon}</span>
                   <span className="text-[9px] font-black uppercase tracking-tighter">
@@ -583,9 +661,7 @@ const LeadDetails = ({ leadId, onBack }) => {
             </div>
           </div>
 
-          {/* CARD DE MENSAGEM (Onde a IA aparece) */}
           <div className="bg-slate-900 text-white p-8 rounded-[3rem] shadow-2xl relative overflow-hidden group">
-            {/* BLOCO DE SUGESTÃO IA (ADICIONADO) */}
             {aiSuggestion && (
               <div className="mb-6 p-4 bg-blue-600/20 border border-blue-500/30 rounded-2xl animate-in fade-in slide-in-from-top-2">
                 <div className="flex items-center justify-between mb-3">
@@ -595,6 +671,7 @@ const LeadDetails = ({ leadId, onBack }) => {
                       Sugestão da IA
                     </span>
                   </div>
+
                   <button
                     onClick={handleApplyAI}
                     className="bg-blue-600 hover:bg-blue-500 text-white text-[9px] font-black py-1 px-3 rounded-full transition-all active:scale-95"
@@ -602,6 +679,7 @@ const LeadDetails = ({ leadId, onBack }) => {
                     APLICAR TEXTO
                   </button>
                 </div>
+
                 <p className="text-[11px] text-blue-100/70 italic line-clamp-3 leading-relaxed">
                   "{aiSuggestion}"
                 </p>
@@ -612,6 +690,7 @@ const LeadDetails = ({ leadId, onBack }) => {
               <h3 className="font-black text-[10px] uppercase tracking-[0.3em] text-blue-400">
                 Mensagem Final
               </h3>
+
               <button
                 onClick={handleResetMessage}
                 className="text-[9px] font-black uppercase text-slate-500 flex items-center gap-1 hover:text-white transition-colors"
@@ -633,6 +712,7 @@ const LeadDetails = ({ leadId, onBack }) => {
               >
                 <Send size={18} /> Disparar WhatsApp
               </button>
+
               <button
                 onClick={() =>
                   handleUpdate({
@@ -641,7 +721,11 @@ const LeadDetails = ({ leadId, onBack }) => {
                   })
                 }
                 disabled={isSaving}
-                className={`flex-1 rounded-2xl transition-all border border-white/10 flex items-center justify-center group ${isSaving ? "bg-blue-600 text-white" : "bg-white/10 hover:bg-white/20 text-white"}`}
+                className={`flex-1 rounded-2xl transition-all border border-white/10 flex items-center justify-center group ${
+                  isSaving
+                    ? "bg-blue-600 text-white"
+                    : "bg-white/10 hover:bg-white/20 text-white"
+                }`}
               >
                 {isSaving ? (
                   <CheckCircle2 size={20} className="animate-in zoom-in" />

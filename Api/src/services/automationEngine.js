@@ -1,13 +1,15 @@
 const db = require("../database/db");
 const puppeteer = require("puppeteer-extra");
 const StealthPlugin = require("puppeteer-extra-plugin-stealth");
+const { createLeadEvent } = require("./eventService");
+
 puppeteer.use(StealthPlugin());
 
 let browser = null;
 let page = null;
 let isLoopRunning = false;
 
-// FUNÇÃO AUXILIAR: Saudação
+// Saudação por horário
 const getGreeting = () => {
   const hour = new Date().getHours();
   if (hour >= 5 && hour < 12) return "Bom dia";
@@ -15,10 +17,7 @@ const getGreeting = () => {
   return "Boa noite";
 };
 
-/**
- * FUNÇÃO MESTRE: Envia balões separados e unifica parágrafos
- * @param {boolean} isMultiline - Se true, usa Shift+Enter com delays para não disparar o balão
- */
+// Envia um balão no WhatsApp
 async function sendBubble(page, selector, text, isMultiline = false) {
   await page.waitForSelector(selector);
   await page.click(selector);
@@ -79,12 +78,14 @@ const startAutomation = async () => {
         return;
       }
 
-      // Verificação de Horário
+      // Verificação de horário
       const now = new Date();
       const currentMinTotal = now.getHours() * 60 + now.getMinutes();
       const [startH, startM] = settings.start_hour.split(":").map(Number);
       let [endH, endM] = settings.end_hour.split(":").map(Number);
+
       if (endH === 0 && endM === 0) endH = 24;
+
       if (
         currentMinTotal < startH * 60 + startM ||
         currentMinTotal >= endH * 60 + endM
@@ -98,8 +99,19 @@ const startAutomation = async () => {
       }
 
       const leadRes = await db.query(
-        "SELECT * FROM leads WHERE is_verified = true AND status = 'pending' AND is_ai_ready = true ORDER BY RANDOM() LIMIT 1",
+        `
+        SELECT *
+        FROM leads
+        WHERE is_verified = true
+          AND status = 'pending'
+          AND is_ai_ready = true
+          AND is_archived = false
+          AND COALESCE(is_invalid_number, false) = false
+        ORDER BY RANDOM()
+        LIMIT 1
+        `,
       );
+
       if (leadRes.rowCount === 0) {
         log("📭 Fila vazia. Aguardando novos leads...", "info");
         setTimeout(loop, 30000);
@@ -129,7 +141,7 @@ const startAutomation = async () => {
 
       const inputSelector = 'div[contenteditable="true"]';
 
-      // --- VALIDAÇÃO DE NÚMERO EXISTENTE ---
+      // Validação de número existente
       try {
         await page.waitForSelector(inputSelector, { timeout: 15000 });
         await new Promise((r) => setTimeout(r, 2000));
@@ -145,15 +157,42 @@ const startAutomation = async () => {
         );
 
         await db.query(
-          "UPDATE leads SET is_invalid_number = true, status = 'contacted' WHERE id = $1",
+          `
+          UPDATE leads
+          SET 
+            is_invalid_number = true,
+            status = 'lost',
+            pipeline_stage = 'lost',
+            lost_reason = 'invalid_number'
+          WHERE id = $1
+          `,
           [lead.id],
+        );
+
+        await createLeadEvent(
+          lead.id,
+          "invalid_number_detected",
+          lead.phone,
+          "automation",
+          {
+            lead_name: lead.name,
+          },
+        );
+
+        await db.query(
+          "INSERT INTO lead_activities (lead_id, description, type) VALUES ($1, $2, $3)",
+          [
+            lead.id,
+            "Número inválido detectado na automação.",
+            "invalid_number",
+          ],
         );
 
         setTimeout(loop, 5000);
         return;
       }
 
-      // --- PASSO 1: BALÃO 1 (SAUDAÇÃO) ---
+      // Balão 1: saudação
       const greetingMsg = `${getGreeting()}! Tudo bem?`;
       await sendBubble(page, inputSelector, greetingMsg);
       log(`👋 Balão 1 (Saudação) enviado.`, "info");
@@ -162,30 +201,22 @@ const startAutomation = async () => {
       log(`⏳ Aguardando ${waitTime1 / 1000}s para a proposta...`, "info");
       await new Promise((r) => setTimeout(r, waitTime1));
 
-      // --- PASSO 2: CORPO DA MENSAGEM ---
-      let bodyMessage = "";
-      let isAiMessage = false;
-
-      // --- PASSO 2 E 3: CORPO E FECHAMENTO ---
-      // --- PASSO 2 E 3: CORPO E FECHAMENTO ---
+      // Balões 2 e 3
       if (lead.custom_message && lead.custom_message.includes("---")) {
         log(`🤖 Mensagem dividida detectada para ${lead.name}`, "info");
 
         const parts = lead.custom_message.split("---");
 
-        // BALÃO 2: A Análise (Limpando possíveis assinaturas que a IA teime em colocar)
-        let messagePart1 = parts[0].trim();
+        const messagePart1 = parts[0].trim();
         await sendBubble(page, inputSelector, messagePart1, true);
 
-        // Intervalo humano
         await new Promise((r) => setTimeout(r, 6000));
 
-        // BALÃO 3: O CTA Final
-        let messagePart2 = parts[1].trim();
+        const messagePart2 = parts[1].trim();
         await sendBubble(page, inputSelector, messagePart2, true);
+
         log(`🚀 Fluxo de 3 balões concluído.`, "success");
       } else {
-        // Se a IA falhou no separador ou é template antigo, manda o bloco todo e avisa no log
         log(
           `⚠️ Mensagem sem separador ou padrão. Enviando bloco único.`,
           "info",
@@ -194,23 +225,43 @@ const startAutomation = async () => {
         await sendBubble(page, inputSelector, msg, true);
       }
 
-      // Banco de Dados
+      // Atualização do lead após envio
       await db.query(
-        "UPDATE leads SET status = 'contacted', last_contact = NOW() WHERE id = $1",
+        `
+        UPDATE leads
+        SET 
+          status = 'contacted',
+          pipeline_stage = 'contacted',
+          last_contact = NOW()
+        WHERE id = $1
+        `,
         [lead.id],
       );
+
+      await createLeadEvent(
+        lead.id,
+        "message_sent",
+        lead.assigned_number || "default",
+        "automation",
+        {
+          phone: lead.phone,
+          lead_name: lead.name,
+        },
+      );
+
       await db.query(
         "INSERT INTO lead_activities (lead_id, description, type) VALUES ($1, $2, $3)",
         [
           lead.id,
-          "Abordagem 1+1+1 (Saudação | Proposta Unificada | CTA)",
+          "Abordagem 1+1+1 enviada (Saudação | Mensagem | CTA)",
           "contact",
         ],
       );
 
-      const min = parseInt(settings.min_interval_minutes);
-      const max = parseInt(settings.max_interval_minutes);
+      const min = parseInt(settings.min_interval_minutes, 10);
+      const max = parseInt(settings.max_interval_minutes, 10);
       const waitMinutes = Math.floor(Math.random() * (max - min + 1)) + min;
+
       log(`⏳ Próximo disparo em ${waitMinutes} minutos...`, "info");
       setTimeout(loop, waitMinutes * 60000);
     } catch (err) {
@@ -232,16 +283,26 @@ function generateFallbackMessage(lead) {
     social:
       "Seu Instagram tem potencial, mas percebi que as postagens estão pouco frequentes. Vamos profissionalizar?",
   };
+
   let msg = `Sou o Guilherme, vi a *${lead.name}* aqui no Google...\n\n`;
-  if (lead.market_observation)
+
+  if (lead.market_observation) {
     msg += `*Minha análise:* ${lead.market_observation}\n\n`;
+  }
+
   let services = lead.services_offered;
-  if (typeof services === "string") services = JSON.parse(services);
+  if (typeof services === "string") {
+    services = JSON.parse(services);
+  }
+
   if (Array.isArray(services)) {
     services.forEach((s) => {
-      if (templates[s]) msg += `${templates[s]}\n\n`;
+      if (templates[s]) {
+        msg += `${templates[s]}\n\n`;
+      }
     });
   }
+
   return msg;
 }
 
