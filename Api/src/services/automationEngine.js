@@ -2,6 +2,11 @@ const db = require("../database/db");
 const puppeteer = require("puppeteer-extra");
 const StealthPlugin = require("puppeteer-extra-plugin-stealth");
 const { createLeadEvent } = require("./eventService");
+const {
+  getFollowupMessage,
+  getEligibleFollowupLead,
+  scheduleNextFollowup,
+} = require("./followupService");
 
 puppeteer.use(StealthPlugin());
 
@@ -54,6 +59,198 @@ const log = (message, type = "info") => {
   console.log(`[Automação] ${message}`);
 };
 
+async function getNextPendingLead() {
+  const leadRes = await db.query(`
+    SELECT *
+    FROM leads
+    WHERE is_verified = true
+      AND status = 'pending'
+      AND is_ai_ready = true
+      AND is_archived = false
+      AND COALESCE(is_invalid_number, false) = false
+    ORDER BY RANDOM()
+    LIMIT 1
+  `);
+
+  return leadRes.rows[0] || null;
+}
+
+async function ensureBrowserPage() {
+  try {
+    if (!browser) {
+      browser = await puppeteer.connect({
+        browserURL: "http://127.0.0.1:9222",
+        defaultViewport: null,
+      });
+      page = await browser.newPage();
+    }
+    return page;
+  } catch (err) {
+    throw new Error("Chrome não detectado na porta 9222.");
+  }
+}
+
+async function validateWhatsAppNumber(currentPage, lead) {
+  const inputSelector = 'div[contenteditable="true"]';
+  const whatsappUrl = `https://web.whatsapp.com/send?phone=${lead.phone}`;
+
+  await currentPage.goto(whatsappUrl, { waitUntil: "networkidle2" });
+
+  try {
+    await currentPage.waitForSelector(inputSelector, { timeout: 15000 });
+    await new Promise((r) => setTimeout(r, 2000));
+    return { valid: true, inputSelector };
+  } catch (err) {
+    return { valid: false, inputSelector: null };
+  }
+}
+
+async function markInvalidNumber(lead) {
+  await db.query(
+    `
+    UPDATE leads
+    SET 
+      is_invalid_number = true,
+      status = 'lost',
+      pipeline_stage = 'lost',
+      lost_reason = 'invalid_number'
+    WHERE id = $1
+    `,
+    [lead.id],
+  );
+
+  await createLeadEvent(
+    lead.id,
+    "invalid_number_detected",
+    lead.phone,
+    "automation",
+    {
+      lead_name: lead.name,
+    },
+  );
+
+  await db.query(
+    "INSERT INTO lead_activities (lead_id, description, type) VALUES ($1, $2, $3)",
+    [lead.id, "Número inválido detectado na automação.", "invalid_number"],
+  );
+}
+
+async function handleInitialApproach(currentPage, lead, inputSelector) {
+  log(`🎯 Abordagem estratégica iniciada para: ${lead.name}`, "info");
+
+  // Balão 1
+  const greetingMsg = `${getGreeting()}! Tudo bem?`;
+  await sendBubble(currentPage, inputSelector, greetingMsg);
+  log(`👋 Balão 1 (Saudação) enviado.`, "info");
+
+  const waitTime1 = Math.floor(Math.random() * (15000 - 10000 + 1)) + 10000;
+  log(`⏳ Aguardando ${waitTime1 / 1000}s para a proposta...`, "info");
+  await new Promise((r) => setTimeout(r, waitTime1));
+
+  // Balões 2 e 3
+  if (lead.custom_message && lead.custom_message.includes("---")) {
+    log(`🤖 Mensagem dividida detectada para ${lead.name}`, "info");
+
+    const parts = lead.custom_message.split("---");
+
+    const messagePart1 = parts[0].trim();
+    await sendBubble(currentPage, inputSelector, messagePart1, true);
+
+    await new Promise((r) => setTimeout(r, 6000));
+
+    const messagePart2 = parts[1].trim();
+    await sendBubble(currentPage, inputSelector, messagePart2, true);
+
+    log(`🚀 Fluxo de 3 balões concluído.`, "success");
+  } else {
+    log(`⚠️ Mensagem sem separador ou padrão. Enviando bloco único.`, "info");
+    const msg = lead.custom_message || generateFallbackMessage(lead);
+    await sendBubble(currentPage, inputSelector, msg, true);
+  }
+
+  // Atualiza lead
+  await db.query(
+    `
+    UPDATE leads
+    SET 
+      status = 'contacted',
+      pipeline_stage = 'contacted',
+      last_contact = NOW(),
+      next_followup_at = NOW() + INTERVAL '24 hours'
+    WHERE id = $1
+    `,
+    [lead.id],
+  );
+
+  await createLeadEvent(
+    lead.id,
+    "message_sent",
+    lead.assigned_number || "default",
+    "automation",
+    {
+      phone: lead.phone,
+      lead_name: lead.name,
+      message_type: "initial",
+    },
+  );
+
+  await db.query(
+    "INSERT INTO lead_activities (lead_id, description, type) VALUES ($1, $2, $3)",
+    [lead.id, "Abordagem 1+1+1 enviada (Saudação | Mensagem | CTA)", "contact"],
+  );
+}
+
+async function handleFollowup(currentPage, lead, inputSelector) {
+  const currentFollowupCount = Number(lead.followup_count || 0);
+  const message = getFollowupMessage(lead, currentFollowupCount);
+
+  log(
+    `🔁 Iniciando follow-up ${currentFollowupCount + 1} para: ${lead.name}`,
+    "info",
+  );
+
+  await sendBubble(currentPage, inputSelector, message, true);
+
+  const newFollowupCount = currentFollowupCount + 1;
+
+  await db.query(
+    `
+    UPDATE leads
+    SET
+      followup_count = $2,
+      last_followup_at = NOW(),
+      last_contact = NOW()
+    WHERE id = $1
+    `,
+    [lead.id, newFollowupCount],
+  );
+
+  await scheduleNextFollowup(lead.id, newFollowupCount);
+
+  await createLeadEvent(
+    lead.id,
+    "followup_sent",
+    String(newFollowupCount),
+    "automation",
+    {
+      phone: lead.phone,
+      lead_name: lead.name,
+      followup_count: newFollowupCount,
+    },
+  );
+
+  await db.query(
+    "INSERT INTO lead_activities (lead_id, description, type) VALUES ($1, $2, $3)",
+    [
+      lead.id,
+      `Follow-up ${newFollowupCount} enviado automaticamente.`,
+      "followup",
+    ],
+  );
+
+  log(`✅ Follow-up ${newFollowupCount} enviado para ${lead.name}`, "success");
+}
+
 const startAutomation = async () => {
   if (isLoopRunning) return;
   isLoopRunning = true;
@@ -98,165 +295,53 @@ const startAutomation = async () => {
         return;
       }
 
-      const leadRes = await db.query(
-        `
-        SELECT *
-        FROM leads
-        WHERE is_verified = true
-          AND status = 'pending'
-          AND is_ai_ready = true
-          AND is_archived = false
-          AND COALESCE(is_invalid_number, false) = false
-        ORDER BY RANDOM()
-        LIMIT 1
-        `,
-      );
+      // Prioridade 1: lead novo
+      let lead = await getNextPendingLead();
+      let mode = "initial";
 
-      if (leadRes.rowCount === 0) {
-        log("📭 Fila vazia. Aguardando novos leads...", "info");
+      // Prioridade 2: follow-up
+      if (!lead) {
+        lead = await getEligibleFollowupLead();
+        mode = lead ? "followup" : null;
+      }
+
+      if (!lead || !mode) {
+        log("📭 Fila vazia. Aguardando novos leads ou follow-ups...", "info");
         setTimeout(loop, 30000);
         return;
       }
 
-      const lead = leadRes.rows[0];
-
       try {
-        if (!browser) {
-          browser = await puppeteer.connect({
-            browserURL: "http://127.0.0.1:9222",
-            defaultViewport: null,
-          });
-          page = await browser.newPage();
+        const currentPage = await ensureBrowserPage();
+        const validation = await validateWhatsAppNumber(currentPage, lead);
+
+        if (!validation.valid) {
+          log(
+            `⚠️ Número inexistente ou inválido: ${lead.phone}. Pulando lead...`,
+            "error",
+          );
+          await markInvalidNumber(lead);
+          setTimeout(loop, 5000);
+          return;
+        }
+
+        if (mode === "initial") {
+          await handleInitialApproach(
+            currentPage,
+            lead,
+            validation.inputSelector,
+          );
+        } else {
+          await handleFollowup(currentPage, lead, validation.inputSelector);
         }
       } catch (err) {
-        log("❌ Chrome não detectado na porta 9222.", "error");
-        setTimeout(loop, 20000);
-        return;
+        if (err.message.includes("Chrome não detectado")) {
+          log("❌ Chrome não detectado na porta 9222.", "error");
+          setTimeout(loop, 20000);
+          return;
+        }
+        throw err;
       }
-
-      log(`🎯 Abordagem estratégica iniciada para: ${lead.name}`, "info");
-
-      const whatsappUrl = `https://web.whatsapp.com/send?phone=${lead.phone}`;
-      await page.goto(whatsappUrl, { waitUntil: "networkidle2" });
-
-      const inputSelector = 'div[contenteditable="true"]';
-
-      // Validação de número existente
-      try {
-        await page.waitForSelector(inputSelector, { timeout: 15000 });
-        await new Promise((r) => setTimeout(r, 2000));
-
-        log(
-          `✅ Conexão estabelecida com ${lead.name}. Iniciando disparos...`,
-          "info",
-        );
-      } catch (err) {
-        log(
-          `⚠️ Número inexistente ou inválido: ${lead.phone}. Pulando lead...`,
-          "error",
-        );
-
-        await db.query(
-          `
-          UPDATE leads
-          SET 
-            is_invalid_number = true,
-            status = 'lost',
-            pipeline_stage = 'lost',
-            lost_reason = 'invalid_number'
-          WHERE id = $1
-          `,
-          [lead.id],
-        );
-
-        await createLeadEvent(
-          lead.id,
-          "invalid_number_detected",
-          lead.phone,
-          "automation",
-          {
-            lead_name: lead.name,
-          },
-        );
-
-        await db.query(
-          "INSERT INTO lead_activities (lead_id, description, type) VALUES ($1, $2, $3)",
-          [
-            lead.id,
-            "Número inválido detectado na automação.",
-            "invalid_number",
-          ],
-        );
-
-        setTimeout(loop, 5000);
-        return;
-      }
-
-      // Balão 1: saudação
-      const greetingMsg = `${getGreeting()}! Tudo bem?`;
-      await sendBubble(page, inputSelector, greetingMsg);
-      log(`👋 Balão 1 (Saudação) enviado.`, "info");
-
-      const waitTime1 = Math.floor(Math.random() * (15000 - 10000 + 1)) + 10000;
-      log(`⏳ Aguardando ${waitTime1 / 1000}s para a proposta...`, "info");
-      await new Promise((r) => setTimeout(r, waitTime1));
-
-      // Balões 2 e 3
-      if (lead.custom_message && lead.custom_message.includes("---")) {
-        log(`🤖 Mensagem dividida detectada para ${lead.name}`, "info");
-
-        const parts = lead.custom_message.split("---");
-
-        const messagePart1 = parts[0].trim();
-        await sendBubble(page, inputSelector, messagePart1, true);
-
-        await new Promise((r) => setTimeout(r, 6000));
-
-        const messagePart2 = parts[1].trim();
-        await sendBubble(page, inputSelector, messagePart2, true);
-
-        log(`🚀 Fluxo de 3 balões concluído.`, "success");
-      } else {
-        log(
-          `⚠️ Mensagem sem separador ou padrão. Enviando bloco único.`,
-          "info",
-        );
-        const msg = lead.custom_message || generateFallbackMessage(lead);
-        await sendBubble(page, inputSelector, msg, true);
-      }
-
-      // Atualização do lead após envio
-      await db.query(
-        `
-        UPDATE leads
-        SET 
-          status = 'contacted',
-          pipeline_stage = 'contacted',
-          last_contact = NOW()
-        WHERE id = $1
-        `,
-        [lead.id],
-      );
-
-      await createLeadEvent(
-        lead.id,
-        "message_sent",
-        lead.assigned_number || "default",
-        "automation",
-        {
-          phone: lead.phone,
-          lead_name: lead.name,
-        },
-      );
-
-      await db.query(
-        "INSERT INTO lead_activities (lead_id, description, type) VALUES ($1, $2, $3)",
-        [
-          lead.id,
-          "Abordagem 1+1+1 enviada (Saudação | Mensagem | CTA)",
-          "contact",
-        ],
-      );
 
       const min = parseInt(settings.min_interval_minutes, 10);
       const max = parseInt(settings.max_interval_minutes, 10);
