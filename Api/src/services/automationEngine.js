@@ -7,6 +7,13 @@ const {
   getEligibleFollowupLead,
   scheduleNextFollowup,
 } = require("./followupService");
+const {
+  getAvailableSendingNumber,
+  assignNumberToLead,
+  incrementNumberUsage,
+  getLeadAssignedNumber,
+  getSendingNumberByPhone,
+} = require("./numberRoutingService");
 
 puppeteer.use(StealthPlugin());
 
@@ -14,7 +21,6 @@ let browser = null;
 let page = null;
 let isLoopRunning = false;
 
-// Saudação por horário
 const getGreeting = () => {
   const hour = new Date().getHours();
   if (hour >= 5 && hour < 12) return "Bom dia";
@@ -22,7 +28,6 @@ const getGreeting = () => {
   return "Boa noite";
 };
 
-// Envia um balão no WhatsApp
 async function sendBubble(page, selector, text, isMultiline = false) {
   await page.waitForSelector(selector);
   await page.click(selector);
@@ -126,6 +131,7 @@ async function markInvalidNumber(lead) {
     "automation",
     {
       lead_name: lead.name,
+      assigned_number: lead.assigned_number || null,
     },
   );
 
@@ -135,10 +141,61 @@ async function markInvalidNumber(lead) {
   );
 }
 
-async function handleInitialApproach(currentPage, lead, inputSelector) {
-  log(`🎯 Abordagem estratégica iniciada para: ${lead.name}`, "info");
+async function resolveSendingNumberForInitialLead(lead) {
+  if (lead.assigned_number) {
+    const existingNumber = await getSendingNumberByPhone(lead.assigned_number);
+    if (
+      existingNumber &&
+      existingNumber.is_active &&
+      existingNumber.status === "active"
+    ) {
+      return existingNumber;
+    }
+  }
 
-  // Balão 1
+  const availableNumber = await getAvailableSendingNumber();
+
+  if (!availableNumber) {
+    return null;
+  }
+
+  await assignNumberToLead(lead.id, availableNumber);
+  lead.assigned_number = availableNumber.phone_number;
+
+  return availableNumber;
+}
+
+async function resolveSendingNumberForFollowup(lead) {
+  const assignedPhone = await getLeadAssignedNumber(lead.id);
+
+  if (!assignedPhone) {
+    return null;
+  }
+
+  const sendingNumber = await getSendingNumberByPhone(assignedPhone);
+
+  if (
+    !sendingNumber ||
+    !sendingNumber.is_active ||
+    sendingNumber.status !== "active"
+  ) {
+    return null;
+  }
+
+  return sendingNumber;
+}
+
+async function handleInitialApproach(
+  currentPage,
+  lead,
+  inputSelector,
+  sendingNumber,
+) {
+  log(
+    `🎯 Abordagem estratégica iniciada para: ${lead.name} | Chip: ${sendingNumber.label} (${sendingNumber.phone_number})`,
+    "info",
+  );
+
   const greetingMsg = `${getGreeting()}! Tudo bem?`;
   await sendBubble(currentPage, inputSelector, greetingMsg);
   log(`👋 Balão 1 (Saudação) enviado.`, "info");
@@ -147,7 +204,6 @@ async function handleInitialApproach(currentPage, lead, inputSelector) {
   log(`⏳ Aguardando ${waitTime1 / 1000}s para a proposta...`, "info");
   await new Promise((r) => setTimeout(r, waitTime1));
 
-  // Balões 2 e 3
   if (lead.custom_message && lead.custom_message.includes("---")) {
     log(`🤖 Mensagem dividida detectada para ${lead.name}`, "info");
 
@@ -168,7 +224,6 @@ async function handleInitialApproach(currentPage, lead, inputSelector) {
     await sendBubble(currentPage, inputSelector, msg, true);
   }
 
-  // Atualiza lead
   await db.query(
     `
     UPDATE leads
@@ -176,36 +231,45 @@ async function handleInitialApproach(currentPage, lead, inputSelector) {
       status = 'contacted',
       pipeline_stage = 'contacted',
       last_contact = NOW(),
-      next_followup_at = NOW() + INTERVAL '24 hours'
+      next_followup_at = NOW() + INTERVAL '24 hours',
+      assigned_number = $2
     WHERE id = $1
     `,
-    [lead.id],
+    [lead.id, sendingNumber.phone_number],
   );
+
+  await incrementNumberUsage(sendingNumber.phone_number);
 
   await createLeadEvent(
     lead.id,
     "message_sent",
-    lead.assigned_number || "default",
+    sendingNumber.phone_number,
     "automation",
     {
       phone: lead.phone,
       lead_name: lead.name,
       message_type: "initial",
+      sending_number_label: sendingNumber.label,
+      sending_number_profile: sendingNumber.whatsapp_profile_name || null,
     },
   );
 
   await db.query(
     "INSERT INTO lead_activities (lead_id, description, type) VALUES ($1, $2, $3)",
-    [lead.id, "Abordagem 1+1+1 enviada (Saudação | Mensagem | CTA)", "contact"],
+    [
+      lead.id,
+      `Abordagem inicial enviada pelo número ${sendingNumber.label}.`,
+      "contact",
+    ],
   );
 }
 
-async function handleFollowup(currentPage, lead, inputSelector) {
+async function handleFollowup(currentPage, lead, inputSelector, sendingNumber) {
   const currentFollowupCount = Number(lead.followup_count || 0);
   const message = getFollowupMessage(lead, currentFollowupCount);
 
   log(
-    `🔁 Iniciando follow-up ${currentFollowupCount + 1} para: ${lead.name}`,
+    `🔁 Iniciando follow-up ${currentFollowupCount + 1} para: ${lead.name} | Chip: ${sendingNumber.label} (${sendingNumber.phone_number})`,
     "info",
   );
 
@@ -219,13 +283,15 @@ async function handleFollowup(currentPage, lead, inputSelector) {
     SET
       followup_count = $2,
       last_followup_at = NOW(),
-      last_contact = NOW()
+      last_contact = NOW(),
+      assigned_number = $3
     WHERE id = $1
     `,
-    [lead.id, newFollowupCount],
+    [lead.id, newFollowupCount, sendingNumber.phone_number],
   );
 
   await scheduleNextFollowup(lead.id, newFollowupCount);
+  await incrementNumberUsage(sendingNumber.phone_number);
 
   await createLeadEvent(
     lead.id,
@@ -236,6 +302,9 @@ async function handleFollowup(currentPage, lead, inputSelector) {
       phone: lead.phone,
       lead_name: lead.name,
       followup_count: newFollowupCount,
+      sending_number: sendingNumber.phone_number,
+      sending_number_label: sendingNumber.label,
+      sending_number_profile: sendingNumber.whatsapp_profile_name || null,
     },
   );
 
@@ -243,7 +312,7 @@ async function handleFollowup(currentPage, lead, inputSelector) {
     "INSERT INTO lead_activities (lead_id, description, type) VALUES ($1, $2, $3)",
     [
       lead.id,
-      `Follow-up ${newFollowupCount} enviado automaticamente.`,
+      `Follow-up ${newFollowupCount} enviado automaticamente pelo número ${sendingNumber.label}.`,
       "followup",
     ],
   );
@@ -275,7 +344,6 @@ const startAutomation = async () => {
         return;
       }
 
-      // Verificação de horário
       const now = new Date();
       const currentMinTotal = now.getHours() * 60 + now.getMinutes();
       const [startH, startM] = settings.start_hour.split(":").map(Number);
@@ -295,20 +363,69 @@ const startAutomation = async () => {
         return;
       }
 
-      // Prioridade 1: lead novo
-      let lead = await getNextPendingLead();
-      let mode = "initial";
+      // Alternância inteligente: 70% lead novo, 30% follow-up
+      let lead = null;
+      let mode = null;
+      let sendingNumber = null;
 
-      // Prioridade 2: follow-up
-      if (!lead) {
+      const shouldPickNew = Math.random() < 0.7;
+
+      if (shouldPickNew) {
+        lead = await getNextPendingLead();
+        mode = lead ? "initial" : null;
+
+        if (!lead) {
+          lead = await getEligibleFollowupLead();
+          mode = lead ? "followup" : null;
+        }
+      } else {
         lead = await getEligibleFollowupLead();
         mode = lead ? "followup" : null;
+
+        if (!lead) {
+          lead = await getNextPendingLead();
+          mode = lead ? "initial" : null;
+        }
       }
 
       if (!lead || !mode) {
-        log("📭 Fila vazia. Aguardando novos leads ou follow-ups...", "info");
+        log("📭 Fila vazia (nem novos nem follow-ups disponíveis)...", "info");
         setTimeout(loop, 30000);
         return;
+      }
+
+      if (mode === "initial") {
+        sendingNumber = await resolveSendingNumberForInitialLead(lead);
+
+        if (!sendingNumber) {
+          log(
+            "⚠️ Nenhum número disponível para novos envios no momento.",
+            "warning",
+          );
+          setTimeout(loop, 30000);
+          return;
+        }
+      } else {
+        sendingNumber = await resolveSendingNumberForFollowup(lead);
+
+        if (!sendingNumber) {
+          log(
+            `⚠️ Lead ${lead.name} sem número atribuído válido para follow-up. Pulando.`,
+            "warning",
+          );
+
+          await db.query(
+            "INSERT INTO lead_activities (lead_id, description, type) VALUES ($1, $2, $3)",
+            [
+              lead.id,
+              "Follow-up não enviado: número atribuído ausente ou inválido.",
+              "followup_error",
+            ],
+          );
+
+          setTimeout(loop, 15000);
+          return;
+        }
       }
 
       try {
@@ -330,9 +447,15 @@ const startAutomation = async () => {
             currentPage,
             lead,
             validation.inputSelector,
+            sendingNumber,
           );
         } else {
-          await handleFollowup(currentPage, lead, validation.inputSelector);
+          await handleFollowup(
+            currentPage,
+            lead,
+            validation.inputSelector,
+            sendingNumber,
+          );
         }
       } catch (err) {
         if (err.message.includes("Chrome não detectado")) {
