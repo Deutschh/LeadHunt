@@ -27,4 +27,10 @@ Thumbs.db
 # Puppeteer / Navegador
 .cache/
 
-chrome_profile/
+# Chrome profiles (WhatsApp sessions)
+chrome_profile*
+chrome_profile_*/
+chrome_profile_1/
+chrome_profile_2/
+chrome_profile_3/
+chrome_profile_scraper/
