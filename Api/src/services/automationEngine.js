@@ -17,8 +17,7 @@ const {
 
 puppeteer.use(StealthPlugin());
 
-let browser = null;
-let page = null;
+const sessions = new Map();
 let isLoopRunning = false;
 
 const getGreeting = () => {
@@ -34,6 +33,7 @@ async function sendBubble(page, selector, text, isMultiline = false) {
 
   if (isMultiline) {
     const lines = text.split("\n");
+
     for (let i = 0; i < lines.length; i++) {
       await page.keyboard.type(lines[i]);
 
@@ -61,6 +61,7 @@ const log = (message, type = "info") => {
     const time = new Date().toLocaleTimeString();
     global.io.emit("automation-log", { time, message, type });
   }
+
   console.log(`[Automação] ${message}`);
 };
 
@@ -80,18 +81,30 @@ async function getNextPendingLead() {
   return leadRes.rows[0] || null;
 }
 
-async function ensureBrowserPage() {
+async function getPageForPort(port) {
+  if (!port) {
+    throw new Error("Chrome port não informado.");
+  }
+
+  if (sessions.has(port)) {
+    return sessions.get(port).page;
+  }
+
   try {
-    if (!browser) {
-      browser = await puppeteer.connect({
-        browserURL: "http://127.0.0.1:9222",
-        defaultViewport: null,
-      });
-      page = await browser.newPage();
-    }
+    const browser = await puppeteer.connect({
+      browserURL: `http://127.0.0.1:${port}`,
+      defaultViewport: null,
+    });
+
+    const page = await browser.newPage();
+
+    sessions.set(port, { browser, page });
+
+    log(`🧠 Sessão criada na porta ${port}`, "info");
+
     return page;
   } catch (err) {
-    throw new Error("Chrome não detectado na porta 9222.");
+    throw new Error(`Chrome não detectado na porta ${port}`);
   }
 }
 
@@ -144,6 +157,7 @@ async function markInvalidNumber(lead) {
 async function resolveSendingNumberForInitialLead(lead) {
   if (lead.assigned_number) {
     const existingNumber = await getSendingNumberByPhone(lead.assigned_number);
+
     if (
       existingNumber &&
       existingNumber.is_active &&
@@ -198,7 +212,7 @@ async function handleInitialApproach(
 
   const greetingMsg = `${getGreeting()}! Tudo bem?`;
   await sendBubble(currentPage, inputSelector, greetingMsg);
-  log(`👋 Balão 1 (Saudação) enviado.`, "info");
+  log("👋 Balão 1 (Saudação) enviado.", "info");
 
   const waitTime1 = Math.floor(Math.random() * (15000 - 10000 + 1)) + 10000;
   log(`⏳ Aguardando ${waitTime1 / 1000}s para a proposta...`, "info");
@@ -217,9 +231,9 @@ async function handleInitialApproach(
     const messagePart2 = parts[1].trim();
     await sendBubble(currentPage, inputSelector, messagePart2, true);
 
-    log(`🚀 Fluxo de 3 balões concluído.`, "success");
+    log("🚀 Fluxo de 3 balões concluído.", "success");
   } else {
-    log(`⚠️ Mensagem sem separador ou padrão. Enviando bloco único.`, "info");
+    log("⚠️ Mensagem sem separador ou padrão. Enviando bloco único.", "info");
     const msg = lead.custom_message || generateFallbackMessage(lead);
     await sendBubble(currentPage, inputSelector, msg, true);
   }
@@ -251,6 +265,7 @@ async function handleInitialApproach(
       message_type: "initial",
       sending_number_label: sendingNumber.label,
       sending_number_profile: sendingNumber.whatsapp_profile_name || null,
+      chrome_port: sendingNumber.chrome_port || null,
     },
   );
 
@@ -305,6 +320,7 @@ async function handleFollowup(currentPage, lead, inputSelector, sendingNumber) {
       sending_number: sendingNumber.phone_number,
       sending_number_label: sendingNumber.label,
       sending_number_profile: sendingNumber.whatsapp_profile_name || null,
+      chrome_port: sendingNumber.chrome_port || null,
     },
   );
 
@@ -334,12 +350,20 @@ const startAutomation = async () => {
       const settings = settingsRes.rows[0];
 
       if (!settings || !settings.is_active) {
-        if (browser) {
+        if (sessions.size > 0) {
           log("⏸️ Motor pausado.", "info");
-          await browser.disconnect().catch(() => {});
-          browser = null;
-          page = null;
+
+          for (const [port, session] of sessions.entries()) {
+            try {
+              await session.browser.disconnect();
+            } catch (err) {
+              // ignora erro de desconexão
+            }
+          }
+
+          sessions.clear();
         }
+
         setTimeout(loop, 10000);
         return;
       }
@@ -428,8 +452,17 @@ const startAutomation = async () => {
         }
       }
 
+      if (!sendingNumber.chrome_port) {
+        log(
+          `⚠️ O número ${sendingNumber.label} não possui chrome_port configurada.`,
+          "warning",
+        );
+        setTimeout(loop, 15000);
+        return;
+      }
+
       try {
-        const currentPage = await ensureBrowserPage();
+        const currentPage = await getPageForPort(sendingNumber.chrome_port);
         const validation = await validateWhatsAppNumber(currentPage, lead);
 
         if (!validation.valid) {
@@ -459,10 +492,11 @@ const startAutomation = async () => {
         }
       } catch (err) {
         if (err.message.includes("Chrome não detectado")) {
-          log("❌ Chrome não detectado na porta 9222.", "error");
+          log(`❌ ${err.message}`, "error");
           setTimeout(loop, 20000);
           return;
         }
+
         throw err;
       }
 
@@ -499,6 +533,7 @@ function generateFallbackMessage(lead) {
   }
 
   let services = lead.services_offered;
+
   if (typeof services === "string") {
     services = JSON.parse(services);
   }

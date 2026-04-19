@@ -2,7 +2,6 @@ const puppeteer = require("puppeteer-extra");
 const StealthPlugin = require("puppeteer-extra-plugin-stealth");
 const db = require("../database/db");
 
-// Função para enviar os logs para a nuvem (Render) e depois para o Site
 const logScraper = (message, type = "info") => {
   if (global.workerSocket) {
     global.workerSocket.emit("scraper-log", { message, type });
@@ -14,6 +13,7 @@ puppeteer.use(StealthPlugin());
 
 async function startScraping({ niche, location, limit, minRating }) {
   let browser;
+  let page;
   let savedCount = 0;
 
   try {
@@ -27,15 +27,15 @@ async function startScraping({ niche, location, limit, minRating }) {
       .filter((t) => t);
 
     browser = await puppeteer.connect({
-      browserURL: "http://127.0.0.1:9222",
+      browserURL: "http://127.0.0.1:9333",
       defaultViewport: null,
     });
 
-    const page = await browser.newPage();
+    page = await browser.newPage();
+
     const query = `${niche} em ${location}`;
     const url = `https://www.google.com.br/maps/search/${encodeURIComponent(query)}`;
 
-    // CORRIGIDO: Usando logScraper
     logScraper(`🚀 MISSÃO INICIADA: Procurando ${limit} leads...`, "info");
 
     await page.goto(url, { waitUntil: "networkidle2" });
@@ -64,7 +64,7 @@ async function startScraping({ niche, location, limit, minRating }) {
         await leadElement.click();
         await new Promise((r) => setTimeout(r, 2000));
 
-        const data = await page.evaluate((extraSelectors) => {
+        const data = await page.evaluate((_extraSelectors) => {
           const h1s = Array.from(document.querySelectorAll("h1"));
           const nameEl = h1s.find(
             (h) =>
@@ -78,24 +78,21 @@ async function startScraping({ niche, location, limit, minRating }) {
             ? nameEl.closest('div[role="main"]')
             : document.body;
 
-          // --- LOGICA DE AVALIAÇÕES CORRIGIDA ---
           const ratingContainer = painel
             ? painel.querySelector(".F7nice")
             : null;
+
           let rating = 0;
           let reviewsCount = 0;
 
           if (ratingContainer) {
             const spans = Array.from(ratingContainer.querySelectorAll("span"));
 
-            // 1. Procuramos o span que contém a nota (procurando pela vírgula, ex: "4,8")
             const ratingSpan = spans.find((s) => s.innerText.includes(","));
             if (ratingSpan) {
               rating = parseFloat(ratingSpan.innerText.replace(",", ".")) || 0;
             }
 
-            // 2. Procuramos o span das avaliações (procurando pelo parênteses ou aria-label)
-            // Filtramos para garantir que não seja o mesmo span da nota
             const reviewsSpan = spans.find(
               (s) =>
                 (s.innerText.includes("(") && s !== ratingSpan) ||
@@ -103,7 +100,6 @@ async function startScraping({ niche, location, limit, minRating }) {
             );
 
             if (reviewsSpan) {
-              // Usamos o ariaLabel se existir (ex: "14 avaliações") ou o texto interno (ex: "(14)")
               const rawReviews = reviewsSpan.ariaLabel || reviewsSpan.innerText;
               reviewsCount = parseInt(rawReviews.replace(/\D/g, "")) || 0;
             }
@@ -151,7 +147,6 @@ async function startScraping({ niche, location, limit, minRating }) {
           if (jaExiste.rowCount > 0) {
             logScraper(`${itemHeader} ⏭️ Já cadastrado.`, "skip");
           } else {
-            // ATUALIZADO: Agora incluímos lead_category e lead_city no INSERT
             await db.query(
               `INSERT INTO leads (
                 name, phone, has_website, status, niche, 
@@ -164,14 +159,15 @@ async function startScraping({ niche, location, limit, minRating }) {
                 data.name,
                 phoneFormatado,
                 data.hasWebsite,
-                data.niche, // Este é o nicho que o Google Maps diz
+                data.niche,
                 data.rating,
                 data.neighborhood,
                 data.reviewsCount,
-                niche, // $8 - O nicho estratégico que você escolheu no modal
-                location.split(",")[0].trim(), // $9 - A cidade estratégica (limpando o "SP" ou região se houver)
+                niche,
+                location.split(",")[0].trim(),
               ],
             );
+
             savedCount++;
             logScraper(
               `${itemHeader} ✨ SALVO! [${savedCount}/${limit}]`,
@@ -184,18 +180,18 @@ async function startScraping({ niche, location, limit, minRating }) {
           else if (data.hasWebsite) reason = "Já possui site";
           else if (!phoneFormatado) reason = "Não é celular";
 
-          // CORRIGIDO: Usando logScraper
           logScraper(`${itemHeader} ⏭️ Pulado (${reason})`, "skip");
         }
       } catch (innerErr) {
+        logScraper(`⚠️ Erro ao processar item: ${innerErr.message}`, "error");
         continue;
       }
     }
   } catch (e) {
     logScraper(`❌ ERRO CRÍTICO: ${e.message}`, "error");
   } finally {
-    if (browser) await browser.disconnect();
-    // CORRIGIDO: Usando logScraper
+    if (page) await page.close().catch(() => {});
+    if (browser) await browser.disconnect().catch(() => {});
     logScraper(`🏁 MISSÃO CONCLUÍDA: ${savedCount} leads prontos!`, "success");
   }
 }

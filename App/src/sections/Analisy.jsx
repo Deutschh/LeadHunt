@@ -132,6 +132,104 @@ const Analysis = () => {
     };
   }, [filteredLeadsByPeriod, core.sent]);
 
+  const chipMetrics = useMemo(() => {
+    const chipMap = new Map();
+
+    filteredLeadsByPeriod.forEach((lead) => {
+      const chip = lead.assigned_number || "Sem chip";
+
+      if (!chipMap.has(chip)) {
+        chipMap.set(chip, {
+          chip,
+          leads: 0,
+          sent: 0,
+          replied: 0,
+          engaged: 0,
+          previews: 0,
+          negotiation: 0,
+          closed: 0,
+          revenue: 0,
+          followups: 0,
+        });
+      }
+
+      const item = chipMap.get(chip);
+
+      item.leads += 1;
+
+      const stage = lead.pipeline_stage || "";
+      const status = lead.status || "";
+
+      if (
+        [
+          "contacted",
+          "responded",
+          "interested",
+          "preview_sent",
+          "negotiation",
+          "closed",
+        ].includes(stage) ||
+        status === "contacted"
+      ) {
+        item.sent += 1;
+      }
+
+      if (
+        [
+          "responded",
+          "interested",
+          "preview_sent",
+          "negotiation",
+          "closed",
+        ].includes(stage) ||
+        status === "responded"
+      ) {
+        item.replied += 1;
+      }
+
+      if (
+        ["interested", "preview_sent", "negotiation", "closed"].includes(stage)
+      ) {
+        item.engaged += 1;
+      }
+
+      if (
+        lead.preview_sent ||
+        ["preview_sent", "negotiation", "closed"].includes(stage)
+      ) {
+        item.previews += 1;
+      }
+
+      if (
+        stage === "negotiation" ||
+        status === "negotiation" ||
+        status === "negociacao"
+      ) {
+        item.negotiation += 1;
+      }
+
+      if (stage === "closed" || status === "closed") {
+        item.closed += 1;
+      }
+
+      item.revenue += Number(lead.sale_value || 0);
+      item.followups += Number(lead.followup_count || 0);
+    });
+
+    return Array.from(chipMap.values())
+      .map((item) => ({
+        ...item,
+        responseRate: item.sent > 0 ? (item.replied / item.sent) * 100 : 0,
+        conversionRate: item.sent > 0 ? (item.closed / item.sent) * 100 : 0,
+        avgTicket: item.closed > 0 ? item.revenue / item.closed : 0,
+      }))
+      .sort((a, b) => {
+        if (b.closed !== a.closed) return b.closed - a.closed;
+        if (b.revenue !== a.revenue) return b.revenue - a.revenue;
+        return b.responseRate - a.responseRate;
+      });
+  }, [filteredLeadsByPeriod]);
+
   const safeTotalForFunnel = Math.max(core.total_leads, 1);
   const avgRevenuePerClosed =
     core.closed > 0 ? core.total_revenue / core.closed : 0;
@@ -170,7 +268,8 @@ const Analysis = () => {
             Inteligência de Mercado
           </h1>
           <p className="text-slate-400 text-sm font-medium mt-1">
-            Veja onde estão as respostas, negociações, follow-ups e fechamentos.
+            Veja onde estão as respostas, negociações, follow-ups, chips e
+            fechamentos.
           </p>
         </div>
 
@@ -189,7 +288,6 @@ const Analysis = () => {
         </div>
       </div>
 
-      {/* Métricas principais */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
         <MetricCard
           title="Leads no período"
@@ -213,7 +311,6 @@ const Analysis = () => {
         />
       </div>
 
-      {/* Taxas */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <RateCard
           title="Taxa de Resposta"
@@ -232,7 +329,6 @@ const Analysis = () => {
         />
       </div>
 
-      {/* Funil */}
       <div className="bg-white p-10 rounded-[40px] shadow-sm border border-slate-100">
         <div className="flex items-center justify-between mb-10 flex-wrap gap-3">
           <h3 className="text-sm font-black uppercase tracking-widest text-slate-400">
@@ -283,7 +379,6 @@ const Analysis = () => {
         </div>
       </div>
 
-      {/* Métricas de follow-up */}
       <div className="bg-white p-8 rounded-[40px] border border-slate-100 shadow-sm">
         <h3 className="font-bold mb-6 text-slate-800">
           Performance de Follow-up
@@ -326,7 +421,101 @@ const Analysis = () => {
         </div>
       </div>
 
-      {/* Resumo operacional */}
+      <div className="bg-white p-8 rounded-[40px] border border-slate-100 shadow-sm">
+        <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+          <h3 className="font-bold text-slate-800">Performance por Chip</h3>
+          <span className="text-xs font-bold text-slate-400">
+            Baseado em assigned_number
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+          <MiniCard
+            title="Chips ativos no período"
+            value={chipMetrics.filter((c) => c.chip !== "Sem chip").length}
+            desc="Números usados na operação"
+          />
+          <MiniCard
+            title="Leads sem chip"
+            value={chipMetrics.find((c) => c.chip === "Sem chip")?.leads || 0}
+            desc="Ainda não atribuídos"
+          />
+          <MiniCard
+            title="Melhor chip"
+            value={chipMetrics[0]?.chip || "—"}
+            desc="Ranking por fechamentos/receita"
+          />
+        </div>
+
+        {chipMetrics.length ? (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[1100px]">
+              <thead>
+                <tr className="text-left text-[11px] uppercase tracking-widest text-slate-400 border-b border-slate-100">
+                  <th className="pb-4">Chip</th>
+                  <th className="pb-4">Leads</th>
+                  <th className="pb-4">Enviados</th>
+                  <th className="pb-4">Respostas</th>
+                  <th className="pb-4">Follow-ups</th>
+                  <th className="pb-4">Fechados</th>
+                  <th className="pb-4">Tx. Resposta</th>
+                  <th className="pb-4">Tx. Conversão</th>
+                  <th className="pb-4">Faturamento</th>
+                  <th className="pb-4">Ticket Médio</th>
+                </tr>
+              </thead>
+              <tbody>
+                {chipMetrics.map((chip) => (
+                  <tr
+                    key={chip.chip}
+                    className="border-b border-slate-50 last:border-b-0"
+                  >
+                    <td className="py-4 font-black text-slate-800 text-sm">
+                      {chip.chip}
+                    </td>
+                    <td className="py-4 text-slate-600 font-semibold">
+                      {chip.leads}
+                    </td>
+                    <td className="py-4 text-slate-600 font-semibold">
+                      {chip.sent}
+                    </td>
+                    <td className="py-4 text-slate-600 font-semibold">
+                      {chip.replied}
+                    </td>
+                    <td className="py-4 text-slate-600 font-semibold">
+                      {chip.followups}
+                    </td>
+                    <td className="py-4 text-slate-600 font-semibold">
+                      {chip.closed}
+                    </td>
+                    <td className="py-4">
+                      <span className="inline-flex px-3 py-1 rounded-full bg-blue-50 text-blue-600 text-xs font-bold">
+                        {chip.responseRate.toFixed(1)}%
+                      </span>
+                    </td>
+                    <td className="py-4">
+                      <span className="inline-flex px-3 py-1 rounded-full bg-green-50 text-green-600 text-xs font-bold">
+                        {chip.conversionRate.toFixed(1)}%
+                      </span>
+                    </td>
+                    <td className="py-4 text-slate-800 font-bold">
+                      {formatCurrency(chip.revenue)}
+                    </td>
+                    <td className="py-4 text-slate-600 font-semibold">
+                      {formatCurrency(chip.avgTicket)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="text-sm text-slate-400 font-medium">
+            Nenhum dado por chip disponível para este período.
+          </div>
+        )}
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <MiniCard
           title="Mensagens enviadas"
@@ -345,7 +534,6 @@ const Analysis = () => {
         />
       </div>
 
-      {/* Nichos */}
       <div className="bg-white p-8 rounded-[40px] border border-slate-100 shadow-sm">
         <h3 className="font-bold mb-6 text-slate-800">Desempenho por Nicho</h3>
 
@@ -442,7 +630,9 @@ const MiniCard = ({ title, value, desc }) => (
     <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
       {title}
     </p>
-    <p className="text-2xl font-black text-slate-900 my-2">{value}</p>
+    <p className="text-2xl font-black text-slate-900 my-2 break-words">
+      {value}
+    </p>
     <p className="text-xs text-slate-400 font-medium">{desc}</p>
   </div>
 );

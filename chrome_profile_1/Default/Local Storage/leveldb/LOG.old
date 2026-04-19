@@ -1,0 +1,27 @@
+2026/04/14-12:49:47.969 25d0 Reusing MANIFEST C:\Users\Guilherme\Documents\LeadHunt\chrome_profile\Default\Local Storage\leveldb/MANIFEST-000001
+2026/04/14-12:49:47.976 25d0 Recovering log #216
+2026/04/14-12:49:47.984 25d0 Reusing old log C:\Users\Guilherme\Documents\LeadHunt\chrome_profile\Default\Local Storage\leveldb/000216.log 
+2026/04/14-13:08:31.451 bb0 Level-0 table #220: started
+2026/04/14-13:08:31.454 bb0 Level-0 table #220: 15681 bytes OK
+2026/04/14-13:08:31.456 bb0 Delete type=0 #216
+2026/04/14-13:38:07.541 bb0 Level-0 table #222: started
+2026/04/14-13:38:07.545 bb0 Level-0 table #222: 16769 bytes OK
+2026/04/14-13:38:07.546 bb0 Delete type=0 #219
+2026/04/14-13:38:07.546 bb0 Compacting 4@0 + 1@1 files
+2026/04/14-13:38:07.553 bb0 Generated table #223@0: 4762 keys, 148523 bytes
+2026/04/14-13:38:07.553 bb0 Compacted 4@0 + 1@1 files => 148523 bytes
+2026/04/14-13:38:07.554 bb0 compacted to: files[ 0 1 1 0 0 0 0 ]
+2026/04/14-13:38:07.554 bb0 Delete type=2 #213
+2026/04/14-13:38:07.554 bb0 Delete type=2 #215
+2026/04/14-13:38:07.554 bb0 Delete type=2 #217
+2026/04/14-13:38:07.554 bb0 Delete type=2 #220
+2026/04/14-13:38:07.555 bb0 Delete type=2 #222
+2026/04/14-14:08:07.722 bb0 Level-0 table #225: started
+2026/04/14-14:08:07.726 bb0 Level-0 table #225: 15067 bytes OK
+2026/04/14-14:08:07.728 bb0 Delete type=0 #221
+2026/04/14-14:47:30.427 bb0 Level-0 table #227: started
+2026/04/14-14:47:30.430 bb0 Level-0 table #227: 14798 bytes OK
+2026/04/14-14:47:30.432 bb0 Delete type=0 #224
+2026/04/14-16:00:27.603 bb0 Level-0 table #229: started
+2026/04/14-16:00:27.607 bb0 Level-0 table #229: 14718 bytes OK
+2026/04/14-16:00:27.609 bb0 Delete type=0 #226
