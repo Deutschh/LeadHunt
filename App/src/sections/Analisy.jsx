@@ -6,6 +6,7 @@ const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
 const Analysis = () => {
   const [data, setData] = useState(null);
   const [leads, setLeads] = useState([]);
+  const [sendingNumbers, setSendingNumbers] = useState([]);
   const [period, setPeriod] = useState("30");
   const [loading, setLoading] = useState(true);
 
@@ -13,17 +14,22 @@ const Analysis = () => {
     try {
       setLoading(true);
 
-      const [statsResponse, leadsResponse] = await Promise.all([
-        axios.get(`${API_URL}/api/leads/stats/dashboard?period=${period}`),
-        axios.get(`${API_URL}/api/leads`),
-      ]);
+      const [statsResponse, leadsResponse, numbersResponse] = await Promise.all(
+        [
+          axios.get(`${API_URL}/api/leads/stats/dashboard?period=${period}`),
+          axios.get(`${API_URL}/api/leads`),
+          axios.get(`${API_URL}/api/leads/sending-numbers`),
+        ],
+      );
 
       setData(statsResponse.data);
       setLeads(leadsResponse.data || []);
+      setSendingNumbers(numbersResponse.data || []);
     } catch (error) {
       console.error("Erro ao carregar dashboard:", error);
       setData(null);
       setLeads([]);
+      setSendingNumbers([]);
     } finally {
       setLoading(false);
     }
@@ -154,7 +160,6 @@ const Analysis = () => {
       }
 
       const item = chipMap.get(chip);
-
       item.leads += 1;
 
       const stage = lead.pipeline_stage || "";
@@ -268,8 +273,7 @@ const Analysis = () => {
             Inteligência de Mercado
           </h1>
           <p className="text-slate-400 text-sm font-medium mt-1">
-            Veja onde estão as respostas, negociações, follow-ups, chips e
-            fechamentos.
+            Centro de comando da operação, chips e performance.
           </p>
         </div>
 
@@ -380,6 +384,73 @@ const Analysis = () => {
       </div>
 
       <div className="bg-white p-8 rounded-[40px] border border-slate-100 shadow-sm">
+        <h3 className="font-bold mb-6 text-slate-800">Status dos Chips</h3>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+          {sendingNumbers.map((chip) => (
+            <div
+              key={chip.id}
+              className="p-6 rounded-[28px] border border-slate-100 bg-slate-50 shadow-sm"
+            >
+              <div className="flex items-start justify-between gap-4 mb-4">
+                <div>
+                  <p className="text-sm font-black text-slate-900">
+                    {chip.label}
+                  </p>
+                  <p className="text-xs text-slate-400 font-bold mt-1">
+                    {chip.phone_number}
+                  </p>
+                </div>
+                <span
+                  className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${
+                    chip.can_send
+                      ? "bg-green-100 text-green-700"
+                      : "bg-slate-200 text-slate-600"
+                  }`}
+                >
+                  {chip.can_send ? "Disponível" : "Indisponível"}
+                </span>
+              </div>
+
+              <div className="space-y-2 text-sm">
+                <InfoRow
+                  label="Perfil"
+                  value={chip.whatsapp_profile_name || "—"}
+                />
+                <InfoRow label="Porta" value={chip.chrome_port || "—"} />
+                <InfoRow label="Status" value={chip.status || "—"} />
+                <InfoRow label="Aquecimento" value={chip.warmup_stage || "—"} />
+                <InfoRow
+                  label="Uso hoje"
+                  value={`${chip.sent_today} / ${chip.daily_limit}`}
+                />
+                <InfoRow label="Restante" value={chip.available_slots} />
+              </div>
+
+              <div className="mt-4">
+                <div className="flex justify-between text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">
+                  <span>Uso diário</span>
+                  <span>{chip.usage_percent}%</span>
+                </div>
+                <div className="w-full h-3 rounded-full bg-slate-200 overflow-hidden">
+                  <div
+                    className={`h-full rounded-full ${
+                      chip.usage_percent >= 90
+                        ? "bg-red-500"
+                        : chip.usage_percent >= 70
+                          ? "bg-orange-500"
+                          : "bg-green-500"
+                    }`}
+                    style={{ width: `${chip.usage_percent}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="bg-white p-8 rounded-[40px] border border-slate-100 shadow-sm">
         <h3 className="font-bold mb-6 text-slate-800">
           Performance de Follow-up
         </h3>
@@ -432,8 +503,8 @@ const Analysis = () => {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
           <MiniCard
             title="Chips ativos no período"
-            value={chipMetrics.filter((c) => c.chip !== "Sem chip").length}
-            desc="Números usados na operação"
+            value={sendingNumbers.filter((c) => c.is_active).length}
+            desc="Números ativos na operação"
           />
           <MiniCard
             title="Leads sem chip"
@@ -515,90 +586,6 @@ const Analysis = () => {
           </div>
         )}
       </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <MiniCard
-          title="Mensagens enviadas"
-          value={core.sent}
-          desc="Leads abordados no período"
-        />
-        <MiniCard
-          title="Previews enviados"
-          value={core.previews}
-          desc="Momento mais importante da oferta"
-        />
-        <MiniCard
-          title="Em negociação"
-          value={core.negotiation}
-          desc="Leads mais próximos do fechamento"
-        />
-      </div>
-
-      <div className="bg-white p-8 rounded-[40px] border border-slate-100 shadow-sm">
-        <h3 className="font-bold mb-6 text-slate-800">Desempenho por Nicho</h3>
-
-        {data.niches?.length ? (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[700px]">
-              <thead>
-                <tr className="text-left text-[11px] uppercase tracking-widest text-slate-400 border-b border-slate-100">
-                  <th className="pb-4">Nicho</th>
-                  <th className="pb-4">Leads</th>
-                  <th className="pb-4">Respostas</th>
-                  <th className="pb-4">Vendas</th>
-                  <th className="pb-4">Taxa de Resposta</th>
-                  <th className="pb-4">Taxa de Fechamento</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.niches.map((n) => {
-                  const leads = Number(n.leads || 0);
-                  const respostas = Number(n.respostas || 0);
-                  const vendas = Number(n.vendas || 0);
-                  const taxaFechamento =
-                    leads > 0
-                      ? ((vendas / leads) * 100).toFixed(1) + "%"
-                      : "0%";
-
-                  return (
-                    <tr
-                      key={n.nicho || "Sem nicho"}
-                      className="border-b border-slate-50 last:border-b-0"
-                    >
-                      <td className="py-4 font-black text-slate-800 text-sm uppercase">
-                        {n.nicho || "Sem nicho"}
-                      </td>
-                      <td className="py-4 text-slate-600 font-semibold">
-                        {leads}
-                      </td>
-                      <td className="py-4 text-slate-600 font-semibold">
-                        {respostas}
-                      </td>
-                      <td className="py-4 text-slate-600 font-semibold">
-                        {vendas}
-                      </td>
-                      <td className="py-4">
-                        <span className="inline-flex px-3 py-1 rounded-full bg-blue-50 text-blue-600 text-xs font-bold">
-                          {n.taxa_res}
-                        </span>
-                      </td>
-                      <td className="py-4">
-                        <span className="inline-flex px-3 py-1 rounded-full bg-green-50 text-green-600 text-xs font-bold">
-                          {taxaFechamento}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <div className="text-sm text-slate-400 font-medium">
-            Nenhum dado por nicho disponível para este período.
-          </div>
-        )}
-      </div>
     </div>
   );
 };
@@ -655,6 +642,13 @@ const FunnelRow = ({ label, value, color, total }) => {
     </div>
   );
 };
+
+const InfoRow = ({ label, value }) => (
+  <div className="flex justify-between gap-3">
+    <span className="text-slate-400 font-semibold">{label}</span>
+    <span className="text-slate-800 font-bold text-right">{value}</span>
+  </div>
+);
 
 function formatCurrency(value) {
   return Number(value || 0).toLocaleString("pt-BR", {

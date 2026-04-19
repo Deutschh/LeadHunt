@@ -107,6 +107,60 @@ router.get("/automation/settings", async (req, res) => {
   }
 });
 
+// ROTA: Listar números/chips de envio
+router.get("/sending-numbers", async (req, res) => {
+  try {
+    const result = await db.query(`
+      SELECT
+        id,
+        label,
+        phone_number,
+        whatsapp_profile_name,
+        status,
+        daily_limit,
+        sent_today,
+        warmup_stage,
+        last_reset_at,
+        is_active,
+        chrome_port,
+        chrome_profile_path,
+        created_at
+      FROM sending_numbers
+      ORDER BY id ASC
+    `);
+
+    const rows = result.rows.map((row) => {
+      const usage_percent =
+        Number(row.daily_limit) > 0
+          ? Math.min(
+              100,
+              Math.round(
+                (Number(row.sent_today) / Number(row.daily_limit)) * 100,
+              ),
+            )
+          : 0;
+
+      return {
+        ...row,
+        usage_percent,
+        available_slots: Math.max(
+          0,
+          Number(row.daily_limit || 0) - Number(row.sent_today || 0),
+        ),
+        can_send:
+          row.is_active === true &&
+          row.status === "active" &&
+          Number(row.sent_today || 0) < Number(row.daily_limit || 0),
+      };
+    });
+
+    res.json(rows);
+  } catch (err) {
+    console.error("Erro ao buscar números de envio:", err);
+    res.status(500).json({ error: "Erro ao buscar números de envio." });
+  }
+});
+
 // 2. Buscar detalhes de UM lead (GET /api/leads/:id)
 router.get("/:id", async (req, res) => {
   try {
