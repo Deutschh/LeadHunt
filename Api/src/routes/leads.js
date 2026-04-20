@@ -8,7 +8,137 @@ const { createLeadEvent } = require("../services/eventService");
 
 puppeteer.use(StealthPlugin());
 
-// 1. Listar todos os leads (GET /api/leads)
+function calculateChipAvailability(row) {
+  const usage_percent =
+    Number(row.daily_limit) > 0
+      ? Math.min(
+          100,
+          Math.round(
+            (Number(row.sent_today || 0) / Number(row.daily_limit || 0)) * 100,
+          ),
+        )
+      : 0;
+
+  const isPaused = row.paused_until && new Date(row.paused_until) > new Date();
+
+  return {
+    ...row,
+    usage_percent,
+    is_paused: !!isPaused,
+    available_slots: Math.max(
+      0,
+      Number(row.daily_limit || 0) - Number(row.sent_today || 0),
+    ),
+    can_send:
+      row.is_active === true &&
+      row.status === "active" &&
+      !isPaused &&
+      row.health_status !== "paused" &&
+      Number(row.sent_today || 0) < Number(row.daily_limit || 0),
+  };
+}
+
+async function runSingleHealthCheck(number) {
+  if (!number.chrome_port) {
+    throw new Error("Chip não possui chrome_port configurado.");
+  }
+
+  const browser = await puppeteer.connect({
+    browserURL: `http://127.0.0.1:${number.chrome_port}`,
+    defaultViewport: null,
+  });
+
+  let page = null;
+
+  try {
+    page = await browser.newPage();
+
+    await page.goto("https://web.whatsapp.com", {
+      waitUntil: "networkidle2",
+    });
+
+    const isLogged = await page
+      .waitForSelector('div[contenteditable="true"]', {
+        timeout: 10000,
+      })
+      .then(() => true)
+      .catch(() => false);
+
+    if (!isLogged) {
+      throw new Error("WhatsApp não carregou corretamente");
+    }
+
+    await db.query(
+      `
+      UPDATE sending_numbers
+      SET
+        health_status = 'healthy',
+        last_health_check_at = NOW(),
+        last_error = NULL,
+        consecutive_failures = 0,
+        paused_until = NULL
+      WHERE id = $1
+      `,
+      [number.id],
+    );
+
+    return {
+      label: number.label,
+      id: number.id,
+      status: "healthy",
+      chrome_port: number.chrome_port,
+    };
+  } catch (err) {
+    const failuresRes = await db.query(
+      `
+      SELECT consecutive_failures
+      FROM sending_numbers
+      WHERE id = $1
+      `,
+      [number.id],
+    );
+
+    const failures = Number(failuresRes.rows[0]?.consecutive_failures || 0) + 1;
+
+    let healthStatus = "warning";
+    let pausedUntil = null;
+
+    if (failures >= 3) {
+      healthStatus = "paused";
+      pausedUntil = new Date(Date.now() + 30 * 60 * 1000);
+    }
+
+    await db.query(
+      `
+      UPDATE sending_numbers
+      SET
+        health_status = $2,
+        last_health_check_at = NOW(),
+        last_error = $3,
+        consecutive_failures = $4,
+        paused_until = $5
+      WHERE id = $1
+      `,
+      [number.id, healthStatus, err.message, failures, pausedUntil],
+    );
+
+    return {
+      label: number.label,
+      id: number.id,
+      status: "error",
+      chrome_port: number.chrome_port,
+      error: err.message,
+      paused: healthStatus === "paused",
+    };
+  } finally {
+    if (page) {
+      await page.close().catch(() => {});
+    }
+    await browser.disconnect().catch(() => {});
+  }
+}
+
+// 1. Listar todos os leads
 router.get("/", async (req, res) => {
   try {
     const result = await db.query(
@@ -21,7 +151,7 @@ router.get("/", async (req, res) => {
   }
 });
 
-// ROTA: Listar todos os nichos estratégicos
+// Listar nichos estratégicos
 router.get("/niches", async (req, res) => {
   try {
     const result = await db.query(
@@ -33,9 +163,10 @@ router.get("/niches", async (req, res) => {
   }
 });
 
-// ROTA: Adicionar ou Atualizar um nicho
+// Adicionar ou atualizar nicho
 router.post("/niches", async (req, res) => {
   const { niche_name, hook, call_to_action } = req.body;
+
   try {
     const query = `
       INSERT INTO niche_strategies (niche_name, hook, call_to_action)
@@ -44,6 +175,7 @@ router.post("/niches", async (req, res) => {
       DO UPDATE SET hook = $2, call_to_action = $3
       RETURNING *;
     `;
+
     const result = await db.query(query, [niche_name, hook, call_to_action]);
     res.json(result.rows[0]);
   } catch (err) {
@@ -51,7 +183,7 @@ router.post("/niches", async (req, res) => {
   }
 });
 
-// ROTA: Deletar um nicho
+// Deletar nicho
 router.delete("/niches/:id", async (req, res) => {
   try {
     await db.query("DELETE FROM niche_strategies WHERE id = $1", [
@@ -75,9 +207,10 @@ router.get("/notes/active", async (req, res) => {
   }
 });
 
-// Criar nova nota
+// Criar nota
 router.post("/notes", async (req, res) => {
   const { title, content, expires_at } = req.body;
+
   try {
     const result = await db.query(
       "INSERT INTO home_notes (title, content, expires_at) VALUES ($1, $2, $3) RETURNING *",
@@ -99,7 +232,7 @@ router.delete("/notes/:id", async (req, res) => {
   }
 });
 
-// ROTA: Buscar configurações de automação
+// Buscar configurações de automação
 router.get("/automation/settings", async (req, res) => {
   try {
     const result = await db.query(
@@ -111,7 +244,7 @@ router.get("/automation/settings", async (req, res) => {
   }
 });
 
-// ROTA: Atualizar configurações de automação
+// Atualizar configurações de automação
 router.patch("/automation/settings", async (req, res) => {
   const {
     is_active,
@@ -157,7 +290,7 @@ router.patch("/automation/settings", async (req, res) => {
   }
 });
 
-// ROTA: Listar números/chips de envio
+// Listar números/chips de envio
 router.get("/sending-numbers", async (req, res) => {
   try {
     const result = await db.query(`
@@ -184,46 +317,14 @@ router.get("/sending-numbers", async (req, res) => {
       ORDER BY id ASC
     `);
 
-    const rows = result.rows.map((row) => {
-      const usage_percent =
-        Number(row.daily_limit) > 0
-          ? Math.min(
-              100,
-              Math.round(
-                (Number(row.sent_today || 0) / Number(row.daily_limit || 0)) *
-                  100,
-              ),
-            )
-          : 0;
-
-      const isPaused =
-        row.paused_until && new Date(row.paused_until) > new Date();
-
-      return {
-        ...row,
-        usage_percent,
-        is_paused: !!isPaused,
-        available_slots: Math.max(
-          0,
-          Number(row.daily_limit || 0) - Number(row.sent_today || 0),
-        ),
-        can_send:
-          row.is_active === true &&
-          row.status === "active" &&
-          !isPaused &&
-          row.health_status !== "paused" &&
-          Number(row.sent_today || 0) < Number(row.daily_limit || 0),
-      };
-    });
-
-    res.json(rows);
+    res.json(result.rows.map(calculateChipAvailability));
   } catch (err) {
     console.error("Erro ao buscar números de envio:", err);
     res.status(500).json({ error: "Erro ao buscar números de envio." });
   }
 });
 
-// ROTA: Pausar chip manualmente
+// Pausar chip manualmente
 router.patch("/sending-numbers/:id/pause", async (req, res) => {
   const { id } = req.params;
   const { minutes = 30, reason = "Pausa manual" } = req.body;
@@ -258,7 +359,7 @@ router.patch("/sending-numbers/:id/pause", async (req, res) => {
   }
 });
 
-// ROTA: Reativar chip manualmente
+// Reativar chip manualmente
 router.patch("/sending-numbers/:id/resume", async (req, res) => {
   const { id } = req.params;
 
@@ -294,7 +395,7 @@ router.patch("/sending-numbers/:id/resume", async (req, res) => {
   }
 });
 
-// ROTA: Resetar falhas do chip
+// Resetar falhas do chip
 router.patch("/sending-numbers/:id/reset-failures", async (req, res) => {
   const { id } = req.params;
 
@@ -329,7 +430,7 @@ router.patch("/sending-numbers/:id/reset-failures", async (req, res) => {
   }
 });
 
-// ROTA: Alterar limite diário do chip
+// Alterar limite diário do chip
 router.patch("/sending-numbers/:id/daily-limit", async (req, res) => {
   const { id } = req.params;
   const { daily_limit } = req.body;
@@ -369,7 +470,7 @@ router.patch("/sending-numbers/:id/daily-limit", async (req, res) => {
   }
 });
 
-// ROTA: Ativar/Inativar chip
+// Ativar/Inativar chip
 router.patch("/sending-numbers/:id/toggle-active", async (req, res) => {
   const { id } = req.params;
   const { is_active } = req.body;
@@ -406,7 +507,7 @@ router.patch("/sending-numbers/:id/toggle-active", async (req, res) => {
   }
 });
 
-// ROTA: Atualizar status textual do chip
+// Atualizar status textual do chip
 router.patch("/sending-numbers/:id/status", async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
@@ -445,7 +546,41 @@ router.patch("/sending-numbers/:id/status", async (req, res) => {
   }
 });
 
-// ROTA: Testar sessão do chip
+// Health check individual
+router.post("/sending-numbers/:id/health-check", async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const result = await db.query(
+      `
+      SELECT *
+      FROM sending_numbers
+      WHERE id = $1
+      LIMIT 1
+      `,
+      [id],
+    );
+
+    if (!result.rows.length) {
+      return res.status(404).json({ error: "Chip não encontrado." });
+    }
+
+    const number = result.rows[0];
+    const checkResult = await runSingleHealthCheck(number);
+
+    return res.json({
+      message: "Health check concluído.",
+      result: checkResult,
+    });
+  } catch (err) {
+    console.error("Erro no health check individual:", err);
+    return res.status(500).json({
+      error: err.message || "Erro ao executar health check individual.",
+    });
+  }
+});
+
+// Health check em lote
 router.post("/sending-numbers/health-check-all", async (req, res) => {
   try {
     const result = await db.query(`
@@ -461,88 +596,23 @@ router.post("/sending-numbers/health-check-all", async (req, res) => {
       return res.json({ message: "Nenhum chip ativo para testar." });
     }
 
-    const results = [];
-
-    for (const number of numbers) {
-      try {
-        const browser = await puppeteer.connect({
-          browserURL: `http://127.0.0.1:${number.chrome_port}`,
-          defaultViewport: null,
-        });
-
-        const page = await browser.newPage();
-
-        await page.goto("https://web.whatsapp.com", {
-          waitUntil: "networkidle2",
-        });
-
-        // tenta detectar se o WhatsApp está logado
-        const isLogged = await page
-          .waitForSelector('div[contenteditable="true"]', {
-            timeout: 10000,
-          })
-          .then(() => true)
-          .catch(() => false);
-
-        await browser.disconnect();
-
-        if (isLogged) {
-          await db.query(
-            `
-            UPDATE sending_numbers
-            SET
-              health_status = 'healthy',
-              last_health_check_at = NOW(),
-              last_error = NULL,
-              consecutive_failures = 0,
-              paused_until = NULL
-            WHERE id = $1
-            `,
-            [number.id],
-          );
-
-          results.push({
-            label: number.label,
-            status: "healthy",
-          });
-        } else {
-          throw new Error("WhatsApp não carregou corretamente");
-        }
-      } catch (err) {
-        await db.query(
-          `
-          UPDATE sending_numbers
-          SET
-            health_status = 'warning',
-            last_health_check_at = NOW(),
-            last_error = $2,
-            consecutive_failures = COALESCE(consecutive_failures, 0) + 1
-          WHERE id = $1
-          `,
-          [number.id, err.message],
-        );
-
-        results.push({
-          label: number.label,
-          status: "error",
-          error: err.message,
-        });
-      }
-    }
+    const results = await Promise.all(
+      numbers.map(async (number) => runSingleHealthCheck(number)),
+    );
 
     return res.json({
       message: "Health check concluído.",
       results,
     });
   } catch (err) {
-    console.error(err);
+    console.error("Erro no health check em lote:", err);
     return res
       .status(500)
       .json({ error: "Erro ao executar health check em lote." });
   }
 });
 
-// Buscar detalhes de UM lead
+// Buscar detalhes de um lead
 router.get("/:id", async (req, res) => {
   try {
     const { id } = req.params;
@@ -558,7 +628,7 @@ router.get("/:id", async (req, res) => {
   }
 });
 
-// GET /api/leads/:id/activities
+// Histórico do lead
 router.get("/:id/activities", async (req, res) => {
   try {
     const { id } = req.params;
@@ -572,7 +642,7 @@ router.get("/:id/activities", async (req, res) => {
   }
 });
 
-// Rota para Verificar/Aprovar um lead para automação
+// Verificar/Aprovar lead para automação
 router.patch("/:id/verify", async (req, res) => {
   const { id } = req.params;
   const { is_verified } = req.body;
