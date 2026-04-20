@@ -35,6 +35,7 @@ const Automation = () => {
   const [isWorkerOnline, setIsWorkerOnline] = useState(false);
   const [sendingNumbers, setSendingNumbers] = useState([]);
   const [actionLoading, setActionLoading] = useState({});
+  const [isHealthCheckAllLoading, setIsHealthCheckAllLoading] = useState(false);
 
   useEffect(() => {
     const savedLogs = localStorage.getItem("leadhunt_logs");
@@ -42,7 +43,7 @@ const Automation = () => {
       setLogs(JSON.parse(savedLogs));
     }
 
-    fetchData();
+    fetchData(true);
 
     const socket = io("https://leadhunt-api.onrender.com");
 
@@ -61,9 +62,9 @@ const Automation = () => {
     return () => socket.disconnect();
   }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (showGlobalLoading = false) => {
     try {
-      setLoading(true);
+      if (showGlobalLoading) setLoading(true);
 
       const [settingsRes, leadsRes, sendingNumbersRes] = await Promise.all([
         api.get("/leads/automation/settings"),
@@ -82,7 +83,47 @@ const Automation = () => {
     } catch (err) {
       console.error("Erro ao carregar automação", err);
     } finally {
-      setLoading(false);
+      if (showGlobalLoading) setLoading(false);
+    }
+  };
+
+  const setChipLoading = (chipId, state) => {
+    setActionLoading((prev) => ({ ...prev, [chipId]: state }));
+  };
+
+  const handleHealthCheck = async (chipId) => {
+    try {
+      setChipLoading(chipId, true);
+      const { data } = await api.post(
+        `/leads/sending-numbers/${chipId}/health-check`,
+      );
+      alert(data.message || "Health check concluído.");
+      await fetchData();
+    } catch (err) {
+      console.error(err);
+      alert(err?.response?.data?.error || "Erro ao testar sessão do chip.");
+    } finally {
+      setChipLoading(chipId, false);
+    }
+  };
+
+  const handleHealthCheckAll = async () => {
+    try {
+      setIsHealthCheckAllLoading(true);
+
+      const { data } = await api.post(
+        "/leads/sending-numbers/health-check-all",
+      );
+
+      alert(data.message || "Health check concluído.");
+      await fetchData();
+    } catch (err) {
+      console.error(err);
+      alert(
+        err?.response?.data?.error || "Erro ao executar health check em lote.",
+      );
+    } finally {
+      setIsHealthCheckAllLoading(false);
     }
   };
 
@@ -115,18 +156,21 @@ const Automation = () => {
     localStorage.removeItem("leadhunt_logs");
   };
 
-  const setChipLoading = (chipId, state) => {
-    setActionLoading((prev) => ({ ...prev, [chipId]: state }));
-  };
-
   const handlePauseChip = async (chipId) => {
     const minutes = window.prompt("Pausar chip por quantos minutos?", "30");
-    if (!minutes) return;
+    if (minutes === null) return;
+
+    const parsedMinutes = Number(minutes);
+
+    if (Number.isNaN(parsedMinutes) || parsedMinutes <= 0) {
+      alert("Digite uma quantidade de minutos válida.");
+      return;
+    }
 
     try {
       setChipLoading(chipId, true);
       await api.patch(`/leads/sending-numbers/${chipId}/pause`, {
-        minutes: Number(minutes),
+        minutes: parsedMinutes,
         reason: "Pausa manual pelo painel",
       });
       await fetchData();
@@ -187,10 +231,17 @@ const Automation = () => {
 
     if (newLimit === null) return;
 
+    const parsedLimit = Number(newLimit);
+
+    if (Number.isNaN(parsedLimit) || parsedLimit < 0) {
+      alert("Digite um limite diário válido.");
+      return;
+    }
+
     try {
       setChipLoading(chip.id, true);
       await api.patch(`/leads/sending-numbers/${chip.id}/daily-limit`, {
-        daily_limit: Number(newLimit),
+        daily_limit: parsedLimit,
       });
       await fetchData();
     } catch (err) {
@@ -274,9 +325,22 @@ const Automation = () => {
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <button
-            onClick={fetchData}
+            onClick={handleHealthCheckAll}
+            disabled={isHealthCheckAllLoading}
+            className={`flex items-center gap-2 px-5 py-4 rounded-2xl font-black text-sm text-white transition-all ${
+              isHealthCheckAllLoading
+                ? "bg-blue-300 cursor-not-allowed"
+                : "bg-blue-500 hover:bg-blue-600"
+            }`}
+          >
+            <Activity size={18} />
+            {isHealthCheckAllLoading ? "Testando..." : "Testar todos os chips"}
+          </button>
+
+          <button
+            onClick={() => fetchData()}
             className="flex items-center gap-2 px-5 py-4 rounded-2xl font-black text-sm bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 transition-all"
           >
             <RefreshCw size={18} />
@@ -559,6 +623,14 @@ const Automation = () => {
                           disabled={!!actionLoading[chip.id]}
                           tone="blue"
                         />
+
+                        <ActionButton
+                          label="Testar sessão"
+                          icon={Activity}
+                          onClick={() => handleHealthCheck(chip.id)}
+                          disabled={!!actionLoading[chip.id]}
+                          tone="blue"
+                        />
                       </div>
                     </div>
                   );
@@ -573,7 +645,7 @@ const Automation = () => {
                 <ListOrdered size={16} /> Próximos na Fila ({queue.length})
               </h3>
               <button
-                onClick={fetchData}
+                onClick={() => fetchData()}
                 className="text-[10px] font-black uppercase text-blue-600"
               >
                 Atualizar

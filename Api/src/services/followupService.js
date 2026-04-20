@@ -1,66 +1,62 @@
 const db = require("../database/db");
 
-function getFollowupMessage(lead, followupCount = 0) {
-  const name = lead?.name || "sua empresa";
+const FOLLOWUP_RULES = [
+  {
+    step: 0,
+    delayHours: 24,
+    message:
+      "Oi! Passando só para saber se conseguiu ver minha mensagem anterior.",
+  },
+  {
+    step: 1,
+    delayHours: 48,
+    message:
+      "Oi! Voltando rapidamente por aqui porque achei que isso poderia fazer sentido para vocês.",
+  },
+  {
+    step: 2,
+    delayHours: 72,
+    message:
+      "Oi! Esse é meu último toque por aqui. Se fizer sentido, posso te mostrar de forma bem direta.",
+  },
+];
 
-  const messages = [
-    `Fiquei na dúvida se isso fez sentido pra ${name} ou se não era prioridade agora.`,
-    `Lembrei do seu caso aqui porque vi uma situação parecida esses dias e achei que poderia fazer sentido pra vocês.`,
-    `Vou encerrar por aqui pra não te incomodar, mas se fizer sentido depois me chama que te mostro melhor.`,
-  ];
+function getFollowupMessage(lead, currentFollowupCount = 0) {
+  const safeCount = Number(currentFollowupCount || 0);
+  const rule =
+    FOLLOWUP_RULES[safeCount] || FOLLOWUP_RULES[FOLLOWUP_RULES.length - 1];
 
-  return messages[Math.min(followupCount, messages.length - 1)];
+  return rule.message;
 }
 
-async function getEligibleFollowupLead() {
-  const result = await db.query(`
-    SELECT l.*, a.followup_enabled, a.followup_max_count
-    FROM leads l
-    CROSS JOIN automation_settings a
-    WHERE a.id = 1
-      AND a.followup_enabled = true
-      AND l.status = 'contacted'
-      AND l.pipeline_stage = 'contacted'
-      AND l.is_archived = false
-      AND COALESCE(l.is_invalid_number, false) = false
-      AND COALESCE(l.followup_count, 0) < COALESCE(a.followup_max_count, 2)
-      AND l.last_reply_at IS NULL
-      AND l.next_followup_at IS NOT NULL
-      AND l.next_followup_at <= NOW()
-    ORDER BY l.next_followup_at ASC
-    LIMIT 1
-  `);
+function getNextFollowupDelayHours(currentFollowupCount = 0) {
+  const safeCount = Number(currentFollowupCount || 0);
+  const rule =
+    FOLLOWUP_RULES[safeCount] || FOLLOWUP_RULES[FOLLOWUP_RULES.length - 1];
 
-  return result.rows[0] || null;
+  return Number(rule.delayHours || 24);
 }
 
-async function scheduleNextFollowup(leadId, nextCount) {
-  const settingsRes = await db.query(
-    "SELECT * FROM automation_settings WHERE id = 1"
-  );
-  const settings = settingsRes.rows[0];
+function hasRemainingFollowups(currentFollowupCount = 0) {
+  return Number(currentFollowupCount || 0) < FOLLOWUP_RULES.length;
+}
 
-  if (!settings) return;
+async function scheduleNextFollowup(leadId, currentFollowupCount = 0) {
+  const nextCount = Number(currentFollowupCount || 0);
 
-  let delayHours = null;
-
-  if (nextCount === 1) {
-    delayHours = settings.followup_delay_hours_1 ?? 24;
-  } else if (nextCount === 2) {
-    delayHours = settings.followup_delay_hours_2 ?? 72;
-  }
-
-  if (delayHours === null) {
+  if (!hasRemainingFollowups(nextCount)) {
     await db.query(
       `
       UPDATE leads
       SET next_followup_at = NULL
       WHERE id = $1
       `,
-      [leadId]
+      [leadId],
     );
     return;
   }
+
+  const delayHours = getNextFollowupDelayHours(nextCount);
 
   await db.query(
     `
@@ -68,12 +64,95 @@ async function scheduleNextFollowup(leadId, nextCount) {
     SET next_followup_at = NOW() + ($2 || ' hours')::interval
     WHERE id = $1
     `,
-    [leadId, delayHours]
+    [leadId, String(delayHours)],
+  );
+}
+
+async function clearNextFollowup(leadId) {
+  await db.query(
+    `
+    UPDATE leads
+    SET next_followup_at = NULL
+    WHERE id = $1
+    `,
+    [leadId],
+  );
+}
+
+async function getEligibleFollowupLead() {
+  const result = await db.query(`
+    SELECT *
+    FROM leads
+    WHERE status = 'contacted'
+      AND is_archived = false
+      AND COALESCE(is_invalid_number, false) = false
+      AND assigned_number IS NOT NULL
+      AND COALESCE(followup_count, 0) < ${FOLLOWUP_RULES.length}
+      AND next_followup_at IS NOT NULL
+      AND next_followup_at <= NOW()
+      AND COALESCE(status, '') NOT IN ('closed', 'lost')
+      AND (
+        pipeline_stage IS NULL
+        OR pipeline_stage NOT IN (
+          'responded',
+          'interested',
+          'preview_sent',
+          'negotiation',
+          'closed',
+          'lost'
+        )
+      )
+      AND last_reply_at IS NULL
+    ORDER BY next_followup_at ASC, last_contact ASC NULLS FIRST
+    LIMIT 1
+  `);
+
+  return result.rows[0] || null;
+}
+
+async function markLeadAsReplied(leadId) {
+  await db.query(
+    `
+    UPDATE leads
+    SET
+      status = 'responded',
+      pipeline_stage = 'responded',
+      responded_at = COALESCE(responded_at, NOW()),
+      last_reply_at = NOW(),
+      next_followup_at = NULL
+    WHERE id = $1
+    `,
+    [leadId],
+  );
+}
+
+async function stopFollowupForLead(leadId, reason = "manual_stop") {
+  await db.query(
+    `
+    UPDATE leads
+    SET next_followup_at = NULL
+    WHERE id = $1
+    `,
+    [leadId],
+  );
+
+  await db.query(
+    `
+    INSERT INTO lead_activities (lead_id, description, type)
+    VALUES ($1, $2, $3)
+    `,
+    [leadId, `Follow-up interrompido (${reason}).`, "followup_stop"],
   );
 }
 
 module.exports = {
+  FOLLOWUP_RULES,
   getFollowupMessage,
-  getEligibleFollowupLead,
+  getNextFollowupDelayHours,
+  hasRemainingFollowups,
   scheduleNextFollowup,
+  clearNextFollowup,
+  getEligibleFollowupLead,
+  markLeadAsReplied,
+  stopFollowupForLead,
 };

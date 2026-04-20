@@ -144,7 +144,8 @@ async function markInvalidNumber(lead) {
       is_invalid_number = true,
       status = 'lost',
       pipeline_stage = 'lost',
-      lost_reason = 'invalid_number'
+      lost_reason = 'invalid_number',
+      next_followup_at = NULL
     WHERE id = $1
     `,
     [lead.id],
@@ -174,7 +175,8 @@ async function resolveSendingNumberForInitialLead(lead) {
     if (
       existingNumber &&
       existingNumber.is_active &&
-      existingNumber.status === "active"
+      existingNumber.status === "active" &&
+      existingNumber.chrome_port
     ) {
       return existingNumber;
     }
@@ -204,7 +206,8 @@ async function resolveSendingNumberForFollowup(lead) {
   if (
     !sendingNumber ||
     !sendingNumber.is_active ||
-    sendingNumber.status !== "active"
+    sendingNumber.status !== "active" ||
+    !sendingNumber.chrome_port
   ) {
     return null;
   }
@@ -272,6 +275,9 @@ async function handleInitialApproach(
       pipeline_stage = 'contacted',
       last_contact = NOW(),
       next_followup_at = NOW() + INTERVAL '24 hours',
+      followup_count = 0,
+      last_followup_at = NULL,
+      last_reply_at = NULL,
       assigned_number = $2
     WHERE id = $1
     `,
@@ -386,7 +392,7 @@ const startAutomation = async () => {
         if (sessions.size > 0) {
           log("⏸️ Motor pausado.", "info");
 
-          for (const [port, session] of sessions.entries()) {
+          for (const [, session] of sessions.entries()) {
             try {
               await session.browser.disconnect();
             } catch (err) {

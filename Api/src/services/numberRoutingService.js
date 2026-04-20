@@ -3,9 +3,11 @@ const db = require("../database/db");
 async function resetDailyCountersIfNeeded() {
   await db.query(`
     UPDATE sending_numbers
-    SET sent_today = 0,
-        last_reset_at = NOW()
-    WHERE DATE(last_reset_at) < CURRENT_DATE
+    SET
+      sent_today = 0,
+      last_reset_at = NOW()
+    WHERE last_reset_at IS NULL
+       OR DATE(last_reset_at) < CURRENT_DATE
   `);
 }
 
@@ -17,7 +19,9 @@ async function getAvailableSendingNumber() {
     FROM sending_numbers
     WHERE is_active = true
       AND status = 'active'
-      AND sent_today < daily_limit
+      AND COALESCE(health_status, 'healthy') IN ('healthy', 'warning')
+      AND COALESCE(sent_today, 0) < COALESCE(daily_limit, 0)
+      AND chrome_port IS NOT NULL
       AND (paused_until IS NULL OR paused_until <= NOW())
     ORDER BY sent_today ASC, created_at ASC
     LIMIT 1
@@ -83,7 +87,8 @@ async function markNumberHealthy(phoneNumber) {
       health_status = 'healthy',
       last_health_check_at = NOW(),
       last_error = NULL,
-      consecutive_failures = 0
+      consecutive_failures = 0,
+      paused_until = NULL
     WHERE phone_number = $1
     `,
     [phoneNumber],
@@ -119,7 +124,7 @@ async function markNumberFailure(phoneNumber, errorMessage) {
       last_health_check_at = NOW(),
       last_error = $3,
       consecutive_failures = $4,
-      paused_until = COALESCE($5, paused_until)
+      paused_until = $5
     WHERE phone_number = $1
     `,
     [phoneNumber, healthStatus, errorMessage, nextFailures, pausedUntil],
@@ -133,7 +138,8 @@ async function clearExpiredPauses() {
       paused_until = NULL,
       health_status = 'healthy',
       consecutive_failures = 0,
-      last_error = NULL
+      last_error = NULL,
+      last_health_check_at = NOW()
     WHERE paused_until IS NOT NULL
       AND paused_until <= NOW()
   `);

@@ -1,9 +1,11 @@
 const express = require("express");
 const router = express.Router();
 const db = require("../database/db");
+const puppeteer = require("puppeteer-extra");
+const StealthPlugin = require("puppeteer-extra-plugin-stealth");
 const { generateLeadMessage } = require("../services/aiService");
 const { createLeadEvent } = require("../services/eventService");
-const StealthPlugin = require("puppeteer-extra-plugin-stealth");
+
 puppeteer.use(StealthPlugin());
 
 // 1. Listar todos os leads (GET /api/leads)
@@ -97,7 +99,7 @@ router.delete("/notes/:id", async (req, res) => {
   }
 });
 
-// 2. Rota para buscar configurações de automação
+// ROTA: Buscar configurações de automação
 router.get("/automation/settings", async (req, res) => {
   try {
     const result = await db.query(
@@ -106,6 +108,52 @@ router.get("/automation/settings", async (req, res) => {
     res.json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ error: "Erro ao buscar configurações." });
+  }
+});
+
+// ROTA: Atualizar configurações de automação
+router.patch("/automation/settings", async (req, res) => {
+  const {
+    is_active,
+    min_interval_minutes,
+    max_interval_minutes,
+    daily_limit,
+    start_hour,
+    end_hour,
+    is_ai_enabled,
+  } = req.body;
+
+  try {
+    const result = await db.query(
+      `
+      UPDATE automation_settings
+      SET
+        is_active = COALESCE($1, is_active),
+        min_interval_minutes = COALESCE($2, min_interval_minutes),
+        max_interval_minutes = COALESCE($3, max_interval_minutes),
+        daily_limit = COALESCE($4, daily_limit),
+        start_hour = COALESCE($5, start_hour),
+        end_hour = COALESCE($6, end_hour),
+        is_ai_enabled = COALESCE($7, is_ai_enabled),
+        updated_at = NOW()
+      WHERE id = 1
+      RETURNING *
+      `,
+      [
+        is_active,
+        min_interval_minutes,
+        max_interval_minutes,
+        daily_limit,
+        start_hour,
+        end_hour,
+        is_ai_enabled,
+      ],
+    );
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error("Erro ao atualizar configurações:", err);
+    res.status(500).json({ error: "Erro ao atualizar configurações." });
   }
 });
 
@@ -398,119 +446,112 @@ router.patch("/sending-numbers/:id/status", async (req, res) => {
 });
 
 // ROTA: Testar sessão do chip
-router.post("/sending-numbers/:id/health-check", async (req, res) => {
-  const { id } = req.params;
-  let browser = null;
-  let page = null;
-
+router.post("/sending-numbers/health-check-all", async (req, res) => {
   try {
-    const chipRes = await db.query(
-      `
+    const result = await db.query(`
       SELECT *
       FROM sending_numbers
-      WHERE id = $1
-      LIMIT 1
-      `,
-      [id],
-    );
+      WHERE is_active = true
+        AND chrome_port IS NOT NULL
+    `);
 
-    if (chipRes.rowCount === 0) {
-      return res.status(404).json({ error: "Chip não encontrado." });
+    const numbers = result.rows;
+
+    if (!numbers.length) {
+      return res.json({ message: "Nenhum chip ativo para testar." });
     }
 
-    const chip = chipRes.rows[0];
+    const results = [];
 
-    if (!chip.chrome_port) {
-      return res.status(400).json({ error: "Chip sem chrome_port configurada." });
+    for (const number of numbers) {
+      try {
+        const browser = await puppeteer.connect({
+          browserURL: `http://127.0.0.1:${number.chrome_port}`,
+          defaultViewport: null,
+        });
+
+        const page = await browser.newPage();
+
+        await page.goto("https://web.whatsapp.com", {
+          waitUntil: "networkidle2",
+        });
+
+        // tenta detectar se o WhatsApp está logado
+        const isLogged = await page
+          .waitForSelector('div[contenteditable="true"]', {
+            timeout: 10000,
+          })
+          .then(() => true)
+          .catch(() => false);
+
+        await browser.disconnect();
+
+        if (isLogged) {
+          await db.query(
+            `
+            UPDATE sending_numbers
+            SET
+              health_status = 'healthy',
+              last_health_check_at = NOW(),
+              last_error = NULL,
+              consecutive_failures = 0,
+              paused_until = NULL
+            WHERE id = $1
+            `,
+            [number.id],
+          );
+
+          results.push({
+            label: number.label,
+            status: "healthy",
+          });
+        } else {
+          throw new Error("WhatsApp não carregou corretamente");
+        }
+      } catch (err) {
+        await db.query(
+          `
+          UPDATE sending_numbers
+          SET
+            health_status = 'warning',
+            last_health_check_at = NOW(),
+            last_error = $2,
+            consecutive_failures = COALESCE(consecutive_failures, 0) + 1
+          WHERE id = $1
+          `,
+          [number.id, err.message],
+        );
+
+        results.push({
+          label: number.label,
+          status: "error",
+          error: err.message,
+        });
+      }
     }
-
-    browser = await puppeteer.connect({
-      browserURL: `http://127.0.0.1:${chip.chrome_port}`,
-      defaultViewport: null,
-    });
-
-    page = await browser.newPage();
-    await page.goto("https://web.whatsapp.com", { waitUntil: "networkidle2" });
-
-    const pageContent = await page.content();
-
-    const looksValid =
-      pageContent.includes("WhatsApp") ||
-      pageContent.includes("Use o WhatsApp") ||
-      pageContent.includes("Conecte-se ao WhatsApp") ||
-      pageContent.includes("Mensagens");
-
-    if (!looksValid) {
-      await db.query(
-        `
-        UPDATE sending_numbers
-        SET
-          health_status = 'warning',
-          last_health_check_at = NOW(),
-          last_error = $2
-        WHERE id = $1
-        `,
-        [id, "Health check falhou: página do WhatsApp não reconhecida."],
-      );
-
-      return res.status(200).json({
-        success: false,
-        message: "Sessão respondeu, mas o conteúdo não parece ser do WhatsApp.",
-      });
-    }
-
-    await db.query(
-      `
-      UPDATE sending_numbers
-      SET
-        health_status = 'healthy',
-        last_health_check_at = NOW(),
-        last_error = NULL,
-        consecutive_failures = 0
-      WHERE id = $1
-      `,
-      [id],
-    );
 
     return res.json({
-      success: true,
-      message: `Sessão da porta ${chip.chrome_port} está saudável.`,
+      message: "Health check concluído.",
+      results,
     });
   } catch (err) {
-    try {
-      await db.query(
-        `
-        UPDATE sending_numbers
-        SET
-          health_status = 'warning',
-          last_health_check_at = NOW(),
-          last_error = $2
-        WHERE id = $1
-        `,
-        [id, `Health check falhou: ${err.message}`],
-      );
-    } catch (updateErr) {
-      console.error("Erro ao atualizar health check:", updateErr);
-    }
-
-    return res.status(500).json({
-      success: false,
-      error: `Erro no health check: ${err.message}`,
-    });
-  } finally {
-    if (page) await page.close().catch(() => {});
-    if (browser) await browser.disconnect().catch(() => {});
+    console.error(err);
+    return res
+      .status(500)
+      .json({ error: "Erro ao executar health check em lote." });
   }
 });
 
-// 2. Buscar detalhes de UM lead (GET /api/leads/:id)
+// Buscar detalhes de UM lead
 router.get("/:id", async (req, res) => {
   try {
     const { id } = req.params;
     const result = await db.query("SELECT * FROM leads WHERE id = $1", [id]);
+
     if (result.rows.length === 0) {
       return res.status(404).json({ message: "Lead não encontrado" });
     }
+
     res.json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -531,10 +572,11 @@ router.get("/:id/activities", async (req, res) => {
   }
 });
 
-// 1. Rota para Verificar/Aprovar um lead para automação
+// Rota para Verificar/Aprovar um lead para automação
 router.patch("/:id/verify", async (req, res) => {
   const { id } = req.params;
   const { is_verified } = req.body;
+
   try {
     const result = await db.query(
       "UPDATE leads SET is_verified = $1 WHERE id = $2 RETURNING *",
@@ -677,8 +719,8 @@ router.patch("/:id", async (req, res) => {
       internal_notes,
       services_offered ? JSON.stringify(services_offered) : null,
       competitor_url,
-      newScore, // compatibilidade temporária com interest_level
-      newScore, // lead_score real
+      newScore,
+      newScore,
       newTemperatureBand,
       newPipelineStage,
       update_contact || false,
@@ -749,6 +791,7 @@ router.patch("/:id", async (req, res) => {
   }
 });
 
+// Geração em massa de IA
 router.post("/generate-ai-mass", async (req, res) => {
   const { limit = 10, minRating = 0, status = "pending", category } = req.body;
 
