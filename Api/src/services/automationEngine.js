@@ -13,6 +13,9 @@ const {
   incrementNumberUsage,
   getLeadAssignedNumber,
   getSendingNumberByPhone,
+  markNumberHealthy,
+  markNumberFailure,
+  clearExpiredPauses,
 } = require("./numberRoutingService");
 
 puppeteer.use(StealthPlugin());
@@ -64,6 +67,16 @@ const log = (message, type = "info") => {
 
   console.log(`[Automação] ${message}`);
 };
+
+function logWithPort(message, type = "info", sendingNumber = null) {
+  if (!sendingNumber) {
+    log(message, type);
+    return;
+  }
+
+  const prefix = `[${sendingNumber.label} | porta ${sendingNumber.chrome_port}]`;
+  log(`${prefix} ${message}`, type);
+}
 
 async function getNextPendingLead() {
   const leadRes = await db.query(`
@@ -205,21 +218,30 @@ async function handleInitialApproach(
   inputSelector,
   sendingNumber,
 ) {
-  log(
-    `🎯 Abordagem estratégica iniciada para: ${lead.name} | Chip: ${sendingNumber.label} (${sendingNumber.phone_number})`,
+  logWithPort(
+    `🎯 Abordagem estratégica iniciada para: ${lead.name}`,
     "info",
+    sendingNumber,
   );
 
   const greetingMsg = `${getGreeting()}! Tudo bem?`;
   await sendBubble(currentPage, inputSelector, greetingMsg);
-  log("👋 Balão 1 (Saudação) enviado.", "info");
+  logWithPort("👋 Balão 1 (Saudação) enviado.", "info", sendingNumber);
 
   const waitTime1 = Math.floor(Math.random() * (15000 - 10000 + 1)) + 10000;
-  log(`⏳ Aguardando ${waitTime1 / 1000}s para a proposta...`, "info");
+  logWithPort(
+    `⏳ Aguardando ${waitTime1 / 1000}s para a proposta...`,
+    "info",
+    sendingNumber,
+  );
   await new Promise((r) => setTimeout(r, waitTime1));
 
   if (lead.custom_message && lead.custom_message.includes("---")) {
-    log(`🤖 Mensagem dividida detectada para ${lead.name}`, "info");
+    logWithPort(
+      `🤖 Mensagem dividida detectada para ${lead.name}`,
+      "info",
+      sendingNumber,
+    );
 
     const parts = lead.custom_message.split("---");
 
@@ -231,9 +253,13 @@ async function handleInitialApproach(
     const messagePart2 = parts[1].trim();
     await sendBubble(currentPage, inputSelector, messagePart2, true);
 
-    log("🚀 Fluxo de 3 balões concluído.", "success");
+    logWithPort("🚀 Fluxo de 3 balões concluído.", "success", sendingNumber);
   } else {
-    log("⚠️ Mensagem sem separador ou padrão. Enviando bloco único.", "info");
+    logWithPort(
+      "⚠️ Mensagem sem separador ou padrão. Enviando bloco único.",
+      "info",
+      sendingNumber,
+    );
     const msg = lead.custom_message || generateFallbackMessage(lead);
     await sendBubble(currentPage, inputSelector, msg, true);
   }
@@ -283,9 +309,10 @@ async function handleFollowup(currentPage, lead, inputSelector, sendingNumber) {
   const currentFollowupCount = Number(lead.followup_count || 0);
   const message = getFollowupMessage(lead, currentFollowupCount);
 
-  log(
-    `🔁 Iniciando follow-up ${currentFollowupCount + 1} para: ${lead.name} | Chip: ${sendingNumber.label} (${sendingNumber.phone_number})`,
+  logWithPort(
+    `🔁 Iniciando follow-up ${currentFollowupCount + 1} para: ${lead.name}`,
     "info",
+    sendingNumber,
   );
 
   await sendBubble(currentPage, inputSelector, message, true);
@@ -333,7 +360,11 @@ async function handleFollowup(currentPage, lead, inputSelector, sendingNumber) {
     ],
   );
 
-  log(`✅ Follow-up ${newFollowupCount} enviado para ${lead.name}`, "success");
+  logWithPort(
+    `✅ Follow-up ${newFollowupCount} enviado para ${lead.name}`,
+    "success",
+    sendingNumber,
+  );
 }
 
 const startAutomation = async () => {
@@ -344,6 +375,8 @@ const startAutomation = async () => {
 
   const loop = async () => {
     try {
+      await clearExpiredPauses();
+
       const settingsRes = await db.query(
         "SELECT * FROM automation_settings WHERE id = 1",
       );
@@ -387,7 +420,6 @@ const startAutomation = async () => {
         return;
       }
 
-      // Alternância inteligente: 70% lead novo, 30% follow-up
       let lead = null;
       let mode = null;
       let sendingNumber = null;
@@ -453,9 +485,10 @@ const startAutomation = async () => {
       }
 
       if (!sendingNumber.chrome_port) {
-        log(
+        logWithPort(
           `⚠️ O número ${sendingNumber.label} não possui chrome_port configurada.`,
           "warning",
+          sendingNumber,
         );
         setTimeout(loop, 15000);
         return;
@@ -466,11 +499,18 @@ const startAutomation = async () => {
         const validation = await validateWhatsAppNumber(currentPage, lead);
 
         if (!validation.valid) {
-          log(
+          logWithPort(
             `⚠️ Número inexistente ou inválido: ${lead.phone}. Pulando lead...`,
             "error",
+            sendingNumber,
           );
+
           await markInvalidNumber(lead);
+          await markNumberFailure(
+            sendingNumber.phone_number,
+            `Número inválido ou conversa não abriu para o lead ${lead.phone}`,
+          );
+
           setTimeout(loop, 5000);
           return;
         }
@@ -490,14 +530,26 @@ const startAutomation = async () => {
             sendingNumber,
           );
         }
+
+        await markNumberHealthy(sendingNumber.phone_number);
       } catch (err) {
+        if (sendingNumber?.phone_number) {
+          await markNumberFailure(sendingNumber.phone_number, err.message);
+        }
+
         if (err.message.includes("Chrome não detectado")) {
-          log(`❌ ${err.message}`, "error");
+          logWithPort(`❌ ${err.message}`, "error", sendingNumber);
           setTimeout(loop, 20000);
           return;
         }
 
-        throw err;
+        logWithPort(
+          `💥 Falha na sessão: ${err.message}`,
+          "error",
+          sendingNumber,
+        );
+        setTimeout(loop, 30000);
+        return;
       }
 
       const min = parseInt(settings.min_interval_minutes, 10);

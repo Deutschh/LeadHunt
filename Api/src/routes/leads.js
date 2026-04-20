@@ -3,6 +3,8 @@ const router = express.Router();
 const db = require("../database/db");
 const { generateLeadMessage } = require("../services/aiService");
 const { createLeadEvent } = require("../services/eventService");
+const StealthPlugin = require("puppeteer-extra-plugin-stealth");
+puppeteer.use(StealthPlugin());
 
 // 1. Listar todos os leads (GET /api/leads)
 router.get("/", async (req, res) => {
@@ -124,7 +126,12 @@ router.get("/sending-numbers", async (req, res) => {
         is_active,
         chrome_port,
         chrome_profile_path,
-        created_at
+        created_at,
+        health_status,
+        last_health_check_at,
+        last_error,
+        consecutive_failures,
+        paused_until
       FROM sending_numbers
       ORDER BY id ASC
     `);
@@ -135,14 +142,19 @@ router.get("/sending-numbers", async (req, res) => {
           ? Math.min(
               100,
               Math.round(
-                (Number(row.sent_today) / Number(row.daily_limit)) * 100,
+                (Number(row.sent_today || 0) / Number(row.daily_limit || 0)) *
+                  100,
               ),
             )
           : 0;
 
+      const isPaused =
+        row.paused_until && new Date(row.paused_until) > new Date();
+
       return {
         ...row,
         usage_percent,
+        is_paused: !!isPaused,
         available_slots: Math.max(
           0,
           Number(row.daily_limit || 0) - Number(row.sent_today || 0),
@@ -150,6 +162,8 @@ router.get("/sending-numbers", async (req, res) => {
         can_send:
           row.is_active === true &&
           row.status === "active" &&
+          !isPaused &&
+          row.health_status !== "paused" &&
           Number(row.sent_today || 0) < Number(row.daily_limit || 0),
       };
     });
@@ -158,6 +172,334 @@ router.get("/sending-numbers", async (req, res) => {
   } catch (err) {
     console.error("Erro ao buscar números de envio:", err);
     res.status(500).json({ error: "Erro ao buscar números de envio." });
+  }
+});
+
+// ROTA: Pausar chip manualmente
+router.patch("/sending-numbers/:id/pause", async (req, res) => {
+  const { id } = req.params;
+  const { minutes = 30, reason = "Pausa manual" } = req.body;
+
+  try {
+    const result = await db.query(
+      `
+      UPDATE sending_numbers
+      SET
+        health_status = 'paused',
+        paused_until = NOW() + ($2 || ' minutes')::interval,
+        last_error = $3,
+        last_health_check_at = NOW()
+      WHERE id = $1
+      RETURNING *
+      `,
+      [id, String(minutes), reason],
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: "Chip não encontrado." });
+    }
+
+    res.json({
+      success: true,
+      message: `Chip pausado por ${minutes} minutos.`,
+      chip: result.rows[0],
+    });
+  } catch (err) {
+    console.error("Erro ao pausar chip:", err);
+    res.status(500).json({ error: "Erro ao pausar chip." });
+  }
+});
+
+// ROTA: Reativar chip manualmente
+router.patch("/sending-numbers/:id/resume", async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const result = await db.query(
+      `
+      UPDATE sending_numbers
+      SET
+        health_status = 'healthy',
+        paused_until = NULL,
+        consecutive_failures = 0,
+        last_error = NULL,
+        last_health_check_at = NOW(),
+        status = 'active'
+      WHERE id = $1
+      RETURNING *
+      `,
+      [id],
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: "Chip não encontrado." });
+    }
+
+    res.json({
+      success: true,
+      message: "Chip reativado com sucesso.",
+      chip: result.rows[0],
+    });
+  } catch (err) {
+    console.error("Erro ao reativar chip:", err);
+    res.status(500).json({ error: "Erro ao reativar chip." });
+  }
+});
+
+// ROTA: Resetar falhas do chip
+router.patch("/sending-numbers/:id/reset-failures", async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const result = await db.query(
+      `
+      UPDATE sending_numbers
+      SET
+        consecutive_failures = 0,
+        last_error = NULL,
+        health_status = 'healthy',
+        paused_until = NULL,
+        last_health_check_at = NOW()
+      WHERE id = $1
+      RETURNING *
+      `,
+      [id],
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: "Chip não encontrado." });
+    }
+
+    res.json({
+      success: true,
+      message: "Falhas resetadas com sucesso.",
+      chip: result.rows[0],
+    });
+  } catch (err) {
+    console.error("Erro ao resetar falhas do chip:", err);
+    res.status(500).json({ error: "Erro ao resetar falhas do chip." });
+  }
+});
+
+// ROTA: Alterar limite diário do chip
+router.patch("/sending-numbers/:id/daily-limit", async (req, res) => {
+  const { id } = req.params;
+  const { daily_limit } = req.body;
+
+  if (
+    daily_limit === undefined ||
+    daily_limit === null ||
+    Number.isNaN(Number(daily_limit)) ||
+    Number(daily_limit) < 0
+  ) {
+    return res.status(400).json({ error: "daily_limit inválido." });
+  }
+
+  try {
+    const result = await db.query(
+      `
+      UPDATE sending_numbers
+      SET daily_limit = $2
+      WHERE id = $1
+      RETURNING *
+      `,
+      [id, Number(daily_limit)],
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: "Chip não encontrado." });
+    }
+
+    res.json({
+      success: true,
+      message: "Limite diário atualizado com sucesso.",
+      chip: result.rows[0],
+    });
+  } catch (err) {
+    console.error("Erro ao atualizar limite diário:", err);
+    res.status(500).json({ error: "Erro ao atualizar limite diário." });
+  }
+});
+
+// ROTA: Ativar/Inativar chip
+router.patch("/sending-numbers/:id/toggle-active", async (req, res) => {
+  const { id } = req.params;
+  const { is_active } = req.body;
+
+  if (typeof is_active !== "boolean") {
+    return res.status(400).json({ error: "is_active deve ser boolean." });
+  }
+
+  try {
+    const result = await db.query(
+      `
+      UPDATE sending_numbers
+      SET is_active = $2
+      WHERE id = $1
+      RETURNING *
+      `,
+      [id, is_active],
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: "Chip não encontrado." });
+    }
+
+    res.json({
+      success: true,
+      message: is_active
+        ? "Chip ativado com sucesso."
+        : "Chip desativado com sucesso.",
+      chip: result.rows[0],
+    });
+  } catch (err) {
+    console.error("Erro ao alternar ativo/inativo:", err);
+    res.status(500).json({ error: "Erro ao alternar ativo/inativo." });
+  }
+});
+
+// ROTA: Atualizar status textual do chip
+router.patch("/sending-numbers/:id/status", async (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body;
+
+  const allowed = ["active", "warming", "blocked", "paused", "inactive"];
+
+  if (!allowed.includes(status)) {
+    return res.status(400).json({
+      error: `status inválido. Permitidos: ${allowed.join(", ")}`,
+    });
+  }
+
+  try {
+    const result = await db.query(
+      `
+      UPDATE sending_numbers
+      SET status = $2
+      WHERE id = $1
+      RETURNING *
+      `,
+      [id, status],
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: "Chip não encontrado." });
+    }
+
+    res.json({
+      success: true,
+      message: "Status do chip atualizado com sucesso.",
+      chip: result.rows[0],
+    });
+  } catch (err) {
+    console.error("Erro ao atualizar status do chip:", err);
+    res.status(500).json({ error: "Erro ao atualizar status do chip." });
+  }
+});
+
+// ROTA: Testar sessão do chip
+router.post("/sending-numbers/:id/health-check", async (req, res) => {
+  const { id } = req.params;
+  let browser = null;
+  let page = null;
+
+  try {
+    const chipRes = await db.query(
+      `
+      SELECT *
+      FROM sending_numbers
+      WHERE id = $1
+      LIMIT 1
+      `,
+      [id],
+    );
+
+    if (chipRes.rowCount === 0) {
+      return res.status(404).json({ error: "Chip não encontrado." });
+    }
+
+    const chip = chipRes.rows[0];
+
+    if (!chip.chrome_port) {
+      return res.status(400).json({ error: "Chip sem chrome_port configurada." });
+    }
+
+    browser = await puppeteer.connect({
+      browserURL: `http://127.0.0.1:${chip.chrome_port}`,
+      defaultViewport: null,
+    });
+
+    page = await browser.newPage();
+    await page.goto("https://web.whatsapp.com", { waitUntil: "networkidle2" });
+
+    const pageContent = await page.content();
+
+    const looksValid =
+      pageContent.includes("WhatsApp") ||
+      pageContent.includes("Use o WhatsApp") ||
+      pageContent.includes("Conecte-se ao WhatsApp") ||
+      pageContent.includes("Mensagens");
+
+    if (!looksValid) {
+      await db.query(
+        `
+        UPDATE sending_numbers
+        SET
+          health_status = 'warning',
+          last_health_check_at = NOW(),
+          last_error = $2
+        WHERE id = $1
+        `,
+        [id, "Health check falhou: página do WhatsApp não reconhecida."],
+      );
+
+      return res.status(200).json({
+        success: false,
+        message: "Sessão respondeu, mas o conteúdo não parece ser do WhatsApp.",
+      });
+    }
+
+    await db.query(
+      `
+      UPDATE sending_numbers
+      SET
+        health_status = 'healthy',
+        last_health_check_at = NOW(),
+        last_error = NULL,
+        consecutive_failures = 0
+      WHERE id = $1
+      `,
+      [id],
+    );
+
+    return res.json({
+      success: true,
+      message: `Sessão da porta ${chip.chrome_port} está saudável.`,
+    });
+  } catch (err) {
+    try {
+      await db.query(
+        `
+        UPDATE sending_numbers
+        SET
+          health_status = 'warning',
+          last_health_check_at = NOW(),
+          last_error = $2
+        WHERE id = $1
+        `,
+        [id, `Health check falhou: ${err.message}`],
+      );
+    } catch (updateErr) {
+      console.error("Erro ao atualizar health check:", updateErr);
+    }
+
+    return res.status(500).json({
+      success: false,
+      error: `Erro no health check: ${err.message}`,
+    });
+  } finally {
+    if (page) await page.close().catch(() => {});
+    if (browser) await browser.disconnect().catch(() => {});
   }
 });
 

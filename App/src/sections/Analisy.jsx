@@ -235,6 +235,23 @@ const Analysis = () => {
       });
   }, [filteredLeadsByPeriod]);
 
+  const sendingSummary = useMemo(() => {
+    const active = sendingNumbers.filter((n) => n.is_active).length;
+    const healthy = sendingNumbers.filter(
+      (n) => n.health_status === "healthy",
+    ).length;
+    const warning = sendingNumbers.filter(
+      (n) => n.health_status === "warning",
+    ).length;
+    const paused = sendingNumbers.filter(
+      (n) =>
+        n.health_status === "paused" ||
+        (n.paused_until && new Date(n.paused_until) > new Date()),
+    ).length;
+
+    return { active, healthy, warning, paused };
+  }, [sendingNumbers]);
+
   const safeTotalForFunnel = Math.max(core.total_leads, 1);
   const avgRevenuePerClosed =
     core.closed > 0 ? core.total_revenue / core.closed : 0;
@@ -384,69 +401,158 @@ const Analysis = () => {
       </div>
 
       <div className="bg-white p-8 rounded-[40px] border border-slate-100 shadow-sm">
-        <h3 className="font-bold mb-6 text-slate-800">Status dos Chips</h3>
+        <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+          <h3 className="font-bold text-slate-800">
+            Saúde Operacional dos Chips
+          </h3>
+          <button
+            onClick={loadStats}
+            className="px-4 py-2 rounded-xl bg-slate-900 text-white text-xs font-black uppercase tracking-widest"
+          >
+            Atualizar
+          </button>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-6">
+          <MiniCard
+            title="Ativos"
+            value={sendingSummary.active}
+            desc="Chips habilitados"
+          />
+          <MiniCard
+            title="Saudáveis"
+            value={sendingSummary.healthy}
+            desc="Operando normalmente"
+          />
+          <MiniCard
+            title="Warning"
+            value={sendingSummary.warning}
+            desc="Com falhas recentes"
+          />
+          <MiniCard
+            title="Pausados"
+            value={sendingSummary.paused}
+            desc="Bloqueados temporariamente"
+          />
+        </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-          {sendingNumbers.map((chip) => (
-            <div
-              key={chip.id}
-              className="p-6 rounded-[28px] border border-slate-100 bg-slate-50 shadow-sm"
-            >
-              <div className="flex items-start justify-between gap-4 mb-4">
-                <div>
-                  <p className="text-sm font-black text-slate-900">
-                    {chip.label}
-                  </p>
-                  <p className="text-xs text-slate-400 font-bold mt-1">
-                    {chip.phone_number}
-                  </p>
-                </div>
-                <span
-                  className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${
-                    chip.can_send
-                      ? "bg-green-100 text-green-700"
-                      : "bg-slate-200 text-slate-600"
-                  }`}
-                >
-                  {chip.can_send ? "Disponível" : "Indisponível"}
-                </span>
-              </div>
+          {sendingNumbers.map((chip) => {
+            const paused =
+              chip.paused_until && new Date(chip.paused_until) > new Date();
 
-              <div className="space-y-2 text-sm">
-                <InfoRow
-                  label="Perfil"
-                  value={chip.whatsapp_profile_name || "—"}
-                />
-                <InfoRow label="Porta" value={chip.chrome_port || "—"} />
-                <InfoRow label="Status" value={chip.status || "—"} />
-                <InfoRow label="Aquecimento" value={chip.warmup_stage || "—"} />
-                <InfoRow
-                  label="Uso hoje"
-                  value={`${chip.sent_today} / ${chip.daily_limit}`}
-                />
-                <InfoRow label="Restante" value={chip.available_slots} />
-              </div>
+            const healthTone =
+              chip.health_status === "healthy"
+                ? "bg-green-100 text-green-700"
+                : chip.health_status === "warning"
+                  ? "bg-orange-100 text-orange-700"
+                  : chip.health_status === "paused" || paused
+                    ? "bg-red-100 text-red-700"
+                    : "bg-slate-200 text-slate-700";
 
-              <div className="mt-4">
-                <div className="flex justify-between text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">
-                  <span>Uso diário</span>
-                  <span>{chip.usage_percent}%</span>
+            return (
+              <div
+                key={chip.id}
+                className="p-6 rounded-[28px] border border-slate-100 bg-slate-50 shadow-sm"
+              >
+                <div className="flex items-start justify-between gap-4 mb-4">
+                  <div>
+                    <p className="text-sm font-black text-slate-900">
+                      {chip.label}
+                    </p>
+                    <p className="text-xs text-slate-400 font-bold mt-1">
+                      {chip.phone_number}
+                    </p>
+                  </div>
+                  <span
+                    className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${healthTone}`}
+                  >
+                    {paused ? "PAUSADO" : chip.health_status || "unknown"}
+                  </span>
                 </div>
-                <div className="w-full h-3 rounded-full bg-slate-200 overflow-hidden">
-                  <div
-                    className={`h-full rounded-full ${
-                      chip.usage_percent >= 90
-                        ? "bg-red-500"
-                        : chip.usage_percent >= 70
-                          ? "bg-orange-500"
-                          : "bg-green-500"
-                    }`}
-                    style={{ width: `${chip.usage_percent}%` }}
+
+                <div className="space-y-2 text-sm">
+                  <InfoRow
+                    label="Perfil"
+                    value={chip.whatsapp_profile_name || "—"}
+                  />
+                  <InfoRow label="Porta" value={chip.chrome_port || "—"} />
+                  <InfoRow label="Status" value={chip.status || "—"} />
+                  <InfoRow
+                    label="Aquecimento"
+                    value={chip.warmup_stage || "—"}
+                  />
+                  <InfoRow
+                    label="Uso hoje"
+                    value={`${chip.sent_today} / ${chip.daily_limit}`}
+                  />
+                  <InfoRow label="Restante" value={chip.available_slots} />
+                  <InfoRow
+                    label="Falhas seguidas"
+                    value={chip.consecutive_failures || 0}
+                  />
+                  <InfoRow
+                    label="Último health check"
+                    value={
+                      chip.last_health_check_at
+                        ? formatDateTime(chip.last_health_check_at)
+                        : "—"
+                    }
+                  />
+                  <InfoRow
+                    label="Pausado até"
+                    value={
+                      chip.paused_until
+                        ? formatDateTime(chip.paused_until)
+                        : "—"
+                    }
                   />
                 </div>
+
+                <div className="mt-4">
+                  <div className="flex justify-between text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">
+                    <span>Uso diário</span>
+                    <span>{chip.usage_percent}%</span>
+                  </div>
+                  <div className="w-full h-3 rounded-full bg-slate-200 overflow-hidden">
+                    <div
+                      className={`h-full rounded-full ${
+                        chip.usage_percent >= 90
+                          ? "bg-red-500"
+                          : chip.usage_percent >= 70
+                            ? "bg-orange-500"
+                            : "bg-green-500"
+                      }`}
+                      style={{ width: `${chip.usage_percent}%` }}
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-4 p-4 rounded-2xl bg-white border border-slate-100 min-h-[92px]">
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-2">
+                    Último erro
+                  </p>
+                  <p className="text-xs text-slate-600 font-medium break-words">
+                    {chip.last_error || "Nenhum erro recente."}
+                  </p>
+                </div>
+
+                <div className="mt-4">
+                  <span
+                    className={`inline-flex px-3 py-2 rounded-full text-[10px] font-black uppercase tracking-widest ${
+                      chip.can_send
+                        ? "bg-green-100 text-green-700"
+                        : "bg-slate-200 text-slate-600"
+                    }`}
+                  >
+                    {chip.can_send
+                      ? "Pronto para envio"
+                      : "Indisponível para envio"}
+                  </span>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
@@ -657,4 +763,9 @@ function formatCurrency(value) {
   });
 }
 
+function formatDateTime(value) {
+  return new Date(value).toLocaleString("pt-BR");
+}
+
 export default Analysis;
+ 
