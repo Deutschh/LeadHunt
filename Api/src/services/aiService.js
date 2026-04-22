@@ -1,10 +1,10 @@
 const { OpenAI } = require("openai");
-const db = require("../database/db"); // ADICIONE ESTA LINHA AQUI!
+const db = require("../database/db");
+
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const generateLeadMessage = async (lead) => {
   try {
-    // Busca a estratégia no banco de dados
     const strategyRes = await db.query(
       "SELECT hook, call_to_action FROM niche_strategies WHERE niche_name = $1",
       [lead.lead_category],
@@ -12,59 +12,106 @@ const generateLeadMessage = async (lead) => {
 
     const strategy = strategyRes.rows[0] || {
       hook: "melhorar a presença digital e atrair novos clientes",
-      call_to_action:
-        "Podemos conversar sobre como um site profissional ajudaria seu negócio?",
+      call_to_action: "Posso te mostrar isso de forma rápida?",
     };
 
-const prompt = `
-Você é um especialista em prospecção via WhatsApp.
+    const angles = [
+      "oportunidade_perdida",
+      "desalinhamento",
+      "curiosidade",
+      "concorrencia",
+    ];
 
-Seu objetivo é fazer o lead responder por curiosidade ou leve desconforto.
+    const selectedAngle = angles[Math.floor(Math.random() * angles.length)];
 
-Lead:
+    const prompt = `
+Você é um especialista em prospecção via WhatsApp que escreve como um humano real.
+
+Seu único objetivo é fazer o lead responder.
+
+LEAD:
 Empresa: ${lead.name}
 Cidade: ${lead.lead_city}
 Nicho: ${lead.lead_category}
-Avaliações: ${lead.reviews_count}
+Avaliações no Google: ${lead.reviews_count}
+Estratégia principal: ${strategy.hook}
+CTA base: ${strategy.call_to_action}
 
-REGRAS:
+ÂNGULO ESCOLHIDO:
+${selectedAngle}
+
+REGRAS ABSOLUTAS:
+- Escreva em português do Brasil
 - Mensagem curta
-- Linguagem natural (parecer humano)
-- NÃO parecer venda
-- Sem saudação ou apresentação
-- NÃO usar palavras como "site", "serviço", "proposta"
-- NÃO ser genérico
-- NÃO fazer perguntas óbvias ou comuns
-- Sempre trazer uma observação que pareça real e específica
-- Criar leve desconforto ou sensação de oportunidade perdida
-- Use o separador "---" exatamente entre a parte 1 e a parte 2.
+- Soar humano, direto e natural
+- NÃO parecer vendedor
+- NÃO parecer mensagem de IA
+- NÃO usar saudação
+- NÃO se apresentar
+- NÃO usar assinatura
+- NÃO usar "site", "serviço", "proposta" ou "solução"
+- NÃO elogiar de forma genérica
+- NÃO escrever texto genérico
+- NÃO usar frases comuns demais
+- A mensagem precisa parecer observação real
+- Criar curiosidade, leve incômodo ou sensação de oportunidade perdida
+- Use exatamente "---" entre a parte 1 e a parte 2
+- A parte 2 deve terminar com UMA pergunta curta
+- NÃO adicionar nada depois da pergunta
+- NÃO usar emojis
+- Máximo de 2 linhas por parte
 
 ESTRUTURA:
 
 Parte 1:
-Observação específica + insight que gere dúvida ou leve preocupação
-(evite frases genéricas como "presença digital baixa")
+Uma observação específica, curta e forte sobre a empresa.
+Essa observação deve gerar:
+- curiosidade
+ou
+- leve desconforto
+ou
+- sensação de que algo está desalinhado
+
 ---
 Parte 2:
-Pergunta simples, mas provocativa
-(deve fazer o lead parar e pensar, não responder automático)
+Uma pergunta curta, provocativa e natural.
+A pergunta deve ser simples e responder com vontade, não por educação.
 
-Finalize com:
-"Fiquei curioso pra te mostrar isso."
+INSTRUÇÕES POR ÂNGULO:
+
+Se o ângulo for "oportunidade_perdida":
+- mostre que a empresa pode estar deixando clientes escaparem
+
+Se o ângulo for "desalinhamento":
+- mostre contraste entre boa reputação e presença/percepção fraca
+
+Se o ângulo for "curiosidade":
+- faça uma observação inesperada que gere interesse
+
+Se o ângulo for "concorrencia":
+- insinue que outros podem estar aproveitando melhor a atenção do mercado
+
+EXEMPLO DE FORMATO:
+Texto da parte 1
+---
+Texto da parte 2?
+
+Agora gere apenas a mensagem final.
 `;
 
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [{ role: "user", content: prompt }],
-      temperature: 0.8,
+      temperature: 0.9,
     });
 
     return response.choices[0].message.content.trim();
   } catch (error) {
-    // LOGUE APENAS A MENSAGEM, NÃO O OBJETO TODO
     console.error("❌ Erro na geração da IA:", error.message);
 
-    return "Olá! Notei que sua empresa tem ótimas avaliações no Google. Já pensou em ter um site profissional para converter esses acessos em clientes?";
+    return `Vi que a ${lead.name} já chama atenção no Google, mas talvez ainda esteja deixando passar parte dessa procura.
+---
+Isso já passou pela sua cabeça?`;
   }
 };
 
