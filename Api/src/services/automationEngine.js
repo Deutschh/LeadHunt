@@ -6,6 +6,7 @@ const {
   getFollowupMessage,
   getEligibleFollowupLead,
   scheduleNextFollowup,
+  markLeadAsReplied,
 } = require("./followupService");
 const {
   getAvailableSendingNumber,
@@ -136,6 +137,52 @@ async function validateWhatsAppNumber(currentPage, lead) {
   }
 }
 
+async function checkIfLeadReplied(currentPage) {
+  try {
+    await new Promise((r) => setTimeout(r, 1500));
+
+    const incomingMessages = await currentPage.$$eval("div.message-in", (els) =>
+      els
+        .map((el) => (el.innerText || "").trim())
+        .filter(Boolean)
+        .slice(-5),
+    );
+
+    return incomingMessages.length > 0;
+  } catch (err) {
+    return false;
+  }
+}
+
+async function handleDetectedReply(lead, sendingNumber) {
+  await markLeadAsReplied(lead.id);
+
+  await createLeadEvent(
+    lead.id,
+    "lead_replied_detected",
+    sendingNumber.phone_number,
+    "automation",
+    {
+      lead_name: lead.name,
+      sending_number: sendingNumber.phone_number,
+      sending_number_label: sendingNumber.label,
+      chrome_port: sendingNumber.chrome_port || null,
+    },
+  );
+
+  await db.query(
+    `
+    INSERT INTO lead_activities (lead_id, description, type)
+    VALUES ($1, $2, $3)
+    `,
+    [
+      lead.id,
+      `Resposta detectada automaticamente. Follow-up interrompido no número ${sendingNumber.label}.`,
+      "reply_detected",
+    ],
+  );
+}
+
 async function markInvalidNumber(lead) {
   await db.query(
     `
@@ -221,6 +268,8 @@ async function handleInitialApproach(
   inputSelector,
   sendingNumber,
 ) {
+  logWithPort("🚀 MODO: ABORDAGEM INICIAL", "info", sendingNumber);
+
   logWithPort(
     `🎯 Abordagem estratégica iniciada para: ${lead.name}`,
     "info",
@@ -312,6 +361,8 @@ async function handleInitialApproach(
 }
 
 async function handleFollowup(currentPage, lead, inputSelector, sendingNumber) {
+  logWithPort("🔁 MODO: FOLLOW-UP", "info", sendingNumber);
+
   const currentFollowupCount = Number(lead.followup_count || 0);
   const message = getFollowupMessage(lead, currentFollowupCount);
 
@@ -430,24 +481,22 @@ const startAutomation = async () => {
       let mode = null;
       let sendingNumber = null;
 
-      const shouldPickNew = Math.random() < 0.7;
+      const followupLead = await getEligibleFollowupLead();
+      const newLead = await getNextPendingLead();
 
-      if (shouldPickNew) {
-        lead = await getNextPendingLead();
-        mode = lead ? "initial" : null;
+      if (followupLead) {
+        const shouldUseFollowup = Math.random() < 0.5;
 
-        if (!lead) {
-          lead = await getEligibleFollowupLead();
-          mode = lead ? "followup" : null;
+        if (shouldUseFollowup || !newLead) {
+          lead = followupLead;
+          mode = "followup";
+        } else {
+          lead = newLead;
+          mode = "initial";
         }
-      } else {
-        lead = await getEligibleFollowupLead();
-        mode = lead ? "followup" : null;
-
-        if (!lead) {
-          lead = await getNextPendingLead();
-          mode = lead ? "initial" : null;
-        }
+      } else if (newLead) {
+        lead = newLead;
+        mode = "initial";
       }
 
       if (!lead || !mode) {
@@ -455,6 +504,11 @@ const startAutomation = async () => {
         setTimeout(loop, 30000);
         return;
       }
+
+      log(
+        `🎯 Selecionado: ${lead.name} | modo: ${mode} | followups: ${lead.followup_count || 0}`,
+        "info",
+      );
 
       if (mode === "initial") {
         sendingNumber = await resolveSendingNumberForInitialLead(lead);
@@ -520,6 +574,52 @@ const startAutomation = async () => {
           setTimeout(loop, 5000);
           return;
         }
+
+        if (mode === "initial" && lead.status !== "pending") {
+          logWithPort(
+            `⚠️ Lead ${lead.name} já não está mais pendente. Pulando...`,
+            "warning",
+            sendingNumber,
+          );
+          setTimeout(loop, 5000);
+          return;
+        }
+
+        if (mode === "followup" && lead.last_reply_at) {
+          logWithPort(
+            `🛑 Lead ${lead.name} já respondeu. Cancelando follow-up.`,
+            "warning",
+            sendingNumber,
+          );
+          setTimeout(loop, 5000);
+          return;
+        }
+
+        if (mode === "followup") {
+          const hasReply = await checkIfLeadReplied(currentPage);
+
+          if (hasReply) {
+            logWithPort(
+              `📩 Resposta detectada automaticamente para ${lead.name}. Follow-up cancelado.`,
+              "success",
+              sendingNumber,
+            );
+
+            await handleDetectedReply(lead, sendingNumber);
+            await markNumberHealthy(sendingNumber.phone_number);
+
+            setTimeout(loop, 10000);
+            return;
+          }
+        }
+
+        const typingDelay = Math.floor(Math.random() * 3000) + 2000;
+        logWithPort(
+          `⌛ Simulando digitação por ${typingDelay / 1000}s...`,
+          "info",
+          sendingNumber,
+        );
+        await new Promise((r) => setTimeout(r, typingDelay));
 
         if (mode === "initial") {
           await handleInitialApproach(
