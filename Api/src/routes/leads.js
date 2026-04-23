@@ -894,16 +894,26 @@ router.post("/generate-ai-mass", async (req, res) => {
 
     for (const lead of leads.rows) {
       try {
-        const suggestion = await generateLeadMessage(lead);
+        const generated = await generateLeadMessage(lead);
 
         await db.query(
           `UPDATE leads 
-           SET ai_message_suggestion = $1, 
+           SET ai_message_suggestion = $1,
                custom_message = $1,
-               is_ai_ready = true, 
-               is_verified = true 
-           WHERE id = $2`,
-          [suggestion, lead.id],
+               is_ai_ready = true,
+               is_verified = true,
+               ai_prompt_angle = $2,
+               ai_prompt_version = $3,
+               ai_prompt_label = $4,
+               ai_message_generated_at = NOW()
+           WHERE id = $5`,
+          [
+            generated.message,
+            generated.meta.angle,
+            generated.meta.version,
+            generated.meta.angle_label,
+            lead.id,
+          ],
         );
       } catch (aiErr) {
         console.error(`Erro no lead ${lead.id}:`, aiErr);
