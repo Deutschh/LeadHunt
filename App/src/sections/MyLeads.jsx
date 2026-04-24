@@ -24,23 +24,56 @@ import {
 const MyLeads = ({ leads, loading, onRefresh, onUpdateStatus, onOpenLead }) => {
   const [currentView, setCurrentView] = useState("pending");
   const [showAiModal, setShowAiModal] = useState(false);
-  const [aiConfig, setAiConfig] = useState({ limit: 10, minRating: 4.0 });
+
+  const [aiConfig, setAiConfig] = useState({
+    limit: 10,
+    minRating: 4.0,
+    random: true,
+  });
+
   const [aiStep, setAiStep] = useState("idle");
   const [generatedCount, setGeneratedCount] = useState(0);
+  const [generatedLeads, setGeneratedLeads] = useState([]);
+  const [lastBatchId, setLastBatchId] = useState(null);
 
   const handleMassAI = async (config) => {
     setAiStep("processing");
+    setGeneratedLeads([]);
+    setLastBatchId(null);
 
     try {
-      const res = await api.post("/leads/generate-ai-mass", config);
-      setGeneratedCount(res.data.count || config.limit);
+      const payload = {
+        ...config,
+        limit: Number(config.limit || 10),
+        minRating: Number(config.minRating || 0),
+        random: Boolean(config.random),
+      };
+
+      const res = await api.post("/leads/generate-ai-mass", payload);
+
+      setGeneratedCount(res.data.count || 0);
+      setGeneratedLeads(res.data.generated_leads || []);
+      setLastBatchId(res.data.batch_id || null);
       setAiStep("success");
 
-      setTimeout(() => {
-        setShowAiModal(false);
-        setAiStep("idle");
-        onRefresh();
-      }, 2000);
+      onRefresh();
+    } catch (err) {
+      console.error(err);
+      setAiStep("error");
+    }
+  };
+
+  const loadLastAiGeneration = async () => {
+    setAiStep("processing");
+    setShowAiModal(true);
+
+    try {
+      const res = await api.get("/leads/generate-ai-mass/last");
+
+      setGeneratedCount(res.data.count || 0);
+      setGeneratedLeads(res.data.leads || []);
+      setLastBatchId(res.data.batch_id || null);
+      setAiStep("success");
     } catch (err) {
       console.error(err);
       setAiStep("error");
@@ -146,49 +179,32 @@ const MyLeads = ({ leads, loading, onRefresh, onUpdateStatus, onOpenLead }) => {
       </div>
 
       <div className="flex bg-slate-200/50 p-1.5 rounded-[2rem] w-fit mb-10 border border-white/50 shadow-inner overflow-x-auto">
-        <button
+        <TabButton
+          active={currentView === "pending"}
           onClick={() => setCurrentView("pending")}
-          className={`px-8 py-3 rounded-[1.5rem] font-black text-sm transition-all flex items-center gap-2 whitespace-nowrap ${
-            currentView === "pending"
-              ? "bg-black text-white shadow-xl"
-              : "text-slate-500 hover:text-black"
-          }`}
-        >
-          <Users size={18} /> Prospecção
-        </button>
-
-        <button
+          icon={Users}
+          label="Prospecção"
+        />
+        <TabButton
+          active={currentView === "verified"}
           onClick={() => setCurrentView("verified")}
-          className={`px-8 py-3 rounded-[1.5rem] font-black text-sm transition-all flex items-center gap-2 whitespace-nowrap ${
-            currentView === "verified"
-              ? "bg-[#ff8c00] text-white shadow-xl"
-              : "text-slate-500 hover:text-black"
-          }`}
-        >
-          <ShieldCheck size={18} /> Verificados
-        </button>
-
-        <button
+          icon={ShieldCheck}
+          label="Verificados"
+          orange
+        />
+        <TabButton
+          active={currentView === "contacted"}
           onClick={() => setCurrentView("contacted")}
-          className={`px-8 py-3 rounded-[1.5rem] font-black text-sm transition-all flex items-center gap-2 whitespace-nowrap ${
-            currentView === "contacted"
-              ? "bg-black text-white shadow-xl"
-              : "text-slate-500 hover:text-black"
-          }`}
-        >
-          <Flame size={18} /> Funil Ativo
-        </button>
-
-        <button
+          icon={Flame}
+          label="Funil Ativo"
+        />
+        <TabButton
+          active={currentView === "limbo"}
           onClick={() => setCurrentView("limbo")}
-          className={`px-8 py-3 rounded-[1.5rem] font-black text-sm transition-all flex items-center gap-2 whitespace-nowrap ${
-            currentView === "limbo"
-              ? "bg-slate-600 text-white shadow-xl"
-              : "text-slate-500 hover:text-black"
-          }`}
-        >
-          <Ghost size={18} /> Limbo
-        </button>
+          icon={Ghost}
+          label="Limbo"
+          slate
+        />
       </div>
 
       <div className="flex items-center justify-between mb-8">
@@ -212,12 +228,27 @@ const MyLeads = ({ leads, loading, onRefresh, onUpdateStatus, onOpenLead }) => {
 
         <div className="flex gap-3">
           {(currentView === "verified" || currentView === "pending") && (
-            <button
-              onClick={() => setShowAiModal(true)}
-              className="bg-blue-600 text-white px-6 py-4 rounded-2xl font-black text-sm flex items-center gap-2 shadow-lg hover:bg-blue-700 transition-all"
-            >
-              <Sparkles size={18} /> VARINHA MÁGICA
-            </button>
+            <>
+              <button
+                onClick={() => {
+                  setGeneratedLeads([]);
+                  setGeneratedCount(0);
+                  setLastBatchId(null);
+                  setAiStep("idle");
+                  setShowAiModal(true);
+                }}
+                className="bg-blue-600 text-white px-6 py-4 rounded-2xl font-black text-sm flex items-center gap-2 shadow-lg hover:bg-blue-700 transition-all"
+              >
+                <Sparkles size={18} /> VARINHA MÁGICA
+              </button>
+
+              <button
+                onClick={loadLastAiGeneration}
+                className="bg-white text-slate-700 px-6 py-4 rounded-2xl font-black text-sm flex items-center gap-2 shadow-sm border border-slate-200 hover:bg-slate-50 transition-all"
+              >
+                <BellRing size={18} /> ÚLTIMA GERAÇÃO
+              </button>
+            </>
           )}
 
           <button
@@ -300,6 +331,32 @@ const MyLeads = ({ leads, loading, onRefresh, onUpdateStatus, onOpenLead }) => {
                     </select>
                   </div>
 
+                  <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={aiConfig.random}
+                        onChange={(e) =>
+                          setAiConfig({
+                            ...aiConfig,
+                            random: e.target.checked,
+                          })
+                        }
+                        className="w-5 h-5 accent-blue-600"
+                      />
+
+                      <div>
+                        <p className="text-sm font-black text-slate-800">
+                          Selecionar leads aleatórios
+                        </p>
+                        <p className="text-xs text-slate-400 font-medium">
+                          Evita gerar mensagens sempre para o mesmo nicho ou
+                          cidade.
+                        </p>
+                      </div>
+                    </label>
+                  </div>
+
                   <div className="flex gap-3 pt-4">
                     <button
                       onClick={() => setShowAiModal(false)}
@@ -333,14 +390,14 @@ const MyLeads = ({ leads, loading, onRefresh, onUpdateStatus, onOpenLead }) => {
                 </h2>
 
                 <p className="text-slate-400 text-sm font-medium">
-                  Limpando nomes e criando abordagens personalizadas. Isso pode
-                  levar alguns segundos.
+                  Criando abordagens personalizadas. Isso pode levar alguns
+                  segundos.
                 </p>
               </div>
             )}
 
             {aiStep === "success" && (
-              <div className="py-12 flex flex-col items-center justify-center text-center animate-in cubic-bezier">
+              <div className="py-6 flex flex-col items-center justify-center text-center animate-in cubic-bezier">
                 <div className="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mb-6 shadow-inner">
                   <CheckCircle
                     size={40}
@@ -352,10 +409,77 @@ const MyLeads = ({ leads, loading, onRefresh, onUpdateStatus, onOpenLead }) => {
                   Concluído com Sucesso!
                 </h2>
 
-                <p className="text-slate-400 text-sm font-medium">
-                  Processamos {generatedCount} leads. Verifique os selos azuis
-                  no seu dashboard.
+                <p className="text-slate-400 text-sm font-medium mb-4">
+                  Processamos {generatedCount} leads.
                 </p>
+
+                {lastBatchId && (
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-300 mb-4">
+                    Lote: {lastBatchId}
+                  </p>
+                )}
+
+                {generatedLeads.length > 0 ? (
+                  <div className="w-full max-h-[260px] overflow-y-auto bg-slate-50 rounded-3xl p-4 text-left space-y-3">
+                    {generatedLeads.map((lead) => (
+                      <div
+                        key={lead.id}
+                        className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-black text-slate-800">
+                              {lead.name}
+                            </p>
+                            <p className="text-[10px] font-bold text-slate-400 uppercase mt-1">
+                              {lead.lead_category || "Geral"} •{" "}
+                              {lead.lead_city || "—"}
+                            </p>
+                          </div>
+
+                          <span className="bg-blue-50 text-blue-600 px-3 py-1 rounded-full text-[9px] font-black uppercase whitespace-nowrap">
+                            {lead.ai_prompt_label || "IA"}
+                          </span>
+                        </div>
+
+                        {lead.custom_message && (
+                          <p className="text-xs text-slate-500 mt-3 whitespace-pre-line line-clamp-4">
+                            {lead.custom_message}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-slate-400 text-sm font-medium">
+                    Nenhum lead encontrado nesta geração.
+                  </p>
+                )}
+
+                <div className="flex gap-3 w-full mt-6">
+                  <button
+                    onClick={() => {
+                      setShowAiModal(false);
+                      setAiStep("idle");
+                      onRefresh();
+                    }}
+                    className="flex-1 bg-slate-900 text-white px-6 py-4 rounded-2xl font-black"
+                  >
+                    Fechar
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setAiStep("idle");
+                      setGeneratedLeads([]);
+                      setGeneratedCount(0);
+                      setLastBatchId(null);
+                    }}
+                    className="flex-1 bg-blue-600 text-white px-6 py-4 rounded-2xl font-black"
+                  >
+                    Nova Geração
+                  </button>
+                </div>
               </div>
             )}
 
@@ -387,6 +511,25 @@ const MyLeads = ({ leads, loading, onRefresh, onUpdateStatus, onOpenLead }) => {
     </div>
   );
 };
+
+function TabButton({ active, onClick, icon: Icon, label, orange, slate }) {
+  const activeClass = orange
+    ? "bg-[#ff8c00] text-white shadow-xl"
+    : slate
+      ? "bg-slate-600 text-white shadow-xl"
+      : "bg-black text-white shadow-xl";
+
+  return (
+    <button
+      onClick={onClick}
+      className={`px-8 py-3 rounded-[1.5rem] font-black text-sm transition-all flex items-center gap-2 whitespace-nowrap ${
+        active ? activeClass : "text-slate-500 hover:text-black"
+      }`}
+    >
+      <Icon size={18} /> {label}
+    </button>
+  );
+}
 
 function StatCard({ label, value, icon: Icon, color, pulse = false }) {
   const colors = {
@@ -661,9 +804,7 @@ function LeadCard({
         </h3>
 
         <p
-          className={`text-slate-500 font-bold text-sm mb-4 ${
-            lead.is_invalid_number ? "text-red-400" : ""
-          }`}
+          className={`text-slate-500 font-bold text-sm mb-4 ${lead.is_invalid_number ? "text-red-400" : ""}`}
         >
           {displayPhone || "Telefone não disponível"}
         </p>
