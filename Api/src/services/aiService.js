@@ -39,6 +39,9 @@ function pickRandomAngle() {
 }
 
 async function generateLeadMessage(lead) {
+  const selectedAngle = pickRandomAngle();
+  const angleConfig = ANGLE_CONFIGS[selectedAngle];
+
   try {
     const strategyRes = await db.query(
       "SELECT hook, call_to_action FROM niche_strategies WHERE niche_name = $1",
@@ -50,18 +53,15 @@ async function generateLeadMessage(lead) {
       call_to_action: "Isso já passou pela sua cabeça?",
     };
 
-    const selectedAngle = pickRandomAngle();
-    const angleConfig = ANGLE_CONFIGS[selectedAngle];
-
     const prompt = `
 Você escreve mensagens de prospecção via WhatsApp como um humano real.
 
 Seu único objetivo é fazer o lead responder.
 
 LEAD:
-Empresa: ${lead.name}
-Cidade: ${lead.lead_city || "não informada"}
-Nicho: ${lead.lead_category || "não informado"}
+Empresa: ${lead.name || "não informada"}
+Cidade: ${lead.lead_city || lead.city || "não informada"}
+Nicho: ${lead.lead_category || lead.niche || "não informado"}
 Avaliações no Google: ${lead.reviews_count || 0}
 Estratégia do nicho: ${strategy.hook}
 CTA base: ${strategy.call_to_action}
@@ -95,23 +95,10 @@ ESTRUTURA:
 
 Parte 1:
 Observação curta, específica e forte sobre a empresa.
-Essa observação deve gerar:
-- curiosidade
-ou
-- leve desconforto
-ou
-- sensação de desalinhamento
-ou
-- sensação de oportunidade perdida
 
 ---
 Parte 2:
 Pergunta curta, provocativa, natural e fácil de responder.
-
-EXEMPLO DE FORMATO:
-Texto da parte 1
----
-Texto da parte 2?
 
 Agora gere apenas a mensagem final.
 `;
@@ -136,7 +123,7 @@ Agora gere apenas a mensagem final.
     console.error("❌ Erro na geração da IA:", error.message);
 
     return {
-      message: `Vi que a ${lead.name} já chama atenção no Google, mas talvez isso não esteja ficando tão claro pra quem encontra vocês.
+      message: `Vi que a ${lead.name || "sua empresa"} já chama atenção no Google, mas talvez isso não esteja ficando tão claro pra quem encontra vocês.
 ---
 Você já percebeu isso?`,
       meta: {

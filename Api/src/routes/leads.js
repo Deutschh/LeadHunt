@@ -612,6 +612,177 @@ router.post("/sending-numbers/health-check-all", async (req, res) => {
   }
 });
 
+// Geração em massa de IA
+router.post("/generate-ai-mass", async (req, res) => {
+  const {
+    limit = 10,
+    minRating = 0,
+    status = "pending",
+    category,
+    random = false,
+  } = req.body;
+
+  const batchId = `gen_${Date.now()}`;
+
+  try {
+    let query = `
+      SELECT *
+      FROM leads
+      WHERE status = $1
+        AND is_ai_ready = false
+        AND is_archived = false
+        AND rating >= $2
+    `;
+
+    const queryParams = [status, minRating];
+
+    if (category) {
+      queryParams.push(category);
+      query += ` AND lead_category = $${queryParams.length}`;
+    }
+
+    if (random === true) {
+      query += ` ORDER BY RANDOM()`;
+    } else {
+      query += ` ORDER BY rating DESC, reviews_count DESC, created_at DESC`;
+    }
+
+    queryParams.push(Number(limit));
+    query += ` LIMIT $${queryParams.length}`;
+
+    const leads = await db.query(query, queryParams);
+
+    if (leads.rowCount === 0) {
+      return res.json({
+        success: false,
+        count: 0,
+        message: "Nenhum lead encontrado com esses critérios.",
+        generated_leads: [],
+      });
+    }
+
+    const generatedLeads = [];
+
+    for (const lead of leads.rows) {
+      try {
+        const generated = await generateLeadMessage(lead);
+
+        const updateRes = await db.query(
+          `
+          UPDATE leads
+          SET
+            ai_message_suggestion = $1,
+            custom_message = $1,
+            is_ai_ready = true,
+            is_verified = true,
+            ai_prompt_angle = $2,
+            ai_prompt_version = $3,
+            ai_prompt_label = $4,
+            ai_message_generated_at = NOW(),
+            ai_generation_batch_id = $5
+          WHERE id = $6
+          RETURNING
+            id,
+            name,
+            phone,
+            lead_category,
+            lead_city,
+            rating,
+            reviews_count,
+            ai_prompt_angle,
+            ai_prompt_label,
+            ai_prompt_version,
+            ai_generation_batch_id,
+            ai_message_generated_at,
+            custom_message
+          `,
+          [
+            generated.message,
+            generated.meta.angle,
+            generated.meta.version,
+            generated.meta.angle_label,
+            batchId,
+            lead.id,
+          ],
+        );
+
+        generatedLeads.push(updateRes.rows[0]);
+      } catch (aiErr) {
+        console.error(`Erro no lead ${lead.id}:`, aiErr.message);
+      }
+    }
+
+    res.json({
+      success: true,
+      batch_id: batchId,
+      count: generatedLeads.length,
+      message: `${generatedLeads.length} leads processados com estratégia de nicho aplicada!`,
+      generated_leads: generatedLeads,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erro na geração inteligente." });
+  }
+});
+
+// Última geração de mensagens por IA
+router.get("/generate-ai-mass/last", async (req, res) => {
+  try {
+    const batchRes = await db.query(`
+      SELECT ai_generation_batch_id
+      FROM leads
+      WHERE ai_generation_batch_id IS NOT NULL
+      ORDER BY ai_message_generated_at DESC
+      LIMIT 1
+    `);
+
+    const batchId = batchRes.rows[0]?.ai_generation_batch_id;
+
+    if (!batchId) {
+      return res.json({
+        success: true,
+        batch_id: null,
+        count: 0,
+        leads: [],
+      });
+    }
+
+    const leadsRes = await db.query(
+      `
+      SELECT
+        id,
+        name,
+        phone,
+        lead_category,
+        lead_city,
+        rating,
+        reviews_count,
+        ai_prompt_angle,
+        ai_prompt_label,
+        ai_prompt_version,
+        ai_generation_batch_id,
+        ai_message_generated_at,
+        custom_message
+      FROM leads
+      WHERE ai_generation_batch_id = $1
+      ORDER BY ai_message_generated_at DESC, id DESC
+      `,
+      [batchId],
+    );
+
+    res.json({
+      success: true,
+      batch_id: batchId,
+      count: leadsRes.rowCount,
+      leads: leadsRes.rows,
+    });
+  } catch (err) {
+    console.error("Erro ao buscar última geração:", err);
+    res.status(500).json({ error: "Erro ao buscar última geração." });
+  }
+});
+
+
 // Buscar detalhes de um lead
 router.get("/:id", async (req, res) => {
   try {
@@ -861,75 +1032,7 @@ router.patch("/:id", async (req, res) => {
   }
 });
 
-// Geração em massa de IA
-router.post("/generate-ai-mass", async (req, res) => {
-  const { limit = 10, minRating = 0, status = "pending", category } = req.body;
 
-  try {
-    let query = `
-      SELECT * FROM leads 
-      WHERE status = $1 
-      AND is_ai_ready = false 
-      AND is_archived = false 
-      AND rating >= $2
-    `;
-
-    const queryParams = [status, minRating];
-
-    if (category) {
-      query += ` AND lead_category = $3`;
-      queryParams.push(category);
-    }
-
-    query += ` ORDER BY rating DESC, reviews_count DESC LIMIT $${queryParams.length + 1}`;
-    queryParams.push(limit);
-
-    const leads = await db.query(query, queryParams);
-
-    if (leads.rowCount === 0) {
-      return res.json({
-        message: "Nenhum lead encontrado com esses critérios.",
-      });
-    }
-
-    for (const lead of leads.rows) {
-      try {
-        const generated = await generateLeadMessage(lead);
-
-        await db.query(
-          `UPDATE leads 
-           SET ai_message_suggestion = $1,
-               custom_message = $1,
-               is_ai_ready = true,
-               is_verified = true,
-               ai_prompt_angle = $2,
-               ai_prompt_version = $3,
-               ai_prompt_label = $4,
-               ai_message_generated_at = NOW()
-           WHERE id = $5`,
-          [
-            generated.message,
-            generated.meta.angle,
-            generated.meta.version,
-            generated.meta.angle_label,
-            lead.id,
-          ],
-        );
-      } catch (aiErr) {
-        console.error(`Erro no lead ${lead.id}:`, aiErr);
-      }
-    }
-
-    res.json({
-      success: true,
-      count: leads.rowCount,
-      message: `${leads.rowCount} leads processados com estratégia de nicho aplicada!`,
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Erro na geração inteligente." });
-  }
-});
 
 // Dashboard
 router.get("/stats/dashboard", async (req, res) => {
