@@ -3,7 +3,18 @@ const db = require("../database/db");
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-const PROMPT_VERSION = "v2.2";
+const ACTIVE_PROMPT_MODELS = {
+  aggressive_curiosity: {
+    version: "v2.2",
+    label: "Direto provocativo",
+    weight: 50,
+  },
+  human_consultative: {
+    version: "v3.0",
+    label: "Humano consultivo",
+    weight: 50,
+  },
+};
 
 const ANGLE_CONFIGS = {
   oportunidade_perdida: {
@@ -38,17 +49,44 @@ const ANGLE_CONFIGS = {
   },
 };
 
-function pickWeightedAngle() {
-  const entries = Object.entries(ANGLE_CONFIGS);
+const HUMAN_CONSULTATIVE_ANGLES = {
+  observacao_suave: {
+    label: "Observação suave",
+    weight: 35,
+    instruction:
+      "Faça uma observação leve sobre a empresa, sem pressionar e sem parecer crítica.",
+  },
+  oportunidade_visual: {
+    label: "Oportunidade visual",
+    weight: 25,
+    instruction:
+      "Mostre que a empresa poderia transmitir melhor sua qualidade visualmente.",
+  },
+  confianca_local: {
+    label: "Confiança local",
+    weight: 20,
+    instruction:
+      "Mostre que avaliações e reputação local podem virar mais contatos e conversas.",
+  },
+  ideia_rapida: {
+    label: "Ideia rápida",
+    weight: 20,
+    instruction:
+      "Posicione a abordagem como uma ideia simples e rápida, sem compromisso.",
+  },
+};
+
+function pickWeightedFromConfig(config) {
+  const entries = Object.entries(config);
   const totalWeight = entries.reduce(
-    (sum, [, config]) => sum + Number(config.weight || 0),
+    (sum, [, item]) => sum + Number(item.weight || 0),
     0,
   );
 
   let random = Math.random() * totalWeight;
 
-  for (const [key, config] of entries) {
-    random -= Number(config.weight || 0);
+  for (const [key, item] of entries) {
+    random -= Number(item.weight || 0);
 
     if (random <= 0) {
       return key;
@@ -58,22 +96,21 @@ function pickWeightedAngle() {
   return entries[0][0];
 }
 
-async function generateLeadMessage(lead) {
-  const selectedAngle = pickWeightedAngle();
-  const angleConfig = ANGLE_CONFIGS[selectedAngle];
+function getPromptModel() {
+  const selectedModel = pickWeightedFromConfig(ACTIVE_PROMPT_MODELS);
+  return {
+    key: selectedModel,
+    ...ACTIVE_PROMPT_MODELS[selectedModel],
+  };
+}
 
-  try {
-    const strategyRes = await db.query(
-      "SELECT hook, call_to_action FROM niche_strategies WHERE niche_name = $1",
-      [lead.lead_category],
-    );
-
-    const strategy = strategyRes.rows[0] || {
-      hook: "melhorar a percepção digital e atrair novos clientes",
-      call_to_action: "Isso já passou pela sua cabeça?",
-    };
-
-    const prompt = `
+function buildAggressiveCuriosityPrompt({
+  lead,
+  strategy,
+  selectedAngle,
+  angleConfig,
+}) {
+  return `
 Você escreve mensagens de prospecção via WhatsApp como um humano real.
 
 Seu único objetivo é fazer o lead responder.
@@ -85,6 +122,9 @@ Nicho: ${lead.lead_category || lead.niche || "não informado"}
 Avaliações no Google: ${lead.reviews_count || 0}
 Estratégia do nicho: ${strategy.hook}
 CTA base: ${strategy.call_to_action}
+
+MODELO:
+Direto provocativo
 
 ÂNGULO:
 ${selectedAngle}
@@ -122,11 +162,121 @@ Pergunta curta, provocativa, natural e fácil de responder.
 
 Agora gere apenas a mensagem final.
 `;
+}
+
+function buildHumanConsultativePrompt({
+  lead,
+  strategy,
+  selectedAngle,
+  angleConfig,
+}) {
+  return `
+Você escreve mensagens de prospecção via WhatsApp como um humano real, educado e consultivo.
+
+Seu objetivo é fazer o lead responder sem sentir que recebeu uma mensagem automática.
+
+LEAD:
+Empresa: ${lead.name || "não informada"}
+Cidade: ${lead.lead_city || lead.city || "não informada"}
+Nicho: ${lead.lead_category || lead.niche || "não informado"}
+Avaliações no Google: ${lead.reviews_count || 0}
+Estratégia do nicho: ${strategy.hook}
+CTA base: ${strategy.call_to_action}
+
+MODELO:
+Humano consultivo
+
+ÂNGULO:
+${selectedAngle}
+${angleConfig.instruction}
+
+REGRAS ABSOLUTAS:
+- Escreva em português do Brasil
+- Mensagem curta
+- Linguagem natural, simples e humana
+- Pode soar mais educado e próximo do que o modelo direto
+- NÃO parecer vendedor
+- NÃO parecer IA
+- NÃO usar assinatura
+- NÃO usar emojis
+- NÃO usar palavras como "proposta", "serviço", "solução", "contratar", "vender"
+- Evite exageros como "incrível", "excelente", "maravilhoso"
+- Não invente dados específicos que não foram informados
+- Não diga que analisou profundamente
+- Não diga que trabalha com tráfego pago
+- Não pressione
+- Não critique diretamente a empresa
+- Não prometa resultado
+- Use no máximo 4 linhas no total
+- Use exatamente "---" entre a parte 1 e a parte 2
+- A parte 1 pode ter uma saudação curta e uma microapresentação natural
+- A parte 2 deve terminar com UMA pergunta simples
+- NÃO adicionar nada depois da pergunta
+
+FORMATO OBRIGATÓRIO:
+
+Parte 1:
+Uma mensagem humana com:
+- saudação curta
+- menção ao contexto de ter visto a empresa no Google
+- observação leve relacionada ao nicho, reputação ou percepção
+
+---
+Parte 2:
+Uma pergunta simples pedindo permissão para mostrar uma ideia rápida.
+
+EXEMPLO DE ESTILO:
+Boa tarde, tudo bem? Vi a ${lead.name || "empresa"} pelo Google enquanto olhava alguns negócios de ${lead.lead_category || lead.niche || "esse segmento"} em ${lead.lead_city || lead.city || "sua região"}.
+Percebi que talvez dê para transformar melhor essa confiança em novos contatos.
+
+---
+Posso te mostrar uma ideia rápida do que pensei?
+
+Agora gere apenas a mensagem final.
+`;
+}
+
+async function generateLeadMessage(lead) {
+  const promptModel = getPromptModel();
+
+  const angleSource =
+    promptModel.key === "human_consultative"
+      ? HUMAN_CONSULTATIVE_ANGLES
+      : ANGLE_CONFIGS;
+
+  const selectedAngle = pickWeightedFromConfig(angleSource);
+  const angleConfig = angleSource[selectedAngle];
+
+  try {
+    const strategyRes = await db.query(
+      "SELECT hook, call_to_action FROM niche_strategies WHERE niche_name = $1",
+      [lead.lead_category],
+    );
+
+    const strategy = strategyRes.rows[0] || {
+      hook: "melhorar a percepção digital e atrair novos clientes",
+      call_to_action: "Isso já passou pela sua cabeça?",
+    };
+
+    const prompt =
+      promptModel.key === "human_consultative"
+        ? buildHumanConsultativePrompt({
+            lead,
+            strategy,
+            selectedAngle,
+            angleConfig,
+          })
+        : buildAggressiveCuriosityPrompt({
+            lead,
+            strategy,
+            selectedAngle,
+            angleConfig,
+          });
 
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [{ role: "user", content: prompt }],
-      temperature: 0.9,
+      temperature: promptModel.key === "human_consultative" ? 0.75 : 0.9,
     });
 
     const message = response.choices[0].message.content.trim();
@@ -134,24 +284,24 @@ Agora gere apenas a mensagem final.
     return {
       message,
       meta: {
-        angle: selectedAngle,
-        angle_label: angleConfig.label,
+        angle: `${promptModel.key}:${selectedAngle}`,
+        angle_label: `${promptModel.label} · ${angleConfig.label}`,
         angle_weight: angleConfig.weight,
-        version: PROMPT_VERSION,
+        version: promptModel.version,
       },
     };
   } catch (error) {
     console.error("❌ Erro na geração da IA:", error.message);
 
     return {
-      message: `Vi que a ${lead.name || "sua empresa"} já chama atenção no Google, mas talvez isso não esteja ficando tão claro pra quem encontra vocês.
+      message: `Boa tarde, tudo bem? Vi a ${lead.name || "empresa"} pelo Google e achei que talvez desse para melhorar a forma como ela aparece para novos clientes.
 ---
-Você já percebeu isso?`,
+Posso te mostrar uma ideia rápida?`,
       meta: {
         angle: "fallback",
         angle_label: "Fallback",
         angle_weight: 0,
-        version: PROMPT_VERSION,
+        version: "fallback",
       },
     };
   }
@@ -160,4 +310,6 @@ Você já percebeu isso?`,
 module.exports = {
   generateLeadMessage,
   ANGLE_CONFIGS,
+  HUMAN_CONSULTATIVE_ANGLES,
+  ACTIVE_PROMPT_MODELS,
 };
