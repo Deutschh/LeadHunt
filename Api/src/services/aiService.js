@@ -199,6 +199,7 @@ REGRAS ABSOLUTAS:
 - NÃO parecer IA
 - NÃO usar assinatura
 - NÃO usar emojis
+- NÃO usar saudação
 - NÃO usar palavras como "proposta", "serviço", "solução", "contratar", "vender"
 - Evite exageros como "incrível", "excelente", "maravilhoso"
 - Não invente dados específicos que não foram informados
@@ -217,7 +218,6 @@ FORMATO OBRIGATÓRIO:
 
 Parte 1:
 Uma mensagem humana com:
-- saudação curta
 - menção ao contexto de ter visto a empresa no Google
 - observação leve relacionada ao nicho, reputação ou percepção
 
