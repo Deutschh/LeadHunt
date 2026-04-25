@@ -3,43 +3,63 @@ const db = require("../database/db");
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-const PROMPT_VERSION = "v2.1";
+const PROMPT_VERSION = "v2.2";
 
 const ANGLE_CONFIGS = {
   oportunidade_perdida: {
     label: "Oportunidade perdida",
+    weight: 30,
     instruction:
       "Mostre que a empresa pode estar deixando clientes escaparem sem perceber.",
   },
   desalinhamento: {
     label: "Desalinhamento",
+    weight: 25,
     instruction:
       "Mostre contraste entre a qualidade real da empresa e a forma como ela parece à primeira vista.",
   },
   curiosidade: {
     label: "Curiosidade",
+    weight: 20,
     instruction:
       "Faça uma observação inesperada e específica que gere interesse imediato.",
   },
   concorrencia: {
     label: "Concorrência",
+    weight: 15,
     instruction:
       "Insinue que empresas piores podem estar parecendo mais fortes e captando mais atenção.",
   },
   percepcao_fraca: {
     label: "Percepção fraca",
+    weight: 10,
     instruction:
       "Mostre que a primeira impressão pode estar enfraquecendo o valor real da empresa.",
   },
 };
 
-function pickRandomAngle() {
-  const keys = Object.keys(ANGLE_CONFIGS);
-  return keys[Math.floor(Math.random() * keys.length)];
+function pickWeightedAngle() {
+  const entries = Object.entries(ANGLE_CONFIGS);
+  const totalWeight = entries.reduce(
+    (sum, [, config]) => sum + Number(config.weight || 0),
+    0,
+  );
+
+  let random = Math.random() * totalWeight;
+
+  for (const [key, config] of entries) {
+    random -= Number(config.weight || 0);
+
+    if (random <= 0) {
+      return key;
+    }
+  }
+
+  return entries[0][0];
 }
 
 async function generateLeadMessage(lead) {
-  const selectedAngle = pickRandomAngle();
+  const selectedAngle = pickWeightedAngle();
   const angleConfig = ANGLE_CONFIGS[selectedAngle];
 
   try {
@@ -49,7 +69,7 @@ async function generateLeadMessage(lead) {
     );
 
     const strategy = strategyRes.rows[0] || {
-      hook: "melhorar a presença digital e atrair novos clientes",
+      hook: "melhorar a percepção digital e atrair novos clientes",
       call_to_action: "Isso já passou pela sua cabeça?",
     };
 
@@ -116,6 +136,7 @@ Agora gere apenas a mensagem final.
       meta: {
         angle: selectedAngle,
         angle_label: angleConfig.label,
+        angle_weight: angleConfig.weight,
         version: PROMPT_VERSION,
       },
     };
@@ -129,10 +150,14 @@ Você já percebeu isso?`,
       meta: {
         angle: "fallback",
         angle_label: "Fallback",
+        angle_weight: 0,
         version: PROMPT_VERSION,
       },
     };
   }
 }
 
-module.exports = { generateLeadMessage };
+module.exports = {
+  generateLeadMessage,
+  ANGLE_CONFIGS,
+};

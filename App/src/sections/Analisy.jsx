@@ -237,18 +237,27 @@ const Analysis = () => {
 
   const promptMetrics = useMemo(() => {
     const promptMap = new Map();
+    const days = Number(period);
+    const now = new Date();
 
-    filteredLeadsByPeriod.forEach((lead) => {
-      const key =
-        lead.ai_prompt_angle ||
-        lead.ai_prompt_label ||
-        lead.ai_prompt_version ||
-        "Sem IA";
+    const leadsWithAiInPeriod = leads.filter((lead) => {
+      if (!lead.ai_prompt_angle && !lead.ai_prompt_label) return false;
+      if (!lead.ai_message_generated_at) return false;
+
+      const generatedAt = new Date(lead.ai_message_generated_at);
+      const diffDays = (now - generatedAt) / (1000 * 60 * 60 * 24);
+
+      return diffDays <= days;
+    });
+
+    leadsWithAiInPeriod.forEach((lead) => {
+      const key = `${lead.ai_prompt_angle || "unknown"}-${lead.ai_prompt_version || "sem-versao"}`;
 
       if (!promptMap.has(key)) {
         promptMap.set(key, {
           key,
-          label: lead.ai_prompt_label || lead.ai_prompt_angle || "Sem IA",
+          label: lead.ai_prompt_label || lead.ai_prompt_angle || "Sem label",
+          angle: lead.ai_prompt_angle || "unknown",
           version: lead.ai_prompt_version || "—",
           leads: 0,
           sent: 0,
@@ -336,7 +345,7 @@ const Analysis = () => {
           return b.responseRate - a.responseRate;
         return b.revenue - a.revenue;
       });
-  }, [filteredLeadsByPeriod]);
+  }, [leads, period]);
 
   const sendingSummary = useMemo(() => {
     const active = sendingNumbers.filter((n) => n.is_active).length;
