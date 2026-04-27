@@ -694,6 +694,35 @@ function getSuggestedAction(lead) {
   };
 }
 
+function getFollowupMeta(lead) {
+  const count = Number(lead.followup_count || 0);
+  const total = 4;
+
+  const labels = [
+    "D+1 - Follow-up leve",
+    "D+3 - Curiosidade",
+    "D+5 - Oportunidade",
+    "D+7 - Última tentativa",
+  ];
+
+  const nextLabel = labels[count] || "Sequência concluída";
+
+  const nextDate = lead.next_followup_at
+    ? new Date(lead.next_followup_at)
+    : null;
+
+  const isReady = nextDate && nextDate <= new Date();
+
+  return {
+    count,
+    total,
+    nextLabel,
+    nextDate,
+    isReady,
+    finished: count >= total || !lead.next_followup_at,
+  };
+}
+
 function LeadCard({
   lead,
   onUpdateStatus,
@@ -707,6 +736,7 @@ function LeadCard({
   const score = lead.lead_score ?? lead.interest_level ?? 0;
   const temp = getTemperatureMeta(score, lead.temperature_band);
   const action = getSuggestedAction(lead);
+  const followupMeta = getFollowupMeta(lead);
 
   const renderStatusBadge = () => {
     if (lead.is_invalid_number) {
@@ -824,6 +854,43 @@ function LeadCard({
           </p>
           <p className="text-sm font-bold">{action.label}</p>
         </div>
+
+        {lead.status === "contacted" && !lead.last_reply_at && (
+          <div
+            className={`mb-5 rounded-2xl border px-4 py-3 ${
+              followupMeta.isReady
+                ? "bg-orange-50 text-orange-700 border-orange-200"
+                : followupMeta.finished
+                  ? "bg-slate-50 text-slate-500 border-slate-200"
+                  : "bg-blue-50 text-blue-700 border-blue-200"
+            }`}
+          >
+            <div className="flex items-center justify-between gap-3 mb-2">
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-70">
+                Follow-up automático
+              </p>
+
+              <span className="text-[10px] font-black uppercase">
+                {Math.min(followupMeta.count, followupMeta.total)}/
+                {followupMeta.total}
+              </span>
+            </div>
+
+            <p className="text-sm font-black">
+              {followupMeta.isReady
+                ? "Pronto para enviar agora"
+                : followupMeta.finished
+                  ? "Sequência finalizada"
+                  : followupMeta.nextLabel}
+            </p>
+
+            {followupMeta.nextDate && !followupMeta.finished && (
+              <p className="text-xs font-bold opacity-70 mt-1">
+                Próximo: {followupMeta.nextDate.toLocaleString("pt-BR")}
+              </p>
+            )}
+          </div>
+        )}
 
         {showInterestScale && (
           <div className="mb-8 p-4 bg-slate-50 rounded-2xl">

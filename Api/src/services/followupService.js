@@ -3,36 +3,52 @@ const db = require("../database/db");
 const FOLLOWUP_RULES = [
   {
     step: 0,
+    label: "D+1 - Follow-up leve",
     delayHours: 24,
     message:
-      "Oi! Passando só para saber se conseguiu ver minha mensagem anterior.",
+      "Fiquei pensando aqui depois da mensagem que te mandei e talvez eu tenha sido direto demais.\n\nMas me diz: isso que comentei faz sentido aí pra vocês hoje?",
   },
   {
     step: 1,
+    label: "D+3 - Curiosidade",
     delayHours: 48,
     message:
-      "Oi! Voltando rapidamente por aqui porque achei que isso poderia fazer sentido para vocês.",
+      "Uma coisa que tenho visto em empresas parecidas é que pequenos ajustes na forma como elas aparecem já mudam bastante a quantidade de contatos.\n\nVocê já chegou a olhar isso com mais atenção alguma vez?",
   },
   {
     step: 2,
-    delayHours: 72,
+    label: "D+5 - Oportunidade",
+    delayHours: 48,
     message:
-      "Oi! Esse é meu último toque por aqui. Se fizer sentido, posso te mostrar de forma bem direta.",
+      "Vou ser bem direto: pelo que vi, acho que vocês poderiam aproveitar melhor a atenção que já recebem.\n\nFaz sentido pra você ou estou viajando?",
+  },
+  {
+    step: 3,
+    label: "D+7 - Última tentativa",
+    delayHours: 48,
+    message:
+      "Prometo que essa é minha última mensagem por aqui.\n\nFiquei com a impressão de que existe uma oportunidade aí que talvez esteja passando batido. Se fizer sentido, posso te mostrar rapidinho o que pensei.",
   },
 ];
 
 function getFollowupMessage(lead, currentFollowupCount = 0) {
   const safeCount = Number(currentFollowupCount || 0);
-  const rule =
-    FOLLOWUP_RULES[safeCount] || FOLLOWUP_RULES[FOLLOWUP_RULES.length - 1];
+  const rule = FOLLOWUP_RULES[safeCount];
+
+  if (!rule) {
+    return null;
+  }
 
   return rule.message;
 }
 
 function getNextFollowupDelayHours(currentFollowupCount = 0) {
   const safeCount = Number(currentFollowupCount || 0);
-  const rule =
-    FOLLOWUP_RULES[safeCount] || FOLLOWUP_RULES[FOLLOWUP_RULES.length - 1];
+  const rule = FOLLOWUP_RULES[safeCount];
+
+  if (!rule) {
+    return null;
+  }
 
   return Number(rule.delayHours || 24);
 }
