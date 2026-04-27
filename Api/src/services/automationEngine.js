@@ -137,18 +137,58 @@ async function validateWhatsAppNumber(currentPage, lead) {
   }
 }
 
-async function checkIfLeadReplied(currentPage) {
+function parseWhatsAppDate(prePlainText) {
+  if (!prePlainText) return null;
+
+  // Exemplo: "[16:21, 26/04/2026] Nome:"
+  const match = prePlainText.match(
+    /\[(\d{1,2}):(\d{2}),\s(\d{1,2})\/(\d{1,2})\/(\d{4})\]/,
+  );
+
+  if (!match) return null;
+
+  const [, hour, minute, day, month, year] = match;
+
+  return new Date(
+    Number(year),
+    Number(month) - 1,
+    Number(day),
+    Number(hour),
+    Number(minute),
+  );
+}
+
+async function checkIfLeadReplied(currentPage, lead) {
   try {
+    if (lead.last_reply_at) return false;
+
     await new Promise((r) => setTimeout(r, 1500));
 
-    const incomingMessages = await currentPage.$$eval("div.message-in", (els) =>
-      els
-        .map((el) => (el.innerText || "").trim())
-        .filter(Boolean)
-        .slice(-5),
+    const referenceDate = lead.last_followup_at
+      ? new Date(lead.last_followup_at)
+      : lead.last_contact
+        ? new Date(lead.last_contact)
+        : null;
+
+    if (!referenceDate) return false;
+
+    const incomingMessages = await currentPage.$$eval(
+      "div.message-in span.copyable-text",
+      (els) =>
+        els.map((el) => ({
+          text: (el.innerText || "").trim(),
+          prePlainText: el.getAttribute("data-pre-plain-text") || "",
+        })),
     );
 
-    return incomingMessages.length > 0;
+    const validMessages = incomingMessages
+      .map((msg) => ({
+        ...msg,
+        date: parseWhatsAppDate(msg.prePlainText),
+      }))
+      .filter((msg) => msg.text && msg.date);
+
+    return validMessages.some((msg) => msg.date > referenceDate);
   } catch (err) {
     return false;
   }
@@ -596,7 +636,7 @@ const startAutomation = async () => {
         }
 
         if (mode === "followup") {
-          const hasReply = await checkIfLeadReplied(currentPage);
+          const hasReply = await checkIfLeadReplied(currentPage, lead);
 
           if (hasReply) {
             logWithPort(
