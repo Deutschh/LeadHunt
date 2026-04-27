@@ -19,6 +19,7 @@ import {
   Coffee,
   Sparkles,
   BellRing,
+  MessageCircle,
 } from "lucide-react";
 
 const MyLeads = ({ leads, loading, onRefresh, onUpdateStatus, onOpenLead }) => {
@@ -93,18 +94,38 @@ const MyLeads = ({ leads, loading, onRefresh, onUpdateStatus, onOpenLead }) => {
     return diasDesdeContato > 4;
   };
 
+  const isInProgressLead = (lead) => {
+    const stage = lead.pipeline_stage || lead.status;
+
+    return ["responded", "interested", "preview_sent", "negotiation"].includes(
+      stage,
+    );
+  };
+
   const stats = {
     total: leads.filter((l) => !l.is_archived).length,
+
     pending: leads.filter(
       (l) => l.status === "pending" && !l.is_verified && !l.is_archived,
     ).length,
+
     verified: leads.filter(
       (l) => l.status === "pending" && l.is_verified && !l.is_archived,
     ).length,
+
     contacted: leads.filter(
-      (l) => l.status === "contacted" && !l.is_archived && !checkIsLimbo(l),
+      (l) =>
+        l.status === "contacted" &&
+        !l.last_reply_at &&
+        !l.is_archived &&
+        !checkIsLimbo(l),
     ).length,
+
+    inProgress: leads.filter((l) => !l.is_archived && isInProgressLead(l))
+      .length,
+
     limbo: leads.filter((l) => !l.is_archived && checkIsLimbo(l)).length,
+
     closed: leads.filter(
       (l) =>
         (l.status === "closed" || l.pipeline_stage === "closed") &&
@@ -126,7 +147,11 @@ const MyLeads = ({ leads, loading, onRefresh, onUpdateStatus, onOpenLead }) => {
     }
 
     if (currentView === "contacted") {
-      return lead.status === "contacted" && !isLimbo;
+      return lead.status === "contacted" && !lead.last_reply_at && !isLimbo;
+    }
+
+    if (currentView === "in_progress") {
+      return isInProgressLead(lead);
     }
 
     if (currentView === "limbo") {
@@ -138,7 +163,7 @@ const MyLeads = ({ leads, loading, onRefresh, onUpdateStatus, onOpenLead }) => {
 
   return (
     <div className="p-10 max-w-[1600px] mx-auto w-full animate-in fade-in duration-700">
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-12">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-4 mb-12">
         <StatCard
           label="Scanner Total"
           value={stats.total}
@@ -159,10 +184,17 @@ const MyLeads = ({ leads, loading, onRefresh, onUpdateStatus, onOpenLead }) => {
           color="orange"
         />
         <StatCard
-          label="Gestão"
+          label="Funil Ativo"
           value={stats.contacted}
           icon={Flame}
           color="blue"
+        />
+
+        <StatCard
+          label="Em andamento"
+          value={stats.inProgress}
+          icon={MessageCircle}
+          color="orange"
         />
         <StatCard
           label="Limbo"
@@ -199,6 +231,13 @@ const MyLeads = ({ leads, loading, onRefresh, onUpdateStatus, onOpenLead }) => {
           label="Funil Ativo"
         />
         <TabButton
+          active={currentView === "in_progress"}
+          onClick={() => setCurrentView("in_progress")}
+          icon={MessageCircle}
+          label="Em andamento"
+          orange
+        />
+        <TabButton
           active={currentView === "limbo"}
           onClick={() => setCurrentView("limbo")}
           icon={Ghost}
@@ -212,11 +251,13 @@ const MyLeads = ({ leads, loading, onRefresh, onUpdateStatus, onOpenLead }) => {
           <h2 className="text-3xl font-black tracking-tight text-black">
             {currentView === "limbo"
               ? "Zona de Espera (Limbo)"
-              : currentView === "contacted"
-                ? "Pipeline de Vendas"
-                : currentView === "pending"
-                  ? "Novas Oportunidades"
-                  : "Prontos para Disparo"}
+              : currentView === "in_progress"
+                ? "Leads em Andamento"
+                : currentView === "contacted"
+                  ? "Funil Ativo"
+                  : currentView === "pending"
+                    ? "Novas Oportunidades"
+                    : "Prontos para Disparo"}
           </h2>
 
           <p className="text-slate-400 font-medium">
@@ -272,7 +313,9 @@ const MyLeads = ({ leads, loading, onRefresh, onUpdateStatus, onOpenLead }) => {
               onUpdateStatus={onUpdateStatus}
               onOpenLead={onOpenLead}
               showInterestScale={
-                currentView === "contacted" || currentView === "limbo"
+                currentView === "contacted" ||
+                currentView === "in_progress" ||
+                currentView === "limbo"
               }
               currentView={currentView}
             />
@@ -955,14 +998,16 @@ function LeadCard({
                 : "WhatsApp"}
           </button>
 
-          {currentView !== "contacted" && currentView !== "limbo" && (
-            <button
-              onClick={() => onUpdateStatus(lead.id, "contacted", 0)}
-              className="flex-1 bg-slate-100 text-slate-400 py-4 rounded-2xl hover:bg-black hover:text-white transition-all flex items-center justify-center"
-            >
-              <CheckCircle size={22} />
-            </button>
-          )}
+          {currentView !== "contacted" &&
+            currentView !== "in_progress" &&
+            currentView !== "limbo" && (
+              <button
+                onClick={() => onUpdateStatus(lead.id, "contacted", 0)}
+                className="flex-1 bg-slate-100 text-slate-400 py-4 rounded-2xl hover:bg-black hover:text-white transition-all flex items-center justify-center"
+              >
+                <CheckCircle size={22} />
+              </button>
+            )}
         </div>
       </div>
     </div>
