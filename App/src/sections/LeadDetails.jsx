@@ -581,43 +581,59 @@ const LeadDetails = ({ leadId, onBack }) => {
           </div>
         </div>
 
-        <div className="flex items-center gap-3 flex-wrap">
-          <button
-            onClick={() =>
-              handleUpdate({
-                is_verified: !lead.is_verified,
-                custom_message: customMessage,
-                is_ai_ready: true,
-              })
-            }
-            className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
-              lead.is_verified
-                ? "bg-green-100 text-green-600 border-2 border-green-200"
-                : "bg-white text-slate-400 border-2 border-slate-100"
-            }`}
-          >
-            {lead.is_verified
-              ? "✓ Verificado para Automação"
-              : "Aprovar Automação"}
-          </button>
+        <div className="flex items-center gap-3 flex-wrap bg-amaber-600 justify-end">
+          <div className="w-full justify-end flex">
+            <button
+              onClick={() =>
+                handleUpdate({
+                  is_verified: !lead.is_verified,
+                  custom_message: customMessage,
+                  is_ai_ready: true,
+                })
+              }
+              className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                lead.is_verified
+                  ? "bg-green-100 text-green-600 border-2 border-green-200"
+                  : "bg-white text-slate-400 border-2 border-slate-100"
+              }`}
+            >
+              {lead.is_verified
+                ? "✓ Verificado para Automação"
+                : "Aprovar Automação"}
+            </button>
 
-          <button
-            onClick={handleDelete}
-            className="p-3 text-red-400 hover:bg-red-50 rounded-2xl transition-all"
-          >
-            <Trash2 size={20} />
-          </button>
-
-          <div className="h-10 w-[1px] bg-slate-200 mx-2"></div>
+            <button
+              onClick={handleDelete}
+              className="p-3 text-red-400 hover:bg-red-50 rounded-2xl transition-all"
+            >
+              <Trash2 size={22} />
+            </button>
+          </div>
 
           <div className="flex bg-slate-100 p-1 rounded-2xl">
-            {["pending", "contacted", "closed"].map((st) => (
+            {[
+              "pending",
+              "contacted",
+              "responded",
+              "negotiation",
+              "closed",
+              "lost",
+            ].map((st) => (
               <button
                 key={st}
                 onClick={() =>
                   st === "closed"
                     ? setShowClosingModal(true)
-                    : handleUpdate({ status: st })
+                    : handleUpdate({
+                        status: st,
+                        pipeline_stage:
+                          st === "negotiation"
+                            ? "negotiation"
+                            : st === "lost"
+                              ? "lost"
+                              : st,
+                        lost_reason: st === "lost" ? "manual" : undefined,
+                      })
                 }
                 className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
                   lead.status === st
@@ -665,7 +681,12 @@ const LeadDetails = ({ leadId, onBack }) => {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <button
-                onClick={() => handleUpdate({ status: "responded" })}
+                onClick={() =>
+                  handleUpdate({
+                    status: "responded",
+                    pipeline_stage: "responded",
+                  })
+                }
                 disabled={lead.status === "responded"}
                 className={`p-5 rounded-3xl font-black text-[11px] uppercase tracking-widest transition-all flex items-center justify-center gap-3 ${
                   lead.status === "responded"
@@ -684,7 +705,12 @@ const LeadDetails = ({ leadId, onBack }) => {
               </button>
 
               <button
-                onClick={() => handleUpdate({ preview_sent: true })}
+                onClick={() =>
+                  handleUpdate({
+                    preview_sent: true,
+                    pipeline_stage: "preview_sent",
+                  })
+                }
                 disabled={lead.preview_sent}
                 className={`p-5 rounded-3xl font-black text-[11px] uppercase tracking-widest transition-all flex items-center justify-center gap-3 ${
                   lead.preview_sent
@@ -701,7 +727,13 @@ const LeadDetails = ({ leadId, onBack }) => {
               </button>
 
               <button
-                onClick={() => handleUpdate({ price_requested: true })}
+                onClick={() =>
+                  handleUpdate({
+                    price_requested: true,
+                    pipeline_stage: "negotiation",
+                    status: "negotiation",
+                  })
+                }
                 disabled={lead.price_requested}
                 className={`p-5 rounded-3xl font-black text-[11px] uppercase tracking-widest transition-all flex items-center justify-center gap-3 ${
                   lead.price_requested
