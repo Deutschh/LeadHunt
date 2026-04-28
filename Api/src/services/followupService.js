@@ -6,28 +6,28 @@ const FOLLOWUP_RULES = [
     label: "D+1 - Follow-up leve",
     delayHours: 24,
     message:
-      "Fiquei pensando aqui depois da mensagem que te mandei e talvez eu tenha sido direto demais.\n\nMas me diz: isso que comentei faz sentido aí pra vocês hoje?",
+      "Boa tarde! Tudo bem?\n\nFiquei em dúvida se consegui explicar bem a ideia ontem.\n\nSe quiser, posso montar uma prévia rápida de como isso funcionaria pra vocês, sem compromisso.",
   },
   {
     step: 1,
     label: "D+3 - Curiosidade",
     delayHours: 48,
     message:
-      "Uma coisa que tenho visto em empresas parecidas é que pequenos ajustes na forma como elas aparecem já mudam bastante a quantidade de contatos.\n\nVocê já chegou a olhar isso com mais atenção alguma vez?",
+      "Boa tarde! Tudo bem?\n\nUma coisa que percebi é que vocês já têm pontos fortes que poderiam aparecer com mais destaque logo de cara.\n\nVocê já chegou a olhar isso com calma?",
   },
   {
     step: 2,
     label: "D+5 - Oportunidade",
     delayHours: 48,
     message:
-      "Vou ser bem direto: pelo que vi, acho que vocês poderiam aproveitar melhor a atenção que já recebem.\n\nFaz sentido pra você ou estou viajando?",
+      "Boa tarde! Tudo bem?\n\nVou ser bem direto: pelo que vi, acho que vocês poderiam aproveitar melhor a atenção que já recebem.\n\nFaz sentido pra você ou estou viajando?",
   },
   {
     step: 3,
     label: "D+7 - Última tentativa",
     delayHours: 48,
     message:
-      "Prometo que essa é minha última mensagem por aqui.\n\nFiquei com a impressão de que existe uma oportunidade aí que talvez esteja passando batido. Se fizer sentido, posso te mostrar rapidinho o que pensei.",
+      "Boa tarde! Tudo bem?\n\nPrometo que essa é minha última mensagem por aqui.\n\nFiquei com a impressão de que existe uma oportunidade aí que talvez esteja passando batido. Posso te mostrar rapidinho o que pensei?",
   },
 ];
 
