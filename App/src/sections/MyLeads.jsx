@@ -30,6 +30,7 @@ const MyLeads = ({ leads, loading, onRefresh, onUpdateStatus, onOpenLead }) => {
     limit: 10,
     minRating: 4.0,
     random: true,
+    categories: [],
   });
 
   const [aiStep, setAiStep] = useState("idle");
@@ -80,6 +81,15 @@ const MyLeads = ({ leads, loading, onRefresh, onUpdateStatus, onOpenLead }) => {
       setAiStep("error");
     }
   };
+
+  const availableCategories = [
+    ...new Set(
+      leads
+        .filter((lead) => !lead.is_archived && lead.status === "pending")
+        .map((lead) => lead.lead_category)
+        .filter(Boolean),
+    ),
+  ].sort();
 
   const checkIsLimbo = (lead) => {
     const score = lead.lead_score ?? lead.interest_level ?? 0;
@@ -372,6 +382,83 @@ const MyLeads = ({ leads, loading, onRefresh, onUpdateStatus, onOpenLead }) => {
                       <option value="4.0">Acima de 4.0</option>
                       <option value="4.5">Acima de 4.5</option>
                     </select>
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] font-black uppercase text-slate-400 ml-2">
+                      Nichos para gerar
+                    </label>
+
+                    <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 max-h-[180px] overflow-y-auto space-y-3">
+                      {availableCategories.length > 0 ? (
+                        <>
+                          <label className="flex items-center gap-3 cursor-pointer pb-3 border-b border-slate-200">
+                            <input
+                              type="checkbox"
+                              checked={aiConfig.categories.length === 0}
+                              onChange={() =>
+                                setAiConfig({
+                                  ...aiConfig,
+                                  categories: [],
+                                })
+                              }
+                              className="w-5 h-5 accent-blue-600"
+                            />
+
+                            <div>
+                              <p className="text-sm font-black text-slate-800">
+                                Todos os nichos
+                              </p>
+                              <p className="text-xs text-slate-400 font-medium">
+                                Gera mensagens para qualquer nicho disponível.
+                              </p>
+                            </div>
+                          </label>
+
+                          {availableCategories.map((category) => {
+                            const checked =
+                              aiConfig.categories.includes(category);
+
+                            return (
+                              <label
+                                key={category}
+                                className="flex items-center gap-3 cursor-pointer"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={(e) => {
+                                    const nextCategories = e.target.checked
+                                      ? [...aiConfig.categories, category]
+                                      : aiConfig.categories.filter(
+                                          (c) => c !== category,
+                                        );
+
+                                    setAiConfig({
+                                      ...aiConfig,
+                                      categories: nextCategories,
+                                    });
+                                  }}
+                                  className="w-5 h-5 accent-blue-600"
+                                />
+
+                                <span className="text-sm font-bold text-slate-700">
+                                  {category}
+                                </span>
+                              </label>
+                            );
+                          })}
+                        </>
+                      ) : (
+                        <p className="text-sm text-slate-400 font-medium">
+                          Nenhum nicho pendente encontrado.
+                        </p>
+                      )}
+                    </div>
+
+                    <p className="text-xs text-slate-400 font-medium mt-2 ml-2">
+                      Se nenhum nicho estiver marcado, o sistema usa todos.
+                    </p>
                   </div>
 
                   <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">

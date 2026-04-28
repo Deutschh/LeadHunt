@@ -619,6 +619,7 @@ router.post("/generate-ai-mass", async (req, res) => {
     minRating = 0,
     status = "pending",
     category,
+    categories = [],
     random = false,
   } = req.body;
 
@@ -636,7 +637,14 @@ router.post("/generate-ai-mass", async (req, res) => {
 
     const queryParams = [status, minRating];
 
-    if (category) {
+    const selectedCategories = Array.isArray(categories)
+      ? categories.filter(Boolean)
+      : [];
+
+    if (selectedCategories.length > 0) {
+      queryParams.push(selectedCategories);
+      query += ` AND lead_category = ANY($${queryParams.length})`;
+    } else if (category) {
       queryParams.push(category);
       query += ` AND lead_category = $${queryParams.length}`;
     }
@@ -655,6 +663,7 @@ router.post("/generate-ai-mass", async (req, res) => {
     if (leads.rowCount === 0) {
       return res.json({
         success: false,
+        batch_id: batchId,
         count: 0,
         message: "Nenhum lead encontrado com esses critérios.",
         generated_leads: [],
@@ -781,7 +790,6 @@ router.get("/generate-ai-mass/last", async (req, res) => {
     res.status(500).json({ error: "Erro ao buscar última geração." });
   }
 });
-
 
 // Buscar detalhes de um lead
 router.get("/:id", async (req, res) => {
@@ -1031,8 +1039,6 @@ router.patch("/:id", async (req, res) => {
     res.status(500).json({ error: "Erro ao processar atualização do lead." });
   }
 });
-
-
 
 // Dashboard
 router.get("/stats/dashboard", async (req, res) => {
