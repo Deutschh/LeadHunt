@@ -49,8 +49,9 @@ const MyLeads = ({ leads, loading, onRefresh, onUpdateStatus, onOpenLead }) => {
         limit: Number(config.limit || 10),
         minRating: Number(config.minRating || 0),
         random: Boolean(config.random),
+        categories: Array.isArray(config.categories) ? config.categories : [],
       };
-
+      
       const res = await api.post("/leads/generate-ai-mass", payload);
 
       setGeneratedCount(res.data.count || 0);
