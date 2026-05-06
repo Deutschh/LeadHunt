@@ -31,6 +31,15 @@ const getGreeting = () => {
   return "Boa noite";
 };
 
+function shouldSendGreetingBubble(lead) {
+  const angle = lead.ai_prompt_angle || "";
+
+  if (angle.startsWith("velaris_consultant:")) return false;
+  if (angle.startsWith("human_consultative:")) return false;
+
+  return true;
+}
+
 async function sendBubble(page, selector, text, isMultiline = false) {
   await page.waitForSelector(selector);
   await page.click(selector);
@@ -316,17 +325,27 @@ async function handleInitialApproach(
     sendingNumber,
   );
 
-  const greetingMsg = `${getGreeting()}! Tudo bem?`;
-  await sendBubble(currentPage, inputSelector, greetingMsg);
-  logWithPort("👋 Balão 1 (Saudação) enviado.", "info", sendingNumber);
+  if (shouldSendGreetingBubble(lead)) {
+    const greetingMsg = `${getGreeting()}! Tudo bem?`;
+    await sendBubble(currentPage, inputSelector, greetingMsg);
+    logWithPort("👋 Balão 1 (Saudação) enviado.", "info", sendingNumber);
 
-  const waitTime1 = Math.floor(Math.random() * (15000 - 10000 + 1)) + 10000;
-  logWithPort(
-    `⏳ Aguardando ${waitTime1 / 1000}s para a proposta...`,
-    "info",
-    sendingNumber,
-  );
-  await new Promise((r) => setTimeout(r, waitTime1));
+    const waitTime1 = Math.floor(Math.random() * (15000 - 10000 + 1)) + 10000;
+    logWithPort(
+      `⏳ Aguardando ${waitTime1 / 1000}s para a proposta...`,
+      "info",
+      sendingNumber,
+    );
+    await new Promise((r) => setTimeout(r, waitTime1));
+  } else {
+    logWithPort(
+      "👋 Saudação separada ignorada: mensagem já possui abertura consultiva.",
+      "info",
+      sendingNumber,
+    );
+
+    await new Promise((r) => setTimeout(r, 3000));
+  }
 
   if (lead.custom_message && lead.custom_message.includes("---")) {
     logWithPort(

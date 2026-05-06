@@ -4,75 +4,89 @@ const db = require("../database/db");
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const ACTIVE_PROMPT_MODELS = {
-  aggressive_curiosity: {
-    version: "v2.2",
-    label: "Direto provocativo",
-    weight: 50,
+  velaris_consultant: {
+    version: "v3.1",
+    label: "Consultor Velaris",
+    weight: 45,
   },
   human_consultative: {
     version: "v3.0",
     label: "Humano consultivo",
-    weight: 50,
+    weight: 30,
+  },
+  aggressive_curiosity: {
+    version: "v2.2",
+    label: "Direto provocativo",
+    weight: 25,
   },
 };
 
 const ANGLE_CONFIGS = {
-  oportunidade_perdida: {
-    label: "Oportunidade perdida",
-    weight: 30,
-    instruction:
-      "Mostre que a empresa pode estar deixando clientes escaparem sem perceber.",
-  },
   desalinhamento: {
     label: "Desalinhamento",
-    weight: 25,
+    weight: 55,
     instruction:
       "Mostre contraste entre a qualidade real da empresa e a forma como ela parece à primeira vista.",
   },
-  curiosidade: {
-    label: "Curiosidade",
-    weight: 20,
-    instruction:
-      "Faça uma observação inesperada e específica que gere interesse imediato.",
-  },
-  concorrencia: {
-    label: "Concorrência",
-    weight: 15,
-    instruction:
-      "Insinue que empresas piores podem estar parecendo mais fortes e captando mais atenção.",
-  },
   percepcao_fraca: {
     label: "Percepção fraca",
-    weight: 10,
+    weight: 30,
     instruction:
       "Mostre que a primeira impressão pode estar enfraquecendo o valor real da empresa.",
+  },
+  curiosidade: {
+    label: "Curiosidade",
+    weight: 15,
+    instruction:
+      "Faça uma observação inesperada e específica que gere interesse imediato.",
   },
 };
 
 const HUMAN_CONSULTATIVE_ANGLES = {
-  observacao_suave: {
-    label: "Observação suave",
-    weight: 35,
+  ideia_rapida: {
+    label: "Ideia rápida",
+    weight: 45,
     instruction:
-      "Faça uma observação leve sobre a empresa, sem pressionar e sem parecer crítica.",
+      "Posicione a abordagem como uma ideia simples e rápida, sem compromisso.",
   },
   oportunidade_visual: {
     label: "Oportunidade visual",
-    weight: 25,
+    weight: 35,
     instruction:
       "Mostre que a empresa poderia transmitir melhor sua qualidade visualmente.",
   },
-  confianca_local: {
-    label: "Confiança local",
+  percepcao_fraca: {
+    label: "Percepção fraca",
     weight: 20,
     instruction:
-      "Mostre que avaliações e reputação local podem virar mais contatos e conversas.",
+      "Mostre de forma leve que a presença atual talvez não transmita todo o valor da empresa.",
   },
-  ideia_rapida: {
-    label: "Ideia rápida",
-    weight: 20,
+};
+
+const VELARIS_CONSULTANT_ANGLES = {
+  analise_estrategica: {
+    label: "Análise estratégica",
+    weight: 35,
     instruction:
-      "Posicione a abordagem como uma ideia simples e rápida, sem compromisso.",
+      "Apresente a abordagem como uma análise estratégica simples da presença digital da empresa.",
+  },
+  confirmacao_empresa: {
+    label: "Confirmação da empresa",
+    weight: 25,
+    instruction:
+      "Comece confirmando se está falando com a empresa certa antes de apresentar a Velaris.",
+  },
+  percepcao_profissional: {
+    label: "Percepção profissional",
+    weight: 25,
+    instruction:
+      "Mostre que a Velaris ajuda empresas a transmitirem mais confiança antes do primeiro contato.",
+  },
+  convite_reuniao: {
+    label: "Convite para conversa",
+    weight: 15,
+    instruction:
+      "Conduza para uma conversa curta ou reunião rápida, sem parecer pressão comercial.",
   },
 };
 
@@ -199,7 +213,7 @@ REGRAS ABSOLUTAS:
 - NÃO parecer IA
 - NÃO usar assinatura
 - NÃO usar emojis
-- NÃO usar saudação
+- Pode usar uma saudação curta e natural
 - NÃO usar palavras como "proposta", "serviço", "solução", "contratar", "vender"
 - Evite exageros como "incrível", "excelente", "maravilhoso"
 - Não invente dados específicos que não foram informados
@@ -236,13 +250,83 @@ Agora gere apenas a mensagem final.
 `;
 }
 
+function buildVelarisConsultantPrompt({
+  lead,
+  strategy,
+  selectedAngle,
+  angleConfig,
+}) {
+  return `
+Você escreve mensagens de prospecção via WhatsApp como um consultor real da Velaris Studio.
+
+Seu objetivo é gerar confiança e fazer o lead responder, sem parecer automação, spam ou vendedor insistente.
+
+LEAD:
+Empresa: ${lead.name || "não informada"}
+Cidade: ${lead.lead_city || lead.city || "não informada"}
+Nicho: ${lead.lead_category || lead.niche || "não informado"}
+Avaliações no Google: ${lead.reviews_count || 0}
+Estratégia do nicho: ${strategy.hook}
+CTA base: ${strategy.call_to_action}
+
+MODELO:
+Consultor Velaris
+
+ÂNGULO:
+${selectedAngle}
+${angleConfig.instruction}
+
+REGRAS ABSOLUTAS:
+- Escreva em português do Brasil
+- Linguagem humana, educada e profissional
+- Parecer uma pessoa real de uma empresa real
+- Pode se apresentar como Guilherme, consultor da Velaris Studio
+- NÃO parecer IA
+- NÃO parecer spam
+- NÃO usar emojis
+- NÃO prometer resultado
+- NÃO exagerar elogios
+- NÃO usar textão
+- NÃO usar palavras muito agressivas como "perdendo dinheiro" ou "seus concorrentes estão ganhando"
+- Pode usar "presença digital", "percepção", "estrutura", "clareza" e "conversão"
+- Use exatamente "---" entre a parte 1 e a parte 2
+- Parte 1 deve ter no máximo 3 linhas
+- Parte 2 deve ter no máximo 2 linhas
+- A parte 2 deve terminar com UMA pergunta simples
+- NÃO adicionar nada depois da pergunta
+
+ESTRUTURA:
+
+Parte 1:
+Mensagem educada com:
+- saudação curta
+- apresentação como Guilherme da Velaris Studio
+- contexto de que viu a empresa no Google ou estava analisando empresas da região
+
+---
+Parte 2:
+Convite simples para mostrar uma ideia, análise ou conversar rapidamente.
+
+EXEMPLO DE ESTILO:
+Boa tarde, tudo bem? Sou o Guilherme, consultor da Velaris Studio.
+Vi a ${lead.name || "empresa"} pelo Google enquanto analisava alguns negócios de ${lead.lead_category || lead.niche || "esse segmento"} em ${lead.lead_city || lead.city || "sua região"}.
+
+---
+Percebi alguns pontos que talvez ajudem a melhorar a percepção da empresa antes do primeiro contato. Posso te mostrar uma ideia rápida?
+
+Agora gere apenas a mensagem final.
+`;
+}
+
 async function generateLeadMessage(lead) {
   const promptModel = getPromptModel();
 
   const angleSource =
-    promptModel.key === "human_consultative"
-      ? HUMAN_CONSULTATIVE_ANGLES
-      : ANGLE_CONFIGS;
+    promptModel.key === "velaris_consultant"
+      ? VELARIS_CONSULTANT_ANGLES
+      : promptModel.key === "human_consultative"
+        ? HUMAN_CONSULTATIVE_ANGLES
+        : ANGLE_CONFIGS;
 
   const selectedAngle = pickWeightedFromConfig(angleSource);
   const angleConfig = angleSource[selectedAngle];
@@ -258,25 +342,40 @@ async function generateLeadMessage(lead) {
       call_to_action: "Isso já passou pela sua cabeça?",
     };
 
-    const prompt =
-      promptModel.key === "human_consultative"
-        ? buildHumanConsultativePrompt({
-            lead,
-            strategy,
-            selectedAngle,
-            angleConfig,
-          })
-        : buildAggressiveCuriosityPrompt({
-            lead,
-            strategy,
-            selectedAngle,
-            angleConfig,
-          });
+    let prompt;
+
+    if (promptModel.key === "velaris_consultant") {
+      prompt = buildVelarisConsultantPrompt({
+        lead,
+        strategy,
+        selectedAngle,
+        angleConfig,
+      });
+    } else if (promptModel.key === "human_consultative") {
+      prompt = buildHumanConsultativePrompt({
+        lead,
+        strategy,
+        selectedAngle,
+        angleConfig,
+      });
+    } else {
+      prompt = buildAggressiveCuriosityPrompt({
+        lead,
+        strategy,
+        selectedAngle,
+        angleConfig,
+      });
+    }
 
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [{ role: "user", content: prompt }],
-      temperature: promptModel.key === "human_consultative" ? 0.75 : 0.9,
+      temperature:
+        promptModel.key === "velaris_consultant"
+          ? 0.65
+          : promptModel.key === "human_consultative"
+            ? 0.75
+            : 0.9,
     });
 
     const message = response.choices[0].message.content.trim();
@@ -311,5 +410,6 @@ module.exports = {
   generateLeadMessage,
   ANGLE_CONFIGS,
   HUMAN_CONSULTATIVE_ANGLES,
+  VELARIS_CONSULTANT_ANGLES,
   ACTIVE_PROMPT_MODELS,
 };
