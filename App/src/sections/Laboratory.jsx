@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Plus, Sparkles, Eye, Layers, MapPin, X, Wand2 } from "lucide-react";
-import EstheticPremium from "../templates/esthetic/EstheticPremium";
+import { renderPreviewTemplate } from "../components/Laboratory/renderers/renderPreviewTemplate";
 
 const mockPreviews = [
   {
@@ -57,14 +57,10 @@ export default function Laboratory() {
   };
 
   if (selectedPreview) {
-    return (
-      <EstheticPremium
-        preview={selectedPreview}
-        onBack={() => setSelectedPreview(null)}
-      />
+    return renderPreviewTemplate(selectedPreview, () =>
+      setSelectedPreview(null),
     );
   }
-
   return (
     <div className="p-10 max-w-[1600px] mx-auto w-full animate-in fade-in duration-700">
       <div className="flex items-center justify-between mb-10">
