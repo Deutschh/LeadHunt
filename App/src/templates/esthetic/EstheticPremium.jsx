@@ -1,10 +1,34 @@
 import React from "react";
 import { ArrowLeft, Calendar, Sparkles, Star } from "lucide-react";
 
+function getReadableTextColor(hexColor = "#ffffff") {
+  const cleanHex = hexColor.replace("#", "");
+
+  if (cleanHex.length !== 6) return "#000000";
+
+  const r = parseInt(cleanHex.substring(0, 2), 16);
+  const g = parseInt(cleanHex.substring(2, 4), 16);
+  const b = parseInt(cleanHex.substring(4, 6), 16);
+
+  const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+
+  return brightness > 155 ? "#000000" : "#ffffff";
+}
+
 export default function EstheticPremium({ preview, onBack }) {
   const name = preview?.project_name || "Clínica Premium";
   const city = preview?.city || "sua região";
   const whatsapp = preview?.whatsapp || "";
+  const primaryColor = preview?.primary_color || "#ffffff";
+  const buttonTextColor = getReadableTextColor(primaryColor);
+
+  const headline =
+    preview?.headline ||
+    "Beleza que transmite confiança antes do primeiro contato.";
+
+  const subheadline =
+    preview?.subheadline ||
+    `Uma presença visual pensada para organizar tratamentos, destacar resultados e transformar interesse em conversas reais em ${city}.`;
 
   return (
     <div className="min-h-screen bg-[#08080b] text-white">
@@ -30,12 +54,11 @@ export default function EstheticPremium({ preview, onBack }) {
           </div>
 
           <h1 className="text-5xl lg:text-7xl font-black tracking-tight leading-[0.9] mb-8">
-            Beleza que transmite confiança antes do primeiro contato.
+            {headline}
           </h1>
 
           <p className="text-white/55 text-lg leading-relaxed max-w-xl mb-10">
-            Uma presença visual pensada para organizar tratamentos, destacar
-            resultados e transformar interesse em conversas reais em {city}.
+            {subheadline}
           </p>
 
           <div className="flex flex-wrap gap-4">
@@ -43,7 +66,11 @@ export default function EstheticPremium({ preview, onBack }) {
               href={
                 whatsapp ? `https://wa.me/${whatsapp.replace(/\D/g, "")}` : "#"
               }
-              className="bg-white text-black px-7 py-4 rounded-full font-black text-sm hover:scale-105 active:scale-95 transition-all"
+              style={{
+                backgroundColor: primaryColor,
+                color: buttonTextColor,
+              }}
+              className="px-7 py-4 rounded-full font-black text-sm hover:scale-105 active:scale-95 transition-all"
             >
               Agendar avaliação
             </a>
@@ -74,6 +101,7 @@ export default function EstheticPremium({ preview, onBack }) {
               </div>
 
               <h3 className="text-2xl font-black mb-2">{name}</h3>
+
               <p className="text-white/50 text-sm">
                 Tratamentos personalizados, atendimento humanizado e estética
                 com percepção premium.
@@ -97,7 +125,9 @@ export default function EstheticPremium({ preview, onBack }) {
             className="bg-white/[0.03] border border-white/10 rounded-[2rem] p-7"
           >
             <Calendar className="text-white/40 mb-5" size={22} />
+
             <h3 className="font-black text-xl mb-3">{title}</h3>
+
             <p className="text-white/45 text-sm leading-relaxed">{text}</p>
           </div>
         ))}

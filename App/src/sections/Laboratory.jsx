@@ -28,6 +28,9 @@ const initialForm = {
   template_key: "esthetic-premium",
   whatsapp: "",
   instagram: "",
+  primary_color: "#ffffff",
+  headline: "",
+  subheadline: "",
 };
 
 export default function Laboratory() {
@@ -133,7 +136,7 @@ function CreatePreviewModal({ form, setForm, onClose, onCreate }) {
 
   return (
     <div className="fixed inset-0 z-[100] bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-white w-full max-w-xl rounded-[3rem] shadow-2xl overflow-hidden animate-in zoom-in duration-300">
+      <div className="bg-white w-full max-w-xl rounded-[3rem] shadow-2xl overflow-hidden animate-in zoom-in duration-300 max-h-[90vh] flex flex-col">
         <div className="p-8 border-b border-slate-100 flex items-center justify-between">
           <div>
             <div className="inline-flex items-center gap-2 bg-purple-50 text-purple-600 px-3 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest mb-3">
@@ -158,7 +161,7 @@ function CreatePreviewModal({ form, setForm, onClose, onCreate }) {
           </button>
         </div>
 
-        <div className="p-8 space-y-5">
+        <div className="p-8 space-y-5 overflow-y-auto">
           <FormField label="Nome da empresa">
             <input
               value={form.project_name}
@@ -203,6 +206,42 @@ function CreatePreviewModal({ form, setForm, onClose, onCreate }) {
               <option value="lawyer-premium">Advocacia Premium</option>
               <option value="architecture-premium">Arquitetura Premium</option>
             </select>
+          </FormField>
+
+          <FormField label="Headline principal">
+            <input
+              value={form.headline}
+              onChange={(e) => updateField("headline", e.target.value)}
+              placeholder="Ex: Beleza que transmite confiança antes do primeiro contato"
+              className="w-full p-4 rounded-2xl bg-slate-50 border border-slate-100 outline-none font-bold text-slate-800 focus:ring-2 focus:ring-purple-500"
+            />
+          </FormField>
+
+          <FormField label="Subheadline">
+            <textarea
+              value={form.subheadline}
+              onChange={(e) => updateField("subheadline", e.target.value)}
+              placeholder="Ex: Uma presença visual pensada para organizar tratamentos, destacar resultados e transformar interesse em conversas reais."
+              className="w-full p-4 rounded-2xl bg-slate-50 border border-slate-100 outline-none font-bold text-slate-800 focus:ring-2 focus:ring-purple-500 min-h-[110px] resize-none"
+            />
+          </FormField>
+
+          <FormField label="Cor principal">
+            <div className="flex gap-3">
+              <input
+                type="color"
+                value={form.primary_color}
+                onChange={(e) => updateField("primary_color", e.target.value)}
+                className="w-16 h-14 rounded-2xl bg-slate-50 border border-slate-100 overflow-hidden cursor-pointer"
+              />
+
+              <input
+                value={form.primary_color}
+                onChange={(e) => updateField("primary_color", e.target.value)}
+                placeholder="#ffffff"
+                className="flex-1 p-4 rounded-2xl bg-slate-50 border border-slate-100 outline-none font-bold text-slate-800 focus:ring-2 focus:ring-purple-500"
+              />
+            </div>
           </FormField>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
