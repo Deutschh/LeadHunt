@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { Plus, Sparkles, Eye, Layers, MapPin } from "lucide-react";
+import { Plus, Sparkles, Eye, Layers, MapPin, X, Wand2 } from "lucide-react";
+import EstheticPremium from "../templates/esthetic/EstheticPremium";
 
 const mockPreviews = [
   {
@@ -20,8 +21,46 @@ const mockPreviews = [
   },
 ];
 
+const initialForm = {
+  project_name: "",
+  niche: "Clínica de Estética",
+  city: "",
+  template_key: "esthetic-premium",
+  whatsapp: "",
+  instagram: "",
+};
+
 export default function Laboratory() {
-  const [previews] = useState(mockPreviews);
+  const [previews, setPreviews] = useState(mockPreviews);
+  const [showModal, setShowModal] = useState(false);
+  const [form, setForm] = useState(initialForm);
+  const [selectedPreview, setSelectedPreview] = useState(null);
+
+  const handleCreatePreview = () => {
+    if (!form.project_name.trim()) {
+      alert("Informe o nome da empresa.");
+      return;
+    }
+
+    const newPreview = {
+      id: Date.now(),
+      ...form,
+      status: "draft",
+    };
+
+    setPreviews((prev) => [newPreview, ...prev]);
+    setForm(initialForm);
+    setShowModal(false);
+  };
+
+  if (selectedPreview) {
+    return (
+      <EstheticPremium
+        preview={selectedPreview}
+        onBack={() => setSelectedPreview(null)}
+      />
+    );
+  }
 
   return (
     <div className="p-10 max-w-[1600px] mx-auto w-full animate-in fade-in duration-700">
@@ -42,7 +81,10 @@ export default function Laboratory() {
           </p>
         </div>
 
-        <button className="bg-black text-white px-6 py-4 rounded-2xl font-black text-sm flex items-center gap-2 shadow-xl hover:scale-105 active:scale-95 transition-all">
+        <button
+          onClick={() => setShowModal(true)}
+          className="bg-black text-white px-6 py-4 rounded-2xl font-black text-sm flex items-center gap-2 shadow-xl hover:scale-105 active:scale-95 transition-all"
+        >
           <Plus size={18} />
           Novo Preview
         </button>
@@ -57,7 +99,11 @@ export default function Laboratory() {
       {previews.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
           {previews.map((preview) => (
-            <PreviewCard key={preview.id} preview={preview} />
+            <PreviewCard
+              key={preview.id}
+              preview={preview}
+              onOpen={() => setSelectedPreview(preview)}
+            />
           ))}
         </div>
       ) : (
@@ -67,6 +113,146 @@ export default function Laboratory() {
           </p>
         </div>
       )}
+
+      {showModal && (
+        <CreatePreviewModal
+          form={form}
+          setForm={setForm}
+          onClose={() => setShowModal(false)}
+          onCreate={handleCreatePreview}
+        />
+      )}
+    </div>
+  );
+}
+
+function CreatePreviewModal({ form, setForm, onClose, onCreate }) {
+  const updateField = (field, value) => {
+    setForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="bg-white w-full max-w-xl rounded-[3rem] shadow-2xl overflow-hidden animate-in zoom-in duration-300">
+        <div className="p-8 border-b border-slate-100 flex items-center justify-between">
+          <div>
+            <div className="inline-flex items-center gap-2 bg-purple-50 text-purple-600 px-3 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest mb-3">
+              <Wand2 size={13} />
+              Novo Preview
+            </div>
+
+            <h2 className="text-2xl font-black text-slate-950">
+              Criar preview comercial
+            </h2>
+
+            <p className="text-slate-400 text-sm font-medium mt-1">
+              Preencha os dados principais para gerar o primeiro rascunho.
+            </p>
+          </div>
+
+          <button
+            onClick={onClose}
+            className="p-3 rounded-2xl bg-slate-50 text-slate-400 hover:text-black transition-all"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="p-8 space-y-5">
+          <FormField label="Nome da empresa">
+            <input
+              value={form.project_name}
+              onChange={(e) => updateField("project_name", e.target.value)}
+              placeholder="Ex: Clínica Essence"
+              className="w-full p-4 rounded-2xl bg-slate-50 border border-slate-100 outline-none font-bold text-slate-800 focus:ring-2 focus:ring-purple-500"
+            />
+          </FormField>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <FormField label="Nicho">
+              <select
+                value={form.niche}
+                onChange={(e) => updateField("niche", e.target.value)}
+                className="w-full p-4 rounded-2xl bg-slate-50 border border-slate-100 outline-none font-bold text-slate-800 focus:ring-2 focus:ring-purple-500"
+              >
+                <option>Clínica de Estética</option>
+                <option>Escritório de Advocacia</option>
+                <option>Arquitetura</option>
+                <option>Restaurante</option>
+                <option>Academia</option>
+              </select>
+            </FormField>
+
+            <FormField label="Cidade">
+              <input
+                value={form.city}
+                onChange={(e) => updateField("city", e.target.value)}
+                placeholder="Ex: Sorocaba"
+                className="w-full p-4 rounded-2xl bg-slate-50 border border-slate-100 outline-none font-bold text-slate-800 focus:ring-2 focus:ring-purple-500"
+              />
+            </FormField>
+          </div>
+
+          <FormField label="Template">
+            <select
+              value={form.template_key}
+              onChange={(e) => updateField("template_key", e.target.value)}
+              className="w-full p-4 rounded-2xl bg-slate-50 border border-slate-100 outline-none font-bold text-slate-800 focus:ring-2 focus:ring-purple-500"
+            >
+              <option value="esthetic-premium">Estética Premium</option>
+              <option value="lawyer-premium">Advocacia Premium</option>
+              <option value="architecture-premium">Arquitetura Premium</option>
+            </select>
+          </FormField>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <FormField label="WhatsApp">
+              <input
+                value={form.whatsapp}
+                onChange={(e) => updateField("whatsapp", e.target.value)}
+                placeholder="5511999999999"
+                className="w-full p-4 rounded-2xl bg-slate-50 border border-slate-100 outline-none font-bold text-slate-800 focus:ring-2 focus:ring-purple-500"
+              />
+            </FormField>
+
+            <FormField label="Instagram">
+              <input
+                value={form.instagram}
+                onChange={(e) => updateField("instagram", e.target.value)}
+                placeholder="@empresa"
+                className="w-full p-4 rounded-2xl bg-slate-50 border border-slate-100 outline-none font-bold text-slate-800 focus:ring-2 focus:ring-purple-500"
+              />
+            </FormField>
+          </div>
+        </div>
+
+        <div className="p-8 bg-slate-50 border-t border-slate-100 flex gap-3">
+          <button
+            onClick={onClose}
+            className="flex-1 py-4 rounded-2xl font-black text-slate-400 hover:text-black transition-all"
+          >
+            Cancelar
+          </button>
+
+          <button
+            onClick={onCreate}
+            className="flex-[2] bg-black text-white py-4 rounded-2xl font-black shadow-xl hover:scale-[1.02] active:scale-95 transition-all"
+          >
+            Criar Preview
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FormField({ label, children }) {
+  return (
+    <div>
+      <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-2 mb-2 block">
+        {label}
+      </label>
+      {children}
     </div>
   );
 }
@@ -82,7 +268,7 @@ function LabStat({ label, value }) {
   );
 }
 
-function PreviewCard({ preview }) {
+function PreviewCard({ preview, onOpen }) {
   return (
     <div className="bg-white rounded-[3rem] p-7 border border-slate-100 shadow-sm hover:shadow-2xl hover:-translate-y-1 transition-all duration-500 overflow-hidden relative group">
       <div className="absolute -right-10 -top-10 w-32 h-32 bg-purple-50 rounded-full group-hover:scale-[2] transition-transform duration-700" />
@@ -107,7 +293,7 @@ function PreviewCard({ preview }) {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 mb-3">
+        <div className="flex items-center gap-2 mb-3 flex-wrap">
           <span className="bg-purple-50 text-purple-600 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest">
             {preview.niche}
           </span>
@@ -124,7 +310,7 @@ function PreviewCard({ preview }) {
         <div className="space-y-2 mb-6">
           <p className="flex items-center gap-2 text-xs font-bold text-slate-400 uppercase tracking-wider">
             <MapPin size={13} />
-            {preview.city}
+            {preview.city || "Cidade não informada"}
           </p>
 
           <p className="flex items-center gap-2 text-xs font-bold text-slate-400 uppercase tracking-wider">
@@ -133,9 +319,11 @@ function PreviewCard({ preview }) {
           </p>
         </div>
 
-        <button className="w-full bg-slate-950 text-white py-4 rounded-2xl font-black text-sm flex items-center justify-center gap-2 hover:bg-black transition-all">
-          <Eye size={17} />
-          Abrir Preview
+        <button
+          onClick={onOpen}
+          className="w-full bg-slate-950 cursor-pointer text-white py-4 rounded-2xl font-black text-sm flex items-center justify-center gap-2 hover:bg-black transition-all"
+        >
+          <Eye size={17} /> Abrir Preview
         </button>
       </div>
     </div>
