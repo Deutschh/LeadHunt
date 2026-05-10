@@ -348,7 +348,7 @@ async function handleInitialApproach(
   }
 
   if (lead.custom_message && lead.custom_message.includes("---")) {
-    logWithPort(
+    logWithPort(  
       `🤖 Mensagem dividida detectada para ${lead.name}`,
       "info",
       sendingNumber,
