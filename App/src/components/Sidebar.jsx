@@ -6,6 +6,7 @@ import {
   Zap,
   BarChart3,
   Settings,
+  FlaskConical,
 } from "lucide-react";
 
 const Sidebar = ({ activeTab, setActiveTab }) => {
@@ -15,6 +16,7 @@ const Sidebar = ({ activeTab, setActiveTab }) => {
     { id: "search", label: "Busca Inteligente", icon: <Search size={22} /> },
     { id: "automation", label: "Automação", icon: <Zap size={22} /> },
     { id: "analysis", label: "Análise", icon: <BarChart3 size={22} /> },
+    { id: "laboratory", label: "Laboratório", icon: <FlaskConical size={22} /> },
   ];
 
   return (

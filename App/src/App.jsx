@@ -8,6 +8,7 @@ import LeadDetails from "./sections/LeadDetails";
 import Home from "./sections/Home";
 import Automation from "./sections/Automation";
 import Analysis from "./sections/Analisy";
+import Laboratory from "./sections/Laboratory";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
 
@@ -108,6 +109,8 @@ function App() {
         {activeTab === "analysis" && <Analysis />}
 
         {activeTab === "settings" && <Configs />}
+
+        {activeTab === "laboratory" && <Laboratory />}
       </main>
     </div>
   );
