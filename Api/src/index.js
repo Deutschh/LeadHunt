@@ -5,6 +5,7 @@ const http = require("http");
 const { Server } = require("socket.io");
 const db = require("./database/db");
 const leadsRoutes = require("./routes/leads");
+const previewRoutes = require("./routes/previewRoutes");
 
 // Nota: startScraping e startAutomation não são chamados aqui no modo Produção
 // mas mantemos o import se necessário para o modo Desenvolvimento local.
@@ -80,6 +81,7 @@ if (process.env.NODE_ENV === "production") {
 
 // --- Rotas API ---
 app.use("/api/leads", leadsRoutes);
+app.use("/api/previews", previewRoutes);
 
 app.get("/", (req, res) => {
   res.json({

@@ -1,27 +1,9 @@
-import React, { useState } from "react";
-import { X, Wand2 } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { Sparkles, Plus } from "lucide-react";
 import { renderPreviewTemplate } from "../templates/core/renderPreviewTemplate";
 import PreviewCard from "../components/Laboratory/PreviewCard";
 import CreatePreviewModal from "../components/Laboratory/CreatePreviewModal";
-
-const mockPreviews = [
-  {
-    id: 1,
-    project_name: "Clínica Essence",
-    niche: "Clínica de Estética",
-    city: "Sorocaba",
-    template_key: "esthetic-premium",
-    status: "draft",
-  },
-  {
-    id: 2,
-    project_name: "Almeida Advocacia",
-    niche: "Escritório de Advocacia",
-    city: "Campinas",
-    template_key: "lawyer-premium",
-    status: "draft",
-  },
-];
+import { getPreviews, createPreview } from "../services/previewService";
 
 const initialForm = {
   project_name: "",
@@ -36,26 +18,55 @@ const initialForm = {
 };
 
 export default function Laboratory() {
-  const [previews, setPreviews] = useState(mockPreviews);
+  const [previews, setPreviews] = useState([]);
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState(initialForm);
   const [selectedPreview, setSelectedPreview] = useState(null);
 
-  const handleCreatePreview = () => {
+  useEffect(() => {
+    loadPreviews();
+  }, []);
+
+  async function loadPreviews() {
+    try {
+      const data = await getPreviews();
+
+      if (Array.isArray(data)) {
+        setPreviews(data);
+      } else if (Array.isArray(data.previews)) {
+        setPreviews(data.previews);
+      } else if (Array.isArray(data.data)) {
+        setPreviews(data.data);
+      } else {
+        console.warn("Formato inesperado em getPreviews:", data);
+        setPreviews([]);
+      }
+    } catch (err) {
+      console.error(err);
+      setPreviews([]);
+    }
+  }
+
+  const handleCreatePreview = async () => {
     if (!form.project_name.trim()) {
       alert("Informe o nome da empresa.");
       return;
     }
 
-    const newPreview = {
-      id: Date.now(),
-      ...form,
-      status: "draft",
-    };
+    try {
+      const createdPreview = await createPreview(form);
 
-    setPreviews((prev) => [newPreview, ...prev]);
-    setForm(initialForm);
-    setShowModal(false);
+      setPreviews((prev) => [
+        Array.isArray(createdPreview) ? createdPreview[0] : createdPreview,
+        ...prev,
+      ]);
+
+      setForm(initialForm);
+      setShowModal(false);
+    } catch (err) {
+      console.error(err);
+      alert("Erro ao criar preview.");
+    }
   };
 
   if (selectedPreview) {
@@ -124,18 +135,6 @@ export default function Laboratory() {
           onCreate={handleCreatePreview}
         />
       )}
-    </div>
-  );
-}
-
-
-function FormField({ label, children }) {
-  return (
-    <div>
-      <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-2 mb-2 block">
-        {label}
-      </label>
-      {children}
     </div>
   );
 }
