@@ -5,6 +5,7 @@ import RateCard from "../components/Analisy/RateCard";
 import MiniCard from "../components/Analisy/MiniCard";
 import FunnelRow from "../components/Analisy/FunnelRow";
 import InfoRow from "../components/Analisy/InfoRow";
+import useAnalysisMetrics from "../hooks/useAnalysisMetrics";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
 
@@ -88,286 +89,13 @@ const Analysis = () => {
     });
   }, [leads, period]);
 
-  const followupMetrics = useMemo(() => {
-    const leadsWithFollowup = filteredLeadsByPeriod.filter(
-      (lead) => Number(lead.followup_count || 0) > 0,
-    );
+  const { followupMetrics, chipMetrics, sendingSummary } = useAnalysisMetrics({
+    filteredLeadsByPeriod,
+    sendingNumbers,
+    core,
+  });
 
-    const totalFollowupsSent = leadsWithFollowup.reduce(
-      (acc, lead) => acc + Number(lead.followup_count || 0),
-      0,
-    );
-
-    const scheduledFollowups = filteredLeadsByPeriod.filter(
-      (lead) =>
-        lead.status === "contacted" &&
-        !lead.last_reply_at &&
-        !!lead.next_followup_at &&
-        !lead.is_archived,
-    ).length;
-
-    const recoveredByFollowup = filteredLeadsByPeriod.filter(
-      (lead) =>
-        Number(lead.followup_count || 0) > 0 &&
-        (lead.status === "responded" ||
-          lead.pipeline_stage === "responded" ||
-          lead.pipeline_stage === "interested" ||
-          lead.pipeline_stage === "preview_sent" ||
-          lead.pipeline_stage === "negotiation" ||
-          lead.pipeline_stage === "closed"),
-    ).length;
-
-    const leadsInFollowup = filteredLeadsByPeriod.filter(
-      (lead) =>
-        Number(lead.followup_count || 0) > 0 &&
-        !lead.last_reply_at &&
-        lead.status === "contacted" &&
-        !lead.is_archived,
-    ).length;
-
-    const followupRate =
-      core.sent > 0 ? (totalFollowupsSent / core.sent) * 100 : 0;
-
-    const recoveryRate =
-      leadsWithFollowup.length > 0
-        ? (recoveredByFollowup / leadsWithFollowup.length) * 100
-        : 0;
-
-    return {
-      totalFollowupsSent,
-      scheduledFollowups,
-      recoveredByFollowup,
-      leadsInFollowup,
-      followupRate,
-      recoveryRate,
-    };
-  }, [filteredLeadsByPeriod, core.sent]);
-
-  const chipMetrics = useMemo(() => {
-    const chipMap = new Map();
-
-    filteredLeadsByPeriod.forEach((lead) => {
-      const chip = lead.assigned_number || "Sem chip";
-
-      if (!chipMap.has(chip)) {
-        chipMap.set(chip, {
-          chip,
-          leads: 0,
-          sent: 0,
-          replied: 0,
-          engaged: 0,
-          previews: 0,
-          negotiation: 0,
-          closed: 0,
-          revenue: 0,
-          followups: 0,
-        });
-      }
-
-      const item = chipMap.get(chip);
-      item.leads += 1;
-
-      const stage = lead.pipeline_stage || "";
-      const status = lead.status || "";
-
-      if (
-        [
-          "contacted",
-          "responded",
-          "interested",
-          "preview_sent",
-          "negotiation",
-          "closed",
-        ].includes(stage) ||
-        status === "contacted"
-      ) {
-        item.sent += 1;
-      }
-
-      if (
-        [
-          "responded",
-          "interested",
-          "preview_sent",
-          "negotiation",
-          "closed",
-        ].includes(stage) ||
-        status === "responded"
-      ) {
-        item.replied += 1;
-      }
-
-      if (
-        ["interested", "preview_sent", "negotiation", "closed"].includes(stage)
-      ) {
-        item.engaged += 1;
-      }
-
-      if (
-        lead.preview_sent ||
-        ["preview_sent", "negotiation", "closed"].includes(stage)
-      ) {
-        item.previews += 1;
-      }
-
-      if (
-        stage === "negotiation" ||
-        status === "negotiation" ||
-        status === "negociacao"
-      ) {
-        item.negotiation += 1;
-      }
-
-      if (stage === "closed" || status === "closed") {
-        item.closed += 1;
-      }
-
-      item.revenue += Number(lead.sale_value || 0);
-      item.followups += Number(lead.followup_count || 0);
-    });
-
-    return Array.from(chipMap.values())
-      .map((item) => ({
-        ...item,
-        responseRate: item.sent > 0 ? (item.replied / item.sent) * 100 : 0,
-        conversionRate: item.sent > 0 ? (item.closed / item.sent) * 100 : 0,
-        avgTicket: item.closed > 0 ? item.revenue / item.closed : 0,
-      }))
-      .sort((a, b) => {
-        if (b.closed !== a.closed) return b.closed - a.closed;
-        if (b.revenue !== a.revenue) return b.revenue - a.revenue;
-        return b.responseRate - a.responseRate;
-      });
-  }, [filteredLeadsByPeriod]);
-
-  const promptMetrics = useMemo(() => {
-    const promptMap = new Map();
-    const days = Number(period);
-    const now = new Date();
-
-    const leadsWithAiInPeriod = leads.filter((lead) => {
-      if (!lead.ai_prompt_angle && !lead.ai_prompt_label) return false;
-      if (!lead.ai_message_generated_at) return false;
-
-      const generatedAt = new Date(lead.ai_message_generated_at);
-      const diffDays = (now - generatedAt) / (1000 * 60 * 60 * 24);
-
-      return diffDays <= days;
-    });
-
-    leadsWithAiInPeriod.forEach((lead) => {
-      const key = `${lead.ai_prompt_angle || "unknown"}-${lead.ai_prompt_version || "sem-versao"}`;
-
-      if (!promptMap.has(key)) {
-        promptMap.set(key, {
-          key,
-          label: lead.ai_prompt_label || lead.ai_prompt_angle || "Sem label",
-          angle: lead.ai_prompt_angle || "unknown",
-          version: lead.ai_prompt_version || "—",
-          leads: 0,
-          sent: 0,
-          replied: 0,
-          engaged: 0,
-          previews: 0,
-          negotiation: 0,
-          closed: 0,
-          revenue: 0,
-        });
-      }
-
-      const item = promptMap.get(key);
-      const stage = lead.pipeline_stage || "";
-      const status = lead.status || "";
-
-      item.leads += 1;
-
-      if (
-        [
-          "contacted",
-          "responded",
-          "interested",
-          "preview_sent",
-          "negotiation",
-          "closed",
-        ].includes(stage) ||
-        status === "contacted"
-      ) {
-        item.sent += 1;
-      }
-
-      if (
-        [
-          "responded",
-          "interested",
-          "preview_sent",
-          "negotiation",
-          "closed",
-        ].includes(stage) ||
-        status === "responded"
-      ) {
-        item.replied += 1;
-      }
-
-      if (
-        ["interested", "preview_sent", "negotiation", "closed"].includes(stage)
-      ) {
-        item.engaged += 1;
-      }
-
-      if (
-        lead.preview_sent ||
-        ["preview_sent", "negotiation", "closed"].includes(stage)
-      ) {
-        item.previews += 1;
-      }
-
-      if (
-        stage === "negotiation" ||
-        status === "negotiation" ||
-        status === "negociacao"
-      ) {
-        item.negotiation += 1;
-      }
-
-      if (stage === "closed" || status === "closed") {
-        item.closed += 1;
-      }
-
-      item.revenue += Number(lead.sale_value || 0);
-    });
-
-    return Array.from(promptMap.values())
-      .map((item) => ({
-        ...item,
-        responseRate: item.sent > 0 ? (item.replied / item.sent) * 100 : 0,
-        engagementRate: item.sent > 0 ? (item.engaged / item.sent) * 100 : 0,
-        conversionRate: item.sent > 0 ? (item.closed / item.sent) * 100 : 0,
-        avgTicket: item.closed > 0 ? item.revenue / item.closed : 0,
-      }))
-      .sort((a, b) => {
-        if (b.closed !== a.closed) return b.closed - a.closed;
-        if (b.responseRate !== a.responseRate)
-          return b.responseRate - a.responseRate;
-        return b.revenue - a.revenue;
-      });
-  }, [leads, period]);
-
-  const sendingSummary = useMemo(() => {
-    const active = sendingNumbers.filter((n) => n.is_active).length;
-    const healthy = sendingNumbers.filter(
-      (n) => n.health_status === "healthy",
-    ).length;
-    const warning = sendingNumbers.filter(
-      (n) => n.health_status === "warning",
-    ).length;
-    const paused = sendingNumbers.filter(
-      (n) =>
-        n.health_status === "paused" ||
-        (n.paused_until && new Date(n.paused_until) > new Date()),
-    ).length;
-
-    return { active, healthy, warning, paused };
-  }, [sendingNumbers]);
+  const promptMetrics = data?.prompts || [];
 
   const safeTotalForFunnel = Math.max(core.total_leads, 1);
   const avgRevenuePerClosed =
@@ -827,82 +555,83 @@ const Analysis = () => {
           />
           <MiniCard
             title="Melhor abordagem"
-            value={promptMetrics[0]?.label || "—"}
+            value={promptMetrics[0]?.prompt_label || "—"}
             desc="Ranking por resposta/conversão"
           />
           <MiniCard
             title="Versão principal"
-            value={promptMetrics[0]?.version || "—"}
+            value={promptMetrics[0]?.prompt_version || "—"}
             desc="Prompt version mais forte"
           />
         </div>
 
         {promptMetrics.length ? (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1250px]">
+            <table className="w-full min-w-[1050px]">
               <thead>
                 <tr className="text-left text-[11px] uppercase tracking-widest text-slate-400 border-b border-slate-100">
                   <th className="pb-4">Abordagem</th>
+                  <th className="pb-4">Status</th>
                   <th className="pb-4">Versão</th>
                   <th className="pb-4">Leads</th>
                   <th className="pb-4">Enviados</th>
                   <th className="pb-4">Respostas</th>
-                  <th className="pb-4">Engajados</th>
                   <th className="pb-4">Previews</th>
                   <th className="pb-4">Fechados</th>
                   <th className="pb-4">Tx. Resposta</th>
-                  <th className="pb-4">Tx. Engajamento</th>
-                  <th className="pb-4">Tx. Conversão</th>
-                  <th className="pb-4">Faturamento</th>
+                  <th className="pb-4">Tx. Preview</th>
                 </tr>
               </thead>
               <tbody>
                 {promptMetrics.map((item) => (
                   <tr
-                    key={`${item.key}-${item.version}`}
+                    key={`${item.ai_prompt_angle}-${item.prompt_version}`}
                     className="border-b border-slate-50 last:border-b-0"
                   >
                     <td className="py-4 font-black text-slate-800 text-sm">
-                      {item.label}
+                      {item.prompt_label}
                     </td>
+
+                    <td className="py-4">
+                      <span className="inline-flex px-3 py-1 rounded-full bg-green-50 text-green-600 text-xs font-bold uppercase">
+                        {item.status}
+                      </span>
+                    </td>
+
                     <td className="py-4 text-slate-600 font-semibold">
-                      {item.version}
+                      {item.prompt_version}
                     </td>
+
                     <td className="py-4 text-slate-600 font-semibold">
-                      {item.leads}
+                      {item.total}
                     </td>
+
                     <td className="py-4 text-slate-600 font-semibold">
-                      {item.sent}
+                      {item.enviados}
                     </td>
+
                     <td className="py-4 text-slate-600 font-semibold">
-                      {item.replied}
+                      {item.respostas}
                     </td>
-                    <td className="py-4 text-slate-600 font-semibold">
-                      {item.engaged}
-                    </td>
+
                     <td className="py-4 text-slate-600 font-semibold">
                       {item.previews}
                     </td>
+
                     <td className="py-4 text-slate-600 font-semibold">
-                      {item.closed}
+                      {item.fechamentos}
                     </td>
+
                     <td className="py-4">
                       <span className="inline-flex px-3 py-1 rounded-full bg-blue-50 text-blue-600 text-xs font-bold">
-                        {item.responseRate.toFixed(1)}%
+                        {item.response_rate}
                       </span>
                     </td>
+
                     <td className="py-4">
                       <span className="inline-flex px-3 py-1 rounded-full bg-orange-50 text-orange-600 text-xs font-bold">
-                        {item.engagementRate.toFixed(1)}%
+                        {item.preview_rate}
                       </span>
-                    </td>
-                    <td className="py-4">
-                      <span className="inline-flex px-3 py-1 rounded-full bg-green-50 text-green-600 text-xs font-bold">
-                        {item.conversionRate.toFixed(1)}%
-                      </span>
-                    </td>
-                    <td className="py-4 text-slate-800 font-bold">
-                      {formatCurrency(item.revenue)}
                     </td>
                   </tr>
                 ))}
@@ -918,7 +647,6 @@ const Analysis = () => {
     </div>
   );
 };
-  
 
 function formatCurrency(value) {
   return Number(value || 0).toLocaleString("pt-BR", {
