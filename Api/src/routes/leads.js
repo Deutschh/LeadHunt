@@ -837,6 +837,131 @@ router.patch("/:id/verify", async (req, res) => {
   }
 });
 
+// Dashboard
+router.get("/stats/dashboard", async (req, res) => {
+  const { period = "30" } = req.query;
+  const days = Number(period) || 30;
+
+  try {
+    const stats = await db.query(
+      `
+      SELECT 
+        COUNT(*) as total_leads,
+        COUNT(*) FILTER (WHERE pipeline_stage IN ('contacted','responded','interested','preview_sent','negotiation','closed')) as sent,
+        COUNT(*) FILTER (WHERE pipeline_stage IN ('responded','interested','preview_sent','negotiation','closed')) as replied,
+        COUNT(*) FILTER (WHERE pipeline_stage IN ('interested','preview_sent','negotiation','closed')) as engaged,
+        COUNT(*) FILTER (WHERE preview_sent = true OR pipeline_stage IN ('preview_sent','negotiation','closed')) as previews,
+        COUNT(*) FILTER (WHERE pipeline_stage = 'negotiation') as negotiation,
+        COUNT(*) FILTER (WHERE pipeline_stage = 'closed') as closed,
+        COALESCE(SUM(sale_value), 0) as total_revenue
+      FROM leads
+      WHERE created_at >= CURRENT_DATE - ($1 || ' days')::interval
+      `,
+      [String(days)],
+    );
+
+    const s = stats.rows[0];
+
+    const sent = parseInt(s.sent || 0, 10);
+    const replied = parseInt(s.replied || 0, 10);
+    const engaged = parseInt(s.engaged || 0, 10);
+    const closed = parseInt(s.closed || 0, 10);
+
+    const response_rate = sent > 0 ? (replied / sent) * 100 : 0;
+    const interest_rate = replied > 0 ? (engaged / replied) * 100 : 0;
+    const conversion_rate = sent > 0 ? (closed / sent) * 100 : 0;
+
+    const nicheStats = await db.query(
+      `
+      SELECT 
+        lead_category as nicho,
+        COUNT(*) as leads,
+        COUNT(*) FILTER (WHERE pipeline_stage IN ('responded','interested','preview_sent','negotiation','closed')) as respostas,
+        COUNT(*) FILTER (WHERE pipeline_stage = 'closed') as vendas
+      FROM leads
+      WHERE created_at >= CURRENT_DATE - ($1 || ' days')::interval
+      GROUP BY lead_category
+      ORDER BY leads DESC
+      `,
+      [String(days)],
+    );
+
+    const promptStats = await db.query(
+      `
+      SELECT
+        l.ai_prompt_angle,
+        COALESCE(apc.prompt_label, l.ai_prompt_label, 'Sem copy') as prompt_label,
+        COALESCE(apc.prompt_version, l.ai_prompt_version) as prompt_version,
+        COALESCE(apc.status, 'active') as status,
+
+        COUNT(*) as total,
+        COUNT(*) FILTER (
+          WHERE l.pipeline_stage IN ('contacted','responded','interested','preview_sent','negotiation','closed')
+        ) as enviados,
+
+        COUNT(*) FILTER (
+          WHERE l.pipeline_stage IN ('responded','interested','preview_sent','negotiation','closed')
+        ) as respostas,
+
+        COUNT(*) FILTER (
+          WHERE l.preview_sent = true OR l.pipeline_stage IN ('preview_sent','negotiation','closed')
+        ) as previews,
+
+        COUNT(*) FILTER (
+          WHERE l.pipeline_stage = 'closed'
+        ) as fechamentos
+
+      FROM leads l
+      LEFT JOIN ai_prompt_configs apc
+        ON apc.prompt_angle = l.ai_prompt_angle
+      WHERE l.created_at >= CURRENT_DATE - ($1 || ' days')::interval
+        AND l.ai_prompt_angle IS NOT NULL
+        AND COALESCE(apc.status, 'active') != 'archived'
+      GROUP BY
+        l.ai_prompt_angle,
+        COALESCE(apc.prompt_label, l.ai_prompt_label, 'Sem copy'),
+        COALESCE(apc.prompt_version, l.ai_prompt_version),
+        COALESCE(apc.status, 'active')
+      ORDER BY respostas DESC, enviados DESC
+      `,
+      [String(days)],
+    );
+
+    res.json({
+      core: {
+        ...s,
+        response_rate,
+        interest_rate,
+        conversion_rate,
+      },
+
+      niches: nicheStats.rows.map((n) => ({
+        ...n,
+        taxa_res:
+          Number(n.leads) > 0
+            ? ((Number(n.respostas) / Number(n.leads)) * 100).toFixed(1) + "%"
+            : "0%",
+      })),
+
+      prompts: promptStats.rows.map((p) => ({
+        ...p,
+        response_rate:
+          Number(p.enviados) > 0
+            ? ((Number(p.respostas) / Number(p.enviados)) * 100).toFixed(1) +
+              "%"
+            : "0%",
+        preview_rate:
+          Number(p.enviados) > 0
+            ? ((Number(p.previews) / Number(p.enviados)) * 100).toFixed(1) + "%"
+            : "0%",
+      })),
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Atualizar lead / scoring / pipeline
 router.patch("/:id", async (req, res) => {
   const { id } = req.params;
@@ -1037,69 +1162,6 @@ router.patch("/:id", async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Erro ao processar atualização do lead." });
-  }
-});
-
-// Dashboard
-router.get("/stats/dashboard", async (req, res) => {
-  const { period = "30" } = req.query;
-  const interval = `${period} days`;
-
-  try {
-    const stats = await db.query(`
-      SELECT 
-        COUNT(*) as total_leads,
-        COUNT(*) FILTER (WHERE pipeline_stage IN ('contacted','responded','interested','preview_sent','negotiation','closed')) as sent,
-        COUNT(*) FILTER (WHERE pipeline_stage IN ('responded','interested','preview_sent','negotiation','closed')) as replied,
-        COUNT(*) FILTER (WHERE pipeline_stage IN ('interested','preview_sent','negotiation','closed')) as engaged,
-        COUNT(*) FILTER (WHERE preview_sent = true OR pipeline_stage IN ('preview_sent','negotiation','closed')) as previews,
-        COUNT(*) FILTER (WHERE pipeline_stage = 'negotiation') as negotiation,
-        COUNT(*) FILTER (WHERE pipeline_stage = 'closed') as closed,
-        COALESCE(SUM(sale_value), 0) as total_revenue
-      FROM leads
-      WHERE created_at >= CURRENT_DATE - INTERVAL '${interval}'
-    `);
-
-    const s = stats.rows[0];
-    const sent = parseInt(s.sent || 0, 10);
-    const replied = parseInt(s.replied || 0, 10);
-    const engaged = parseInt(s.engaged || 0, 10);
-    const closed = parseInt(s.closed || 0, 10);
-
-    const response_rate = sent > 0 ? (replied / sent) * 100 : 0;
-    const interest_rate = replied > 0 ? (engaged / replied) * 100 : 0;
-    const conversion_rate = sent > 0 ? (closed / sent) * 100 : 0;
-
-    const nicheStats = await db.query(`
-      SELECT 
-        lead_category as nicho,
-        COUNT(*) as leads,
-        COUNT(*) FILTER (WHERE pipeline_stage IN ('responded','interested','preview_sent','negotiation','closed')) as respostas,
-        COUNT(*) FILTER (WHERE pipeline_stage = 'closed') as vendas
-      FROM leads
-      WHERE created_at >= CURRENT_DATE - INTERVAL '${interval}'
-      GROUP BY lead_category
-      ORDER BY leads DESC
-    `);
-
-    res.json({
-      core: {
-        ...s,
-        response_rate,
-        interest_rate,
-        conversion_rate,
-      },
-      niches: nicheStats.rows.map((n) => ({
-        ...n,
-        taxa_res:
-          Number(n.leads) > 0
-            ? ((Number(n.respostas) / Number(n.leads)) * 100).toFixed(1) + "%"
-            : "0%",
-      })),
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
   }
 });
 
