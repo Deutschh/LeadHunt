@@ -1,5 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
 import axios from "axios";
+import MetricCard from "../components/Analisy/MetricCard";
+import RateCard from "../components/Analisy/RateCard";
+import MiniCard from "../components/Analisy/MiniCard";
+import FunnelRow from "../components/Analisy/FunnelRow";
+import InfoRow from "../components/Analisy/InfoRow";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
 
@@ -913,66 +918,7 @@ const Analysis = () => {
     </div>
   );
 };
-
-const MetricCard = ({ title, value, desc }) => (
-  <div className="bg-white p-8 rounded-[40px] border border-slate-100 shadow-sm">
-    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
-      {title}
-    </p>
-    <p className="text-3xl font-black text-slate-900 my-2 break-words">
-      {value}
-    </p>
-    <p className="text-xs text-slate-400 font-medium">{desc}</p>
-  </div>
-);
-
-const RateCard = ({ title, value, desc }) => (
-  <div className="bg-white p-8 rounded-[40px] border border-slate-100 shadow-sm">
-    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
-      {title}
-    </p>
-    <p className="text-4xl font-black text-slate-900 my-2">{value}</p>
-    <p className="text-xs text-slate-400 font-medium">{desc}</p>
-  </div>
-);
-
-const MiniCard = ({ title, value, desc }) => (
-  <div className="bg-white p-6 rounded-[30px] border border-slate-100 shadow-sm">
-    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
-      {title}
-    </p>
-    <p className="text-2xl font-black text-slate-900 my-2 break-words">
-      {value}
-    </p>
-    <p className="text-xs text-slate-400 font-medium">{desc}</p>
-  </div>
-);
-
-const FunnelRow = ({ label, value, color, total }) => {
-  const width = Math.max(0, Math.min(100, (value / total) * 100));
-
-  return (
-    <div className="relative group">
-      <div className="flex justify-between text-[10px] font-black uppercase mb-1 px-2">
-        <span className="text-slate-500">{label}</span>
-        <span className="text-slate-900">{value}</span>
-      </div>
-      <div className="w-full bg-slate-50 rounded-full h-4 overflow-hidden border border-slate-100">
-        <div
-          className={`${color} h-full rounded-full transition-all duration-1000`}
-          style={{ width: `${width}%` }}
-        ></div>
-      </div>
-    </div>
-  );
-};
-
-const InfoRow = ({ label, value }) => (
-  <div className="flex justify-between gap-3">
-    <span className="text-slate-400 font-semibold">{label}</span>
-    <span className="text-slate-800 font-bold text-right">{value}</span>
-  </div>
-);
+  
 
 function formatCurrency(value) {
   return Number(value || 0).toLocaleString("pt-BR", {
