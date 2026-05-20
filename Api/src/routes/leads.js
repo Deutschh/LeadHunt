@@ -962,6 +962,50 @@ router.get("/stats/dashboard", async (req, res) => {
   }
 });
 
+// Atualizar status de uma abordagem/copy
+router.patch("/prompt-configs/:promptAngle/status", async (req, res) => {
+  const { promptAngle } = req.params;
+  const { status } = req.body;
+
+  const allowedStatuses = ["active", "testing", "archived"];
+
+  if (!allowedStatuses.includes(status)) {
+    return res.status(400).json({
+      error: `Status inválido. Permitidos: ${allowedStatuses.join(", ")}`,
+    });
+  }
+
+  try {
+    const result = await db.query(
+      `
+      UPDATE ai_prompt_configs
+      SET status = $1,
+          updated_at = NOW()
+      WHERE prompt_angle = $2
+      RETURNING *
+      `,
+      [status, decodeURIComponent(promptAngle)],
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({
+        error: "Abordagem não encontrada.",
+      });
+    }
+
+    res.json({
+      success: true,
+      message: "Status da abordagem atualizado com sucesso.",
+      prompt: result.rows[0],
+    });
+  } catch (err) {
+    console.error("Erro ao atualizar status da abordagem:", err);
+    res.status(500).json({
+      error: "Erro ao atualizar status da abordagem.",
+    });
+  }
+});
+
 // Atualizar lead / scoring / pipeline
 router.patch("/:id", async (req, res) => {
   const { id } = req.params;
