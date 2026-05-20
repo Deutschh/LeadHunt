@@ -839,7 +839,9 @@ router.patch("/:id/verify", async (req, res) => {
 
 // Dashboard
 router.get("/stats/dashboard", async (req, res) => {
-  const { period = "30" } = req.query;
+  const { period = "30", includeArchived = "false" } = req.query;
+
+  const showArchived = includeArchived === "true";
   const days = Number(period) || 30;
 
   try {
@@ -916,7 +918,10 @@ router.get("/stats/dashboard", async (req, res) => {
         ON apc.prompt_angle = l.ai_prompt_angle
       WHERE l.created_at >= CURRENT_DATE - ($1 || ' days')::interval
         AND l.ai_prompt_angle IS NOT NULL
-        AND COALESCE(apc.status, 'active') != 'archived'
+        AND (
+          $2::boolean = true
+          OR COALESCE(apc.status, 'active') != 'archived'
+        )
       GROUP BY
         l.ai_prompt_angle,
         COALESCE(apc.prompt_label, l.ai_prompt_label, 'Sem copy'),
@@ -924,7 +929,7 @@ router.get("/stats/dashboard", async (req, res) => {
         COALESCE(apc.status, 'active')
       ORDER BY respostas DESC, enviados DESC
       `,
-      [String(days)],
+      [String(days), showArchived],
     );
 
     res.json({

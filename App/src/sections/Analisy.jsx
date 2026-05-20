@@ -16,6 +16,7 @@ const Analysis = () => {
   const [sendingNumbers, setSendingNumbers] = useState([]);
   const [period, setPeriod] = useState("30");
   const [loading, setLoading] = useState(true);
+  const [showAllPrompts, setShowAllPrompts] = useState(false);
 
   const loadStats = async () => {
     try {
@@ -23,7 +24,9 @@ const Analysis = () => {
 
       const [statsResponse, leadsResponse, numbersResponse] = await Promise.all(
         [
-          axios.get(`${API_URL}/api/leads/stats/dashboard?period=${period}`),
+          axios.get(
+            `${API_URL}/api/leads/stats/dashboard?period=${period}&includeArchived=${showAllPrompts}`,
+          ),
           axios.get(`${API_URL}/api/leads`),
           axios.get(`${API_URL}/api/leads/sending-numbers`),
         ],
@@ -44,7 +47,7 @@ const Analysis = () => {
 
   useEffect(() => {
     loadStats();
-  }, [period]);
+  }, [period, showAllPrompts]);
 
   const core = useMemo(() => {
     if (!data?.core) {
@@ -543,6 +546,8 @@ const Analysis = () => {
       <PromptPerformanceTable
         promptMetrics={promptMetrics}
         onStatusUpdated={loadStats}
+        showAllPrompts={showAllPrompts}
+        onToggleShowAll={() => setShowAllPrompts((prev) => !prev)}
       />
     </div>
   );
