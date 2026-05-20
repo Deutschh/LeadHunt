@@ -540,7 +540,10 @@ const Analysis = () => {
         )}
       </div>
 
-      <PromptPerformanceTable promptMetrics={promptMetrics} />
+      <PromptPerformanceTable
+        promptMetrics={promptMetrics}
+        onStatusUpdated={loadStats}
+      />
     </div>
   );
 };
