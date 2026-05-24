@@ -110,10 +110,9 @@ const Home = () => {
         l.created_at.startsWith(today),
       ).length;
       const closedLeads = data.filter((l) => l.status === "closed");
-      const totalRevenue = closedLeads.reduce(
-        (acc, lead) => acc + (parseFloat(lead.deal_details?.totalValue) || 0),
-        0,
-      );
+      const totalRevenue = closedLeads.reduce((acc, lead) => {
+        return acc + (parseFloat(lead.sale_value) || 0);
+      }, 0);
       const neighborhoods = data.map((l) => l.neighborhood).filter(Boolean);
       const topNb = neighborhoods
         .sort(
@@ -392,12 +391,13 @@ const Home = () => {
                     </div>
                     <div className="text-right">
                       <p className="text-xs font-black text-green-600">
-                        R${" "}
-                        {l.deal_details?.totalValue?.toLocaleString("pt-BR") ||
-                          "0"}
+                        R$ {Number(l.sale_value || 0).toLocaleString("pt-BR")}
                       </p>
                       <p className="text-[8px] font-black text-slate-300 uppercase">
-                        Success
+                        MRR: R${" "}
+                        {Number(
+                          l.deal_details?.monthlyRecurringValue || 0,
+                        ).toLocaleString("pt-BR")}
                       </p>
                     </div>
                   </div>

@@ -37,8 +37,9 @@ const LeadDetails = ({ leadId, onBack }) => {
 
   const [showClosingModal, setShowClosingModal] = useState(false);
   const [dealData, setDealData] = useState({
-    services: {},
-    totalValue: 0,
+    items: [],
+    totalInitialValue: 0,
+    monthlyRecurringValue: 0,
     closingDate: new Date().toISOString().split("T")[0],
   });
 
@@ -51,6 +52,17 @@ const LeadDetails = ({ leadId, onBack }) => {
     social:
       "Seu Instagram tem potencial, mas percebi que as postagens estão pouco frequentes. Vamos profissionalizar?",
   };
+
+  const AVAILABLE_DEAL_SERVICES = [
+    { id: "social", label: "Gestão Social", icon: "📱" },
+    { id: "site", label: "Site Institucional", icon: "🌐" },
+    { id: "landing_page", label: "Landing Page", icon: "🧲" },
+    { id: "ads", label: "Tráfego Pago", icon: "📈" },
+    { id: "automation", label: "Automação WhatsApp", icon: "🤖" },
+    { id: "branding", label: "Identidade Visual", icon: "🎨" },
+    { id: "google_business", label: "Google Meu Negócio", icon: "📍" },
+    { id: "hosting", label: "Hospedagem / Manutenção", icon: "🛠️" },
+  ];
 
   useEffect(() => {
     fetchData();
@@ -277,10 +289,9 @@ const LeadDetails = ({ leadId, onBack }) => {
         );
       }
 
-      if (data.deal_details?.services) {
+      if (data.deal_details?.items) {
         setDealData(data.deal_details);
       }
-
       setLoading(false);
     } catch (err) {
       console.error("Erro ao carregar dados", err);
@@ -305,26 +316,108 @@ const LeadDetails = ({ leadId, onBack }) => {
     });
   };
 
-  const updateServiceDeal = (serviceId, field, value) => {
+  const addDealItem = () => {
+    const defaultService = AVAILABLE_DEAL_SERVICES[0];
+
     setDealData((prev) => ({
       ...prev,
-      services: {
-        ...prev.services,
-        [serviceId]: { ...prev.services[serviceId], [field]: value },
-      },
+      items: [
+        ...prev.items,
+        {
+          id: `item_${Date.now()}`,
+          service_id: defaultService.id,
+          service_label: defaultService.label,
+          icon: defaultService.icon,
+          billing_type: "recurring",
+          amount: "",
+          frequency: "monthly",
+          due_day: "",
+          deadline: "",
+          notes: "",
+        },
+      ],
     }));
   };
 
+  const updateDealItem = (itemId, field, value) => {
+    setDealData((prev) => ({
+      ...prev,
+      items: prev.items.map((item) => {
+        if (item.id !== itemId) return item;
+
+        if (field === "service_id") {
+          const service = AVAILABLE_DEAL_SERVICES.find((s) => s.id === value);
+
+          return {
+            ...item,
+            service_id: service.id,
+            service_label: service.label,
+            icon: service.icon,
+          };
+        }
+
+        return {
+          ...item,
+          [field]: value,
+        };
+      }),
+    }));
+  };
+
+  const removeDealItem = (itemId) => {
+    setDealData((prev) => ({
+      ...prev,
+      items: prev.items.filter((item) => item.id !== itemId),
+    }));
+  };
+
+  const parseMoney = (value) => {
+    const normalized = String(value || "0")
+      .replace(/\./g, "")
+      .replace(",", ".");
+
+    return Number(normalized) || 0;
+  };
+  const calculateDealTotals = () => {
+    const items = dealData.items || [];
+
+    const oneTimeTotal = items
+      .filter((item) => item.billing_type === "one_time")
+      .reduce((acc, item) => acc + parseMoney(item.amount), 0);
+
+    const monthlyTotal = items
+      .filter((item) => item.billing_type === "recurring")
+      .reduce((acc, item) => acc + parseMoney(item.amount), 0);
+
+    return {
+      oneTimeTotal,
+      monthlyTotal,
+      initialTotal: oneTimeTotal + monthlyTotal,
+    };
+  };
+
   const handleFinalizeDeal = async () => {
-    const total = Object.values(dealData.services).reduce(
-      (acc, curr) => acc + (parseFloat(curr.price) || 0),
-      0,
-    );
+    const totals = calculateDealTotals();
+
+    const finalDealDetails = {
+      ...dealData,
+      totalInitialValue: totals.initialTotal,
+      oneTimeValue: totals.oneTimeTotal,
+      monthlyRecurringValue: totals.monthlyTotal,
+      closedAt: new Date().toISOString(),
+    };
+
+    console.log("FECHAMENTO DEBUG:", {
+      dealData,
+      totals,
+      sale_value: totals.initialTotal,
+    });
 
     await handleUpdate({
       status: "closed",
-      sale_value: total,
-      deal_details: { ...dealData, totalValue: total },
+      pipeline_stage: "closed",
+      sale_value: totals.initialTotal,
+      deal_details: finalDealDetails,
     });
 
     setShowClosingModal(false);
@@ -424,74 +517,210 @@ const LeadDetails = ({ leadId, onBack }) => {
             </div>
 
             <div className="p-8 space-y-6 max-h-[60vh] overflow-y-auto scrollbar-hide">
-              {selectedServices.map((s) => (
-                <div
-                  key={s}
-                  className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100"
-                >
-                  <div className="flex items-center gap-3 mb-4">
-                    <span className="text-2xl">
-                      {s === "website"
-                        ? "🌐"
-                        : s === "automation"
-                          ? "🤖"
-                          : s === "ads"
-                            ? "📈"
-                            : "📱"}
-                    </span>
-                    <h4 className="font-black text-sm uppercase tracking-widest text-slate-800">
-                      {s}
-                    </h4>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2 mb-1 block">
-                        Valor (R$)
-                      </label>
-                      <input
-                        type="number"
-                        placeholder="0.00"
-                        className="w-full p-4 bg-white rounded-2xl border-none shadow-sm focus:ring-2 focus:ring-green-500 outline-none font-bold"
-                        value={dealData.services[s]?.price || ""}
-                        onChange={(e) =>
-                          updateServiceDeal(s, "price", e.target.value)
-                        }
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2 mb-1 block">
-                        Data de Entrega
-                      </label>
-                      <input
-                        type="date"
-                        className="w-full p-4 bg-white rounded-2xl border-none shadow-sm focus:ring-2 focus:ring-green-500 outline-none font-bold text-sm"
-                        value={dealData.services[s]?.deadline || ""}
-                        onChange={(e) =>
-                          updateServiceDeal(s, "deadline", e.target.value)
-                        }
-                      />
-                    </div>
-                  </div>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="font-black text-slate-900 text-sm uppercase tracking-widest">
+                    Serviços do contrato
+                  </h3>
+                  <p className="text-xs text-slate-400 font-bold mt-1">
+                    Adicione serviços únicos, recorrentes ou combinados.
+                  </p>
                 </div>
-              ))}
+
+                <button
+                  onClick={addDealItem}
+                  className="bg-slate-900 text-white px-5 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:scale-105 active:scale-95 transition-all"
+                >
+                  + Serviço
+                </button>
+              </div>
+
+              {dealData.items.length === 0 ? (
+                <div className="p-10 rounded-[2rem] bg-slate-50 border border-dashed border-slate-200 text-center">
+                  <p className="text-slate-400 font-bold text-sm">
+                    Nenhum serviço adicionado ainda.
+                  </p>
+                  <button
+                    onClick={addDealItem}
+                    className="mt-4 bg-green-500 text-white px-6 py-3 rounded-2xl font-black text-xs"
+                  >
+                    Adicionar primeiro serviço
+                  </button>
+                </div>
+              ) : (
+                dealData.items.map((item) => (
+                  <div
+                    key={item.id}
+                    className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100"
+                  >
+                    <div className="flex items-center justify-between gap-4 mb-5">
+                      <div className="flex items-center gap-3">
+                        <span className="text-2xl">{item.icon}</span>
+                        <div>
+                          <h4 className="font-black text-sm uppercase tracking-widest text-slate-800">
+                            {item.service_label}
+                          </h4>
+                          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                            {item.billing_type === "recurring"
+                              ? "Cobrança recorrente"
+                              : "Pagamento único"}
+                          </p>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => removeDealItem(item.id)}
+                        className="p-2 rounded-xl bg-red-50 text-red-500 hover:bg-red-100 transition-all"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2 mb-1 block">
+                          Serviço
+                        </label>
+                        <select
+                          className="w-full p-4 bg-white rounded-2xl border-none shadow-sm focus:ring-2 focus:ring-green-500 outline-none font-bold"
+                          value={item.service_id}
+                          onChange={(e) =>
+                            updateDealItem(
+                              item.id,
+                              "service_id",
+                              e.target.value,
+                            )
+                          }
+                        >
+                          {AVAILABLE_DEAL_SERVICES.map((service) => (
+                            <option key={service.id} value={service.id}>
+                              {service.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2 mb-1 block">
+                          Tipo de cobrança
+                        </label>
+                        <select
+                          className="w-full p-4 bg-white rounded-2xl border-none shadow-sm focus:ring-2 focus:ring-green-500 outline-none font-bold"
+                          value={item.billing_type}
+                          onChange={(e) =>
+                            updateDealItem(
+                              item.id,
+                              "billing_type",
+                              e.target.value,
+                            )
+                          }
+                        >
+                          <option value="one_time">Pagamento único</option>
+                          <option value="recurring">Mensalidade</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2 mb-1 block">
+                          Valor (R$)
+                        </label>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          placeholder="0.00"
+                          className="w-full p-4 bg-white rounded-2xl border-none shadow-sm focus:ring-2 focus:ring-green-500 outline-none font-bold"
+                          value={item.amount}
+                          onChange={(e) =>
+                            updateDealItem(item.id, "amount", e.target.value)
+                          }
+                        />
+                      </div>
+
+                      {item.billing_type === "recurring" ? (
+                        <div>
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2 mb-1 block">
+                            Vencimento mensal
+                          </label>
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            min="1"
+                            max="31"
+                            placeholder="Ex: 5"
+                            className="w-full p-4 bg-white rounded-2xl border-none shadow-sm focus:ring-2 focus:ring-green-500 outline-none font-bold"
+                            value={item.due_day}
+                            onChange={(e) =>
+                              updateDealItem(item.id, "due_day", e.target.value)
+                            }
+                          />
+                        </div>
+                      ) : (
+                        <div>
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2 mb-1 block">
+                            Data de entrega
+                          </label>
+                          <input
+                            type="date"
+                            className="w-full p-4 bg-white rounded-2xl border-none shadow-sm focus:ring-2 focus:ring-green-500 outline-none font-bold text-sm"
+                            value={item.deadline}
+                            onChange={(e) =>
+                              updateDealItem(
+                                item.id,
+                                "deadline",
+                                e.target.value,
+                              )
+                            }
+                          />
+                        </div>
+                      )}
+
+                      <div className="md:col-span-2">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2 mb-1 block">
+                          Observações
+                        </label>
+                        <input
+                          placeholder="Ex: 2 posts e 5 stories por semana"
+                          className="w-full p-4 bg-white rounded-2xl border-none shadow-sm focus:ring-2 focus:ring-green-500 outline-none font-bold"
+                          value={item.notes}
+                          onChange={(e) =>
+                            updateDealItem(item.id, "notes", e.target.value)
+                          }
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
 
-            <div className="p-8 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
-              <div>
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">
-                  Total do Contrato
-                </p>
-                <p className="text-3xl font-black text-slate-900 tracking-tighter">
-                  R${" "}
-                  {Object.values(dealData.services)
-                    .reduce(
-                      (acc, curr) => acc + (parseFloat(curr.price) || 0),
-                      0,
-                    )
-                    .toLocaleString("pt-BR")}
-                </p>
+            <div className="p-8 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 flex-1">
+                <div>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">
+                    Inicial
+                  </p>
+                  <p className="text-2xl font-black text-slate-900 tracking-tighter">
+                    {formatCurrency(calculateDealTotals().oneTimeTotal)}
+                  </p>
+                </div>
+
+                <div>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">
+                    Mensal
+                  </p>
+                  <p className="text-2xl font-black text-green-600 tracking-tighter">
+                    {formatCurrency(calculateDealTotals().monthlyTotal)}
+                  </p>
+                </div>
+
+                <div>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">
+                    Total inicial
+                  </p>
+                  <p className="text-2xl font-black text-slate-900 tracking-tighter">
+                    {formatCurrency(calculateDealTotals().initialTotal)}
+                  </p>
+                </div>
               </div>
 
               <button
@@ -526,9 +755,8 @@ const LeadDetails = ({ leadId, onBack }) => {
               Valor Total
             </p>
             <p className="text-3xl font-black tracking-tighter">
-              R${" "}
-              {(lead.sale_value || dealData.totalValue || 0).toLocaleString(
-                "pt-BR",
+              {formatCurrency(
+                lead.sale_value || dealData.totalInitialValue || 0,
               )}
             </p>
           </div>
@@ -972,6 +1200,13 @@ const LeadDetails = ({ leadId, onBack }) => {
       </div>
     </div>
   );
+};
+
+const formatCurrency = (value) => {
+  return Number(value || 0).toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  });
 };
 
 const InfoMiniCard = ({ label, value }) => (
