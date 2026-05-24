@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { Routes, Route } from "react-router-dom";
 import axios from "axios";
 import Sidebar from "./components/Sidebar";
 import MyLeads from "./sections/MyLeads";
@@ -9,6 +10,7 @@ import Home from "./sections/Home";
 import Automation from "./sections/Automation";
 import Analysis from "./sections/Analisy";
 import Laboratory from "./sections/Laboratory";
+import PublicBriefing from "./sections/PublicBriefing";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
 
@@ -77,42 +79,51 @@ function App() {
   }, []);
 
   return (
-    <div className="flex h-screen bg-[#F0F2F5] text-slate-900 overflow-hidden font-sans">
-      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
+    <Routes>
+      <Route path="/briefing/:leadId" element={<PublicBriefing />} />
 
-      <main className="flex-1 overflow-y-auto">
-        {activeTab === "home" && <Home />}
+      <Route
+        path="*"
+        element={
+          <div className="flex h-screen bg-[#F0F2F5] text-slate-900 overflow-hidden font-sans">
+            <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
 
-        {activeTab === "leads" && (
-          <MyLeads
-            leads={leads}
-            loading={loading}
-            onRefresh={fetchLeads}
-            onUpdateStatus={handleUpdateStatus}
-            onOpenLead={handleOpenLead}
-          />
-        )}
+            <main className="flex-1 overflow-y-auto">
+              {activeTab === "home" && <Home />}
 
-        {activeTab === "search" && (
-          <SearchSection onStartSearch={handleStartSearch} loading={loading} />
-        )}
+              {activeTab === "leads" && (
+                <MyLeads
+                  leads={leads}
+                  loading={loading}
+                  onRefresh={fetchLeads}
+                  onUpdateStatus={handleUpdateStatus}
+                  onOpenLead={handleOpenLead}
+                />
+              )}
 
-        {activeTab === "lead-details" && (
-          <LeadDetails
-            leadId={selectedLeadId}
-            onBack={() => setActiveTab("leads")}
-          />
-        )}
+              {activeTab === "search" && (
+                <SearchSection
+                  onStartSearch={handleStartSearch}
+                  loading={loading}
+                />
+              )}
 
-        {activeTab === "automation" && <Automation />}
+              {activeTab === "lead-details" && (
+                <LeadDetails
+                  leadId={selectedLeadId}
+                  onBack={() => setActiveTab("leads")}
+                />
+              )}
 
-        {activeTab === "analysis" && <Analysis />}
-
-        {activeTab === "settings" && <Configs />}
-
-        {activeTab === "laboratory" && <Laboratory />}
-      </main>
-    </div>
+              {activeTab === "automation" && <Automation />}
+              {activeTab === "analysis" && <Analysis />}
+              {activeTab === "settings" && <Configs />}
+              {activeTab === "laboratory" && <Laboratory />}
+            </main>
+          </div>
+        }
+      />
+    </Routes>
   );
 }
 
