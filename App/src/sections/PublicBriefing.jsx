@@ -6,6 +6,10 @@ import {
   Instagram,
   MessageCircle,
   Sparkles,
+  Diamond,
+  Target,
+  TrendingUp,
+  ShieldCheck,
 } from "lucide-react";
 import api from "../services/api";
 
@@ -81,23 +85,27 @@ export default function PublicBriefing() {
 
   if (sent) {
     return (
-      <div className="min-h-screen bg-[#F8FAFC] flex items-center justify-center p-6">
-        <div className="bg-white rounded-[3rem] p-10 max-w-xl w-full text-center border border-slate-100 shadow-xl">
-          <div className="w-20 h-20 rounded-[2rem] bg-green-50 text-green-600 flex items-center justify-center mx-auto mb-6">
+      <div className="min-h-screen bg-[#080B0D] text-[#F2F2F4] flex items-center justify-center p-6 relative overflow-hidden">
+        <div className="absolute w-[420px] h-[420px] bg-white/10 blur-[140px] rounded-full -top-32 right-10" />
+        <div className="absolute w-[320px] h-[320px] bg-white/5 blur-[120px] rounded-full bottom-0 left-0" />
+
+        <div className="relative bg-[#111315]/90 rounded-[3rem] p-10 max-w-xl w-full text-center border border-white/10 shadow-2xl">
+          <div className="w-20 h-20 rounded-[2rem] bg-white text-black flex items-center justify-center mx-auto mb-6 shadow-[0_0_45px_rgba(255,255,255,0.18)]">
             <CheckCircle2 size={38} />
           </div>
 
-          <p className="text-[10px] font-black uppercase tracking-[0.3em] text-green-600 mb-3">
+          <p className="text-[10px] font-black uppercase tracking-[0.35em] text-white/45 mb-3">
             Briefing enviado
           </p>
 
-          <h1 className="text-3xl font-black tracking-tight text-slate-950 mb-4">
+          <h1 className="font-serif text-4xl tracking-tight text-white mb-4">
             Recebemos suas informações.
           </h1>
 
-          <p className="text-slate-500 font-medium leading-relaxed">
-            Agora vamos analisar tudo com cuidado para preparar algo mais
-            alinhado com a realidade da sua empresa.
+          <p className="text-white/55 font-medium leading-relaxed">
+            Agora vamos analisar tudo com cuidado para preparar uma proposta
+            mais alinhada com a percepção, posicionamento e realidade da sua
+            empresa.
           </p>
         </div>
       </div>
@@ -105,64 +113,93 @@ export default function PublicBriefing() {
   }
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] text-slate-950">
-      <header className="max-w-5xl mx-auto px-6 py-8 flex items-center justify-between">
-        <div className="font-black tracking-[0.3em] uppercase text-sm">
-          Velaris
+    <div className="min-h-screen bg-[#080B0D] text-[#F2F2F4] relative overflow-hidden">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_80%_10%,rgba(255,255,255,0.08),transparent_32%),radial-gradient(circle_at_10%_70%,rgba(255,255,255,0.045),transparent_30%)]" />
+      <div className="absolute inset-0 bg-[linear-gradient(to_bottom,rgba(255,255,255,0.035)_1px,transparent_1px)] bg-[length:100%_120px] opacity-20" />
+
+      <header className="relative max-w-6xl mx-auto px-6 py-10 flex items-center justify-between border-b border-white/10">
+        <div className="flex items-center gap-5">
+          <div className="w-12 h-12 rounded-full border border-white/15 flex items-center justify-center text-white font-serif text-xl">
+            V
+          </div>
+
+          <div>
+            <div className="font-serif text-3xl tracking-[0.55em] uppercase">
+              Velaris
+            </div>
+            <p className="text-[9px] font-black uppercase tracking-[0.35em] text-white/35 mt-1">
+              Presença digital premium
+            </p>
+          </div>
         </div>
 
-        <div className="hidden md:flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+        <div className="hidden md:flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.25em] text-white/40">
           <Sparkles size={14} />
           Briefing inteligente
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto px-6 pb-16">
-        <section className="grid grid-cols-1 lg:grid-cols-[0.85fr_1.15fr] gap-8 items-start">
-          <div className="lg:sticky lg:top-8">
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-blue-50 text-blue-600 text-[10px] font-black uppercase tracking-[0.2em] mb-6">
+      <main className="relative max-w-6xl mx-auto px-6 py-14">
+        <section className="grid grid-cols-1 lg:grid-cols-[0.85fr_1.15fr] gap-10 items-start">
+          <aside className="lg:sticky lg:top-8">
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-white/10 bg-white/[0.03] text-white/55 text-[10px] font-black uppercase tracking-[0.25em] mb-8">
               <Sparkles size={14} />
               Antes do projeto
             </div>
 
-            <h1 className="text-4xl md:text-5xl font-black tracking-tight leading-[0.95] mb-6">
-              Vamos entender melhor a sua empresa.
+            <h1 className="font-serif text-5xl md:text-6xl tracking-tight leading-[0.95] mb-7 text-white">
+              Vamos entender a essência da sua empresa.
             </h1>
 
-            <p className="text-slate-500 font-medium leading-relaxed mb-8">
+            <p className="text-white/52 font-medium leading-relaxed mb-10 max-w-xl">
               Esse briefing é rápido e ajuda a Velaris a criar uma análise,
-              preview ou proposta mais alinhada com o seu negócio, seu público e
-              seus objetivos.
+              preview ou proposta com mais clareza, sofisticação e direção
+              estratégica.
             </p>
 
-            <div className="bg-slate-950 text-white rounded-[2.5rem] p-7 shadow-2xl">
-              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-300 mb-4">
+            <div className="grid grid-cols-2 gap-3 mb-8">
+              <EssenceCard icon={<Target size={18} />} title="Clareza" />
+              <EssenceCard icon={<TrendingUp size={18} />} title="Conversão" />
+              <EssenceCard icon={<ShieldCheck size={18} />} title="Confiança" />
+              <EssenceCard icon={<Diamond size={18} />} title="Premium" />
+            </div>
+
+            <div className="bg-[#111315]/80 backdrop-blur-xl text-white rounded-[2.5rem] p-8 border border-white/10 shadow-2xl relative overflow-hidden">
+              <div className="absolute w-40 h-40 rounded-full bg-white/10 blur-[80px] -right-10 -bottom-10" />
+
+              <p className="text-[10px] font-black uppercase tracking-[0.25em] text-white/35 mb-5">
                 Por que responder?
               </p>
 
-              <div className="space-y-4 text-sm text-white/70 font-medium">
+              <div className="space-y-4 text-sm text-white/60 font-medium leading-relaxed">
                 <p>• Evita ideias genéricas.</p>
-                <p>• Ajuda a destacar seus serviços certos.</p>
+                <p>• Ajuda a destacar os serviços certos.</p>
                 <p>• Deixa a proposta mais precisa.</p>
                 <p>• Facilita a criação de um preview mais profissional.</p>
               </div>
             </div>
-          </div>
+          </aside>
 
           <form
             onSubmit={handleSubmit}
-            className="bg-white rounded-[3rem] border border-slate-100 shadow-xl overflow-hidden"
+            className="bg-[#111315]/90 backdrop-blur-xl rounded-[3rem] border border-white/10 shadow-2xl overflow-hidden"
           >
-            <div className="p-8 border-b border-slate-100">
-              <h2 className="text-2xl font-black tracking-tight">
+            <div className="p-10 border-b border-white/10">
+              <p className="text-[10px] font-black uppercase tracking-[0.3em] text-white/35 mb-3">
+                Diagnóstico inicial
+              </p>
+
+              <h2 className="font-serif text-4xl tracking-tight text-white">
                 Informações principais
               </h2>
-              <p className="text-slate-400 text-sm font-medium mt-1">
-                Responda de forma simples. Não precisa escrever textos grandes.
+
+              <p className="text-white/42 text-sm font-medium mt-3">
+                Responda de forma simples. O importante é entendermos o que faz
+                sua empresa ser única.
               </p>
             </div>
 
-            <div className="p-8 space-y-6">
+            <div className="p-10 space-y-8">
               <FormField label="Nome da empresa">
                 <input
                   value={form.business_name}
@@ -177,7 +214,7 @@ export default function PublicBriefing() {
                   <div className="relative">
                     <Instagram
                       size={17}
-                      className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300"
+                      className="absolute left-4 top-1/2 -translate-y-1/2 text-white/25"
                     />
                     <input
                       value={form.instagram}
@@ -192,7 +229,7 @@ export default function PublicBriefing() {
                   <div className="relative">
                     <MessageCircle
                       size={17}
-                      className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300"
+                      className="absolute left-4 top-1/2 -translate-y-1/2 text-white/25"
                     />
                     <input
                       value={form.whatsapp}
@@ -218,7 +255,7 @@ export default function PublicBriefing() {
                   value={form.main_services}
                   onChange={(e) => updateField("main_services", e.target.value)}
                   placeholder="Ex: limpeza de estofados, higienização de colchões, impermeabilização..."
-                  className="input-briefing min-h-[110px] resize-none"
+                  className="input-briefing min-h-[120px] resize-none"
                 />
               </FormField>
 
@@ -238,7 +275,7 @@ export default function PublicBriefing() {
                   value={form.differential}
                   onChange={(e) => updateField("differential", e.target.value)}
                   placeholder="Ex: atendimento rápido, experiência, produtos premium, atendimento humanizado..."
-                  className="input-briefing min-h-[100px] resize-none"
+                  className="input-briefing min-h-[110px] resize-none"
                 />
               </FormField>
 
@@ -255,6 +292,7 @@ export default function PublicBriefing() {
 
               <div>
                 <label className="label-briefing">Objetivos principais</label>
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   {GOALS.map((goal) => {
                     const active = form.goals.includes(goal);
@@ -266,8 +304,8 @@ export default function PublicBriefing() {
                         onClick={() => toggleGoal(goal)}
                         className={`text-left p-4 rounded-2xl border text-sm font-bold transition-all ${
                           active
-                            ? "bg-blue-50 border-blue-200 text-blue-700"
-                            : "bg-slate-50 border-slate-100 text-slate-500 hover:bg-slate-100"
+                            ? "bg-white text-black border-white shadow-[0_0_30px_rgba(255,255,255,0.08)]"
+                            : "bg-white/[0.03] border-white/10 text-white/55 hover:bg-white/[0.06] hover:text-white"
                         }`}
                       >
                         {goal}
@@ -293,7 +331,7 @@ export default function PublicBriefing() {
                     updateField("references_text", e.target.value)
                   }
                   placeholder="Pode colocar links de Instagram, sites, concorrentes ou referências visuais."
-                  className="input-briefing min-h-[100px] resize-none"
+                  className="input-briefing min-h-[110px] resize-none"
                 />
               </FormField>
 
@@ -302,13 +340,13 @@ export default function PublicBriefing() {
                   value={form.notes}
                   onChange={(e) => updateField("notes", e.target.value)}
                   placeholder="Algo importante que você queira que a gente saiba?"
-                  className="input-briefing min-h-[110px] resize-none"
+                  className="input-briefing min-h-[120px] resize-none"
                 />
               </FormField>
             </div>
 
-            <div className="p-8 bg-slate-50 border-t border-slate-100 flex flex-col md:flex-row gap-4 md:items-center md:justify-between">
-              <p className="text-xs text-slate-400 font-bold max-w-md">
+            <div className="p-10 bg-white/[0.025] border-t border-white/10 flex flex-col md:flex-row gap-5 md:items-center md:justify-between">
+              <p className="text-xs text-white/38 font-bold max-w-md leading-relaxed">
                 Ao enviar, suas respostas serão usadas apenas para preparar uma
                 análise mais alinhada ao seu negócio.
               </p>
@@ -316,7 +354,7 @@ export default function PublicBriefing() {
               <button
                 type="submit"
                 disabled={loading}
-                className="bg-slate-950 text-white px-8 py-5 rounded-2xl font-black text-sm flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-60"
+                className="bg-[#F2F2F4] text-black px-8 py-5 rounded-full font-black text-sm flex items-center justify-center gap-3 hover:bg-white hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-60 shadow-[0_0_35px_rgba(255,255,255,0.12)]"
               >
                 {loading ? "Enviando..." : "Enviar briefing"}
                 <ArrowRight size={18} />
@@ -331,29 +369,46 @@ export default function PublicBriefing() {
           width: 100%;
           padding: 1rem;
           border-radius: 1rem;
-          background: #f8fafc;
-          border: 1px solid #f1f5f9;
+          background: rgba(255,255,255,0.035);
+          border: 1px solid rgba(255,255,255,0.08);
           outline: none;
           font-weight: 700;
-          color: #0f172a;
+          color: #F2F2F4;
+          transition: all .2s ease;
+        }
+
+        .input-briefing::placeholder {
+          color: rgba(255,255,255,0.24);
         }
 
         .input-briefing:focus {
-          border-color: #2563eb;
-          box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
+          border-color: rgba(255,255,255,0.22);
+          background: rgba(255,255,255,0.055);
+          box-shadow: 0 0 0 3px rgba(255,255,255,0.04);
         }
 
         .label-briefing {
           display: block;
           margin-left: 0.5rem;
-          margin-bottom: 0.5rem;
+          margin-bottom: 0.65rem;
           font-size: 10px;
           font-weight: 900;
           text-transform: uppercase;
-          letter-spacing: 0.2em;
-          color: #94a3b8;
+          letter-spacing: 0.24em;
+          color: rgba(255,255,255,0.42);
         }
       `}</style>
+    </div>
+  );
+}
+
+function EssenceCard({ icon, title }) {
+  return (
+    <div className="bg-white/[0.03] border border-white/10 rounded-3xl p-5 flex items-center gap-3">
+      <div className="w-10 h-10 rounded-2xl border border-white/10 flex items-center justify-center text-white/55">
+        {icon}
+      </div>
+      <p className="font-serif text-lg text-white/85">{title}</p>
     </div>
   );
 }
