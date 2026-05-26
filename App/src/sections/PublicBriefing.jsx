@@ -18,10 +18,13 @@ const initialForm = {
   instagram: "",
   whatsapp: "",
   city: "",
+  weekly_clients: "",
   main_services: "",
   most_profitable_service: "",
   differential: "",
   target_audience: "",
+  biggest_problem: "",
+  investment_range: "",
   goals: [],
   brand_colors: "",
   references_text: "",
@@ -212,10 +215,6 @@ export default function PublicBriefing() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 <FormField label="Instagram">
                   <div className="relative">
-                    <Instagram
-                      size={17}
-                      className="absolute left-4 top-1/2 -translate-y-1/2 text-white/25"
-                    />
                     <input
                       value={form.instagram}
                       onChange={(e) => updateField("instagram", e.target.value)}
@@ -227,10 +226,6 @@ export default function PublicBriefing() {
 
                 <FormField label="WhatsApp">
                   <div className="relative">
-                    <MessageCircle
-                      size={17}
-                      className="absolute left-4 top-1/2 -translate-y-1/2 text-white/25"
-                    />
                     <input
                       value={form.whatsapp}
                       onChange={(e) => updateField("whatsapp", e.target.value)}
@@ -249,6 +244,36 @@ export default function PublicBriefing() {
                   className="input-briefing"
                 />
               </FormField>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <FormField label="Quantos clientes você atende por semana?">
+                  <input
+                    value={form.weekly_clients}
+                    onChange={(e) =>
+                      updateField("weekly_clients", e.target.value)
+                    }
+                    placeholder="Ex: 10, 25, 50..."
+                    className="input-briefing"
+                  />
+                </FormField>
+
+                <FormField label="Faixa de investimento confortável (opcional)">
+                  <select
+                    value={form.investment_range}
+                    onChange={(e) =>
+                      updateField("investment_range", e.target.value)
+                    }
+                    className="input-briefing"
+                  >
+                    <option value="">Selecionar</option>
+                    <option>Até R$300/mês</option>
+                    <option>R$300 a R$600/mês</option>
+                    <option>R$600 a R$1.000/mês</option>
+                    <option>Acima de R$1.000/mês</option>
+                    <option>Prefiro conversar sobre isso</option>
+                  </select>
+                </FormField>
+              </div>
 
               <FormField label="Quais são os principais serviços da empresa?">
                 <textarea
@@ -287,6 +312,17 @@ export default function PublicBriefing() {
                   }
                   placeholder="Ex: clientes de alto padrão, famílias, empresas, mulheres de 25 a 45 anos..."
                   className="input-briefing"
+                />
+              </FormField>
+
+              <FormField label="Qual é a maior dificuldade hoje para conseguir mais clientes?">
+                <textarea
+                  value={form.biggest_problem}
+                  onChange={(e) =>
+                    updateField("biggest_problem", e.target.value)
+                  }
+                  placeholder="Ex: pouca visibilidade, Instagram parado, clientes pedem preço e somem..."
+                  className="input-briefing min-h-[110px] resize-none"
                 />
               </FormField>
 
