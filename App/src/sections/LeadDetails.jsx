@@ -21,6 +21,8 @@ import {
   Receipt,
   BellRing,
   Target,
+  ClipboardList,
+  Link,
 } from "lucide-react";
 
 const LeadDetails = ({ leadId, onBack }) => {
@@ -28,6 +30,11 @@ const LeadDetails = ({ leadId, onBack }) => {
   const [loading, setLoading] = useState(true);
   const [activities, setActivities] = useState([]);
   const [isSaving, setIsSaving] = useState(false);
+  const [briefing, setBriefing] = useState(null);
+  const [showBriefingLinkModal, setShowBriefingLinkModal] = useState(false);
+  const [briefingLink, setBriefingLink] = useState("");
+  const [copiedBriefingLink, setCopiedBriefingLink] = useState(false);
+  const [loadingBriefing, setLoadingBriefing] = useState(false);
 
   const [selectedServices, setSelectedServices] = useState([]);
   const [observation, setObservation] = useState("");
@@ -256,9 +263,10 @@ const LeadDetails = ({ leadId, onBack }) => {
 
   const fetchData = async () => {
     try {
-      const [leadRes, activityRes] = await Promise.all([
+      const [leadRes, activityRes, briefingRes] = await Promise.all([
         api.get(`/leads/${leadId}`),
         api.get(`/leads/${leadId}/activities`),
+        api.get(`/briefings/lead/${leadId}`),
       ]);
 
       const data = leadRes.data;
@@ -276,6 +284,7 @@ const LeadDetails = ({ leadId, onBack }) => {
       setObservation(data.market_observation || "");
       setInternalNotes(data.internal_notes || "");
       setActivities(activityRes.data);
+      setBriefing(briefingRes.data);
       setSelectedServices(initialServices);
       setAiSuggestion(data.ai_message_suggestion || "");
 
@@ -455,6 +464,24 @@ const LeadDetails = ({ leadId, onBack }) => {
     }
   };
 
+  const handleCopyBriefingLink = () => {
+    const link = `${window.location.origin}/briefing/${leadId}`;
+
+    setBriefingLink(link);
+    setCopiedBriefingLink(false);
+    setShowBriefingLinkModal(true);
+  };
+
+  const copyBriefingLinkToClipboard = async () => {
+    try {
+      await navigator.clipboard.writeText(briefingLink);
+      setCopiedBriefingLink(true);
+    } catch (err) {
+      console.error(err);
+      prompt("Copie o link do briefing:", briefingLink);
+    }
+  };
+
   const handleSendWhatsApp = async () => {
     await handleUpdate({
       market_observation: observation,
@@ -490,6 +517,56 @@ const LeadDetails = ({ leadId, onBack }) => {
 
   return (
     <div className="p-8 max-w-[1600px] mx-auto animate-in fade-in duration-700 pb-20 relative">
+      {showBriefingLinkModal && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white w-full max-w-lg rounded-[3rem] shadow-2xl overflow-hidden border border-white/20 animate-in zoom-in duration-200">
+            <div className="p-8 bg-slate-900 text-white flex items-center justify-between">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400 mb-2">
+                  Link público
+                </p>
+                <h2 className="text-2xl font-black tracking-tight">
+                  Solicitar briefing
+                </h2>
+              </div>
+
+              <button
+                onClick={() => setShowBriefingLinkModal(false)}
+                className="p-2 hover:bg-white/10 rounded-full transition-all"
+              >
+                <X size={22} />
+              </button>
+            </div>
+
+            <div className="p-8 space-y-5">
+              <p className="text-sm font-medium text-slate-500 leading-relaxed">
+                Envie este link para o lead preencher o briefing. Assim você
+                recebe as informações direto no LeadHunt.
+              </p>
+
+              <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4">
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-2">
+                  Link do briefing
+                </p>
+                <p className="text-sm font-bold text-slate-800 break-all">
+                  {briefingLink}
+                </p>
+              </div>
+
+              <button
+                onClick={copyBriefingLinkToClipboard}
+                className={`w-full py-4 rounded-2xl font-black text-sm uppercase tracking-widest transition-all ${
+                  copiedBriefingLink
+                    ? "bg-green-500 text-white"
+                    : "bg-slate-900 text-white hover:bg-black"
+                }`}
+              >
+                {copiedBriefingLink ? "Link copiado!" : "Copiar link"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {showClosingModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in zoom-in duration-300">
           <div className="bg-white w-full max-w-2xl rounded-[3rem] shadow-2xl overflow-hidden border border-white/20">
@@ -878,6 +955,124 @@ const LeadDetails = ({ leadId, onBack }) => {
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         <div className="lg:col-span-8 space-y-8">
+          <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
+            <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+              <h3 className="font-black text-xs uppercase tracking-[0.2em] text-slate-400 flex items-center gap-2">
+                <ClipboardList size={16} className="text-purple-500" />
+                Briefing do Cliente
+              </h3>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleCopyBriefingLink}
+                  className="px-4 py-2 rounded-xl bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2 hover:bg-black active:scale-95 transition-all"
+                >
+                  <Link size={13} />
+                  Solicitar Briefing
+                </button>
+
+                <span
+                  className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${
+                    briefing
+                      ? "bg-green-50 text-green-600 border border-green-100"
+                      : "bg-slate-50 text-slate-400 border border-slate-100"
+                  }`}
+                >
+                  {briefing ? "Recebido" : "Aguardando"}
+                </span>
+              </div>
+            </div>
+
+            {briefing ? (
+              <div className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <InfoMiniCard
+                    label="Empresa"
+                    value={briefing.business_name || "—"}
+                  />
+                  <InfoMiniCard
+                    label="Clientes/semana"
+                    value={briefing.weekly_clients || "—"}
+                  />
+                  <InfoMiniCard
+                    label="Investimento"
+                    value={briefing.investment_range || "—"}
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <InfoMiniCard
+                    label="Serviços principais"
+                    value={briefing.main_services || "—"}
+                  />
+                  <InfoMiniCard
+                    label="Serviço foco"
+                    value={briefing.most_profitable_service || "—"}
+                  />
+                  <InfoMiniCard
+                    label="Diferencial"
+                    value={briefing.differential || "—"}
+                  />
+                  <InfoMiniCard
+                    label="Público-alvo"
+                    value={briefing.target_audience || "—"}
+                  />
+                </div>
+
+                <InfoMiniCard
+                  label="Maior dificuldade"
+                  value={briefing.biggest_problem || "—"}
+                />
+
+                {Array.isArray(briefing.goals) && briefing.goals.length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-3">
+                      Objetivos
+                    </p>
+
+                    <div className="flex flex-wrap gap-2">
+                      {briefing.goals.map((goal) => (
+                        <span
+                          key={goal}
+                          className="px-3 py-2 rounded-full bg-purple-50 text-purple-600 text-[10px] font-black uppercase tracking-widest"
+                        >
+                          {goal}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <InfoMiniCard
+                    label="Cores da marca"
+                    value={briefing.brand_colors || "—"}
+                  />
+                  <InfoMiniCard
+                    label="Referências"
+                    value={briefing.references_text || "—"}
+                  />
+                </div>
+
+                <InfoMiniCard
+                  label="Observações finais"
+                  value={briefing.notes || "—"}
+                />
+              </div>
+            ) : (
+              <div className="bg-slate-50 border border-dashed border-slate-200 rounded-[2rem] p-8 text-center">
+                <p className="text-sm font-bold text-slate-400">
+                  Nenhum briefing recebido ainda para este lead.
+                </p>
+
+                <p className="text-xs text-slate-400 mt-2">
+                  Envie o link de briefing para coletar informações estratégicas
+                  antes do preview ou proposta.
+                </p>
+              </div>
+            )}
+          </div>
+
           <div
             className={`p-6 rounded-[2.5rem] border shadow-sm ${suggestedAction.classes}`}
           >
