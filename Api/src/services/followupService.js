@@ -31,9 +31,25 @@ const FOLLOWUP_RULES = [
   },
 ];
 
+async function getFollowupSettings() {
+  const result = await db.query(`
+    SELECT
+      followup_enabled,
+      followup_max_count,
+      followup_delay_hours_1,
+      followup_delay_hours_2
+    FROM automation_settings
+    WHERE id = 1
+  `);
+
+  return result.rows[0];
+}
+
 function getFollowupMessage(lead, currentFollowupCount = 0) {
   const safeCount = Number(currentFollowupCount || 0);
-  const rule = FOLLOWUP_RULES[safeCount];
+
+  const rule =
+    FOLLOWUP_RULES[safeCount] || FOLLOWUP_RULES[FOLLOWUP_RULES.length - 1];
 
   if (!rule) {
     return null;
@@ -42,25 +58,29 @@ function getFollowupMessage(lead, currentFollowupCount = 0) {
   return rule.message;
 }
 
-function getNextFollowupDelayHours(currentFollowupCount = 0) {
-  const safeCount = Number(currentFollowupCount || 0);
-  const rule = FOLLOWUP_RULES[safeCount];
+async function getNextFollowupDelayHours(currentFollowupCount = 0) {
+  const settings = await getFollowupSettings();
 
-  if (!rule) {
-    return null;
+  const count = Number(currentFollowupCount || 0);
+
+  if (count === 1) {
+    return Number(settings.followup_delay_hours_1 || 24);
   }
 
-  return Number(rule.delayHours || 24);
+  return Number(settings.followup_delay_hours_2 || 72);
 }
+async function hasRemainingFollowups(currentFollowupCount = 0) {
+  const settings = await getFollowupSettings();
 
-function hasRemainingFollowups(currentFollowupCount = 0) {
-  return Number(currentFollowupCount || 0) < FOLLOWUP_RULES.length;
+  return (
+    Number(currentFollowupCount || 0) < Number(settings.followup_max_count || 2)
+  );
 }
 
 async function scheduleNextFollowup(leadId, currentFollowupCount = 0) {
   const nextCount = Number(currentFollowupCount || 0);
 
-  if (!hasRemainingFollowups(nextCount)) {
+  if (!(await hasRemainingFollowups(nextCount))) {
     await db.query(
       `
       UPDATE leads
@@ -72,7 +92,7 @@ async function scheduleNextFollowup(leadId, currentFollowupCount = 0) {
     return;
   }
 
-  const delayHours = getNextFollowupDelayHours(nextCount);
+  const delayHours = await getNextFollowupDelayHours(nextCount);
 
   await db.query(
     `
@@ -96,32 +116,37 @@ async function clearNextFollowup(leadId) {
 }
 
 async function getEligibleFollowupLead() {
-  const result = await db.query(`
-    SELECT *
-    FROM leads
-    WHERE status = 'contacted'
-      AND is_archived = false
-      AND COALESCE(is_invalid_number, false) = false
-      AND assigned_number IS NOT NULL
-      AND COALESCE(followup_count, 0) < ${FOLLOWUP_RULES.length}
-      AND next_followup_at IS NOT NULL
-      AND next_followup_at <= NOW()
-      AND COALESCE(status, '') NOT IN ('closed', 'lost')
-      AND (
-        pipeline_stage IS NULL
-        OR pipeline_stage NOT IN (
-          'responded',
-          'interested',
-          'preview_sent',
-          'negotiation',
-          'closed',
-          'lost'
-        )
-      )
-      AND last_reply_at IS NULL
-    ORDER BY next_followup_at ASC, last_contact ASC NULLS FIRST
-    LIMIT 1
-  `);
+  const settings = await getFollowupSettings();
+
+  const result = await db.query(
+    `
+SELECT *
+FROM leads
+WHERE status='contacted'
+AND is_archived=false
+AND COALESCE(
+is_invalid_number,
+false
+)=false
+
+AND assigned_number IS NOT NULL
+
+AND COALESCE(
+followup_count,
+0
+)<$1
+
+AND next_followup_at<=NOW()
+
+AND last_reply_at IS NULL
+
+ORDER BY
+next_followup_at ASC
+
+LIMIT 1
+`,
+    [Number(settings.followup_max_count)],
+  );
 
   return result.rows[0] || null;
 }

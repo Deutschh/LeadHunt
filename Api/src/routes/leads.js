@@ -251,7 +251,6 @@ router.get("/automation/settings", async (req, res) => {
   }
 });
 
-// Atualizar configurações de automação
 router.patch("/automation/settings", async (req, res) => {
   const {
     is_active,
@@ -261,12 +260,12 @@ router.patch("/automation/settings", async (req, res) => {
     start_hour,
     end_hour,
     is_ai_enabled,
-
-    // NOVO ↓
     followup_enabled,
     followup_max_count,
     followup_delay_hours_1,
     followup_delay_hours_2,
+    followups_per_cycle,
+    followup_gap_seconds,
   } = req.body;
 
   try {
@@ -278,28 +277,20 @@ router.patch("/automation/settings", async (req, res) => {
         min_interval_minutes = COALESCE($2, min_interval_minutes),
         max_interval_minutes = COALESCE($3, max_interval_minutes),
         daily_limit = COALESCE($4, daily_limit),
-
         start_hour = COALESCE($5, start_hour),
         end_hour = COALESCE($6, end_hour),
-
         is_ai_enabled = COALESCE($7, is_ai_enabled),
 
-        followup_enabled =
-          COALESCE($8, followup_enabled),
+        followup_enabled = COALESCE($8, followup_enabled),
+        followup_max_count = COALESCE($9, followup_max_count),
+        followup_delay_hours_1 = COALESCE($10, followup_delay_hours_1),
+        followup_delay_hours_2 = COALESCE($11, followup_delay_hours_2),
 
-        followup_max_count =
-          COALESCE($9, followup_max_count),
-
-        followup_delay_hours_1 =
-          COALESCE($10, followup_delay_hours_1),
-
-        followup_delay_hours_2 =
-          COALESCE($11, followup_delay_hours_2),
+        followups_per_cycle = COALESCE($12, followups_per_cycle),
+        followup_gap_seconds = COALESCE($13, followup_gap_seconds),
 
         updated_at = NOW()
-
       WHERE id = 1
-
       RETURNING *
       `,
       [
@@ -310,21 +301,19 @@ router.patch("/automation/settings", async (req, res) => {
         start_hour,
         end_hour,
         is_ai_enabled,
-
         followup_enabled,
         followup_max_count,
         followup_delay_hours_1,
         followup_delay_hours_2,
+        followups_per_cycle,
+        followup_gap_seconds,
       ],
     );
 
     res.json(result.rows[0]);
   } catch (err) {
     console.error("Erro ao atualizar configurações:", err);
-
-    res.status(500).json({
-      error: "Erro ao atualizar configurações.",
-    });
+    res.status(500).json({ error: "Erro ao atualizar configurações." });
   }
 });
 

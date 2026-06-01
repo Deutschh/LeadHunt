@@ -29,10 +29,15 @@ const Automation = () => {
     daily_limit: 30,
     start_hour: "09:00",
     end_hour: "18:00",
+
     followup_enabled: true,
     followup_max_count: 2,
+
     followup_delay_hours_1: 24,
     followup_delay_hours_2: 72,
+
+    followups_per_cycle: 2,
+    followup_gap_seconds: 30,
   });
 
   const [queue, setQueue] = useState([]);
@@ -496,6 +501,30 @@ const Automation = () => {
                 />
               </div>
 
+              <div className="grid grid-cols-2 gap-4">
+                <ConfigInput
+                  label="Follow-ups por ciclo"
+                  value={settings.followups_per_cycle}
+                  onChange={(v) =>
+                    updateSetting(
+                      "followups_per_cycle",
+                      Math.min(3, Math.max(0, Number(v))),
+                    )
+                  }
+                />
+
+                <ConfigInput
+                  label="Intervalo entre Follow-ups (s)"
+                  value={settings.followup_gap_seconds}
+                  onChange={(v) =>
+                    updateSetting(
+                      "followup_gap_seconds",
+                      Math.max(30, Number(v)),
+                    )
+                  }
+                />
+              </div>
+
               <div className="bg-slate-50 rounded-[2rem] p-5 border border-slate-100">
                 <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-3">
                   Regra atual
@@ -503,7 +532,23 @@ const Automation = () => {
 
                 <p className="text-sm font-bold text-slate-700 leading-relaxed">
                   {settings.followup_enabled
-                    ? `Enviar até ${settings.followup_max_count || 0} follow-up(s). Primeiro após ${settings.followup_delay_hours_1 || 0}h e segundo após ${settings.followup_delay_hours_2 || 0}h.`
+                    ? `
+Enviar até ${settings.followup_max_count || 0}
+follow-up(s).
+
+Executar
+${settings.followups_per_cycle || 0}
+por ciclo.
+
+Intervalo interno:
+${settings.followup_gap_seconds || 30}s.
+
+1° após
+${settings.followup_delay_hours_1 || 0}h.
+
+2° após
+${settings.followup_delay_hours_2 || 0}h.
+`
                     : "Follow-ups automáticos estão pausados. Leads não receberão novas tentativas."}
                 </p>
               </div>

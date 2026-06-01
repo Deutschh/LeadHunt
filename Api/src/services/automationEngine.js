@@ -348,7 +348,7 @@ async function handleInitialApproach(
   }
 
   if (lead.custom_message && lead.custom_message.includes("---")) {
-    logWithPort(  
+    logWithPort(
       `🤖 Mensagem dividida detectada para ${lead.name}`,
       "info",
       sendingNumber,
@@ -540,24 +540,21 @@ const startAutomation = async () => {
       let mode = null;
       let sendingNumber = null;
 
-      const followupLead = await getEligibleFollowupLead();
+      let followupsSentInCycle = 0;
+
       const newLead = await getNextPendingLead();
 
-      if (followupLead) {
-        const shouldUseFollowup = Math.random() < 0.5;
-
-        if (shouldUseFollowup || !newLead) {
-          lead = followupLead;
-          mode = "followup";
-        } else {
-          lead = newLead;
-          mode = "initial";
-        }
-      } else if (newLead) {
+      if (newLead) {
         lead = newLead;
         mode = "initial";
-      }
+      } else {
+        const followupLead = await getEligibleFollowupLead();
 
+        if (followupLead) {
+          lead = followupLead;
+          mode = "followup";
+        }
+      }
       if (!lead || !mode) {
         log("📭 Fila vazia (nem novos nem follow-ups disponíveis)...", "info");
         setTimeout(loop, 30000);
@@ -658,16 +655,12 @@ const startAutomation = async () => {
           const hasReply = await checkIfLeadReplied(currentPage, lead);
 
           if (hasReply) {
-            logWithPort(
-              `📩 Resposta detectada automaticamente para ${lead.name}. Follow-up cancelado.`,
-              "success",
-              sendingNumber,
-            );
-
             await handleDetectedReply(lead, sendingNumber);
+
             await markNumberHealthy(sendingNumber.phone_number);
 
             setTimeout(loop, 10000);
+
             return;
           }
         }
@@ -697,6 +690,19 @@ const startAutomation = async () => {
         }
 
         await markNumberHealthy(sendingNumber.phone_number);
+
+        if (mode === "initial") {
+          await wait(Number(settings.followup_gap_seconds || 30) * 1000);
+
+          followupsSentInCycle = await executeFollowupsBatch();
+
+          if (followupsSentInCycle > 0) {
+            log(
+              `🔁 ${followupsSentInCycle} followups enviados neste ciclo.`,
+              "success",
+            );
+          }
+        }
       } catch (err) {
         if (sendingNumber?.phone_number) {
           await markNumberFailure(sendingNumber.phone_number, err.message);
@@ -722,7 +728,20 @@ const startAutomation = async () => {
       const waitMinutes = Math.floor(Math.random() * (max - min + 1)) + min;
 
       log(`⏳ Próximo disparo em ${waitMinutes} minutos...`, "info");
-      setTimeout(loop, waitMinutes * 60000);
+      const consumed =
+        mode === "initial"
+          ? Number(settings.followup_gap_seconds || 30) *
+            Number(followupsSentInCycle || 0)
+          : 0;
+
+      const finalDelay =
+        mode === "followup"
+          ? Number(settings.followup_gap_seconds || 30)
+          : Math.max(waitMinutes * 60 - consumed, 30);
+
+      log(`⏳ Próximo ciclo em ${finalDelay}s`, "info");
+
+      setTimeout(loop, finalDelay * 1000);
     } catch (err) {
       log(`💥 Erro crítico: ${err.message}`, "error");
       setTimeout(loop, 60000);
@@ -731,6 +750,70 @@ const startAutomation = async () => {
 
   loop();
 };
+
+async function wait(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+async function getAutomationSettings() {
+  const result = await db.query(`
+    SELECT *
+    FROM automation_settings
+    WHERE id=1
+  `);
+
+  return result.rows[0];
+}
+
+async function executeFollowupsBatch() {
+  const settings = await getAutomationSettings();
+
+  if (!settings.followup_enabled) {
+    return 0;
+  }
+
+  const maxBatch = Number(settings.followups_per_cycle || 0);
+
+  const gap = Number(settings.followup_gap_seconds || 30);
+
+  let executed = 0;
+
+  for (let i = 0; i < maxBatch; i++) {
+    const lead = await getEligibleFollowupLead();
+
+    if (!lead) {
+      break;
+    }
+
+    const sendingNumber = await resolveSendingNumberForFollowup(lead);
+
+    if (!sendingNumber) {
+      continue;
+    }
+
+    try {
+      const page = await getPageForPort(sendingNumber.chrome_port);
+
+      const validation = await validateWhatsAppNumber(page, lead);
+
+      if (!validation.valid) {
+        continue;
+      }
+
+      await handleFollowup(page, lead, validation.inputSelector, sendingNumber);
+
+      executed++;
+
+      if (i < maxBatch - 1) {
+        await wait(gap * 1000);
+      }
+    } catch (err) {
+      log(`Erro followup lote: ${err.message}`, "error");
+    }
+  }
+
+  return executed;
+}
 
 function generateFallbackMessage(lead) {
   const templates = {
