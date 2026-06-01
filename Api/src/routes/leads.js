@@ -235,12 +235,19 @@ router.delete("/notes/:id", async (req, res) => {
 // Buscar configurações de automação
 router.get("/automation/settings", async (req, res) => {
   try {
-    const result = await db.query(
-      "SELECT * FROM automation_settings WHERE id = 1",
-    );
+    const result = await db.query(`
+      SELECT *
+      FROM automation_settings
+      WHERE id = 1
+    `);
+
     res.json(result.rows[0]);
   } catch (err) {
-    res.status(500).json({ error: "Erro ao buscar configurações." });
+    console.error("Erro ao buscar configurações:", err);
+
+    res.status(500).json({
+      error: "Erro ao buscar configurações.",
+    });
   }
 });
 
@@ -254,6 +261,12 @@ router.patch("/automation/settings", async (req, res) => {
     start_hour,
     end_hour,
     is_ai_enabled,
+
+    // NOVO ↓
+    followup_enabled,
+    followup_max_count,
+    followup_delay_hours_1,
+    followup_delay_hours_2,
   } = req.body;
 
   try {
@@ -265,11 +278,28 @@ router.patch("/automation/settings", async (req, res) => {
         min_interval_minutes = COALESCE($2, min_interval_minutes),
         max_interval_minutes = COALESCE($3, max_interval_minutes),
         daily_limit = COALESCE($4, daily_limit),
+
         start_hour = COALESCE($5, start_hour),
         end_hour = COALESCE($6, end_hour),
+
         is_ai_enabled = COALESCE($7, is_ai_enabled),
+
+        followup_enabled =
+          COALESCE($8, followup_enabled),
+
+        followup_max_count =
+          COALESCE($9, followup_max_count),
+
+        followup_delay_hours_1 =
+          COALESCE($10, followup_delay_hours_1),
+
+        followup_delay_hours_2 =
+          COALESCE($11, followup_delay_hours_2),
+
         updated_at = NOW()
+
       WHERE id = 1
+
       RETURNING *
       `,
       [
@@ -280,13 +310,21 @@ router.patch("/automation/settings", async (req, res) => {
         start_hour,
         end_hour,
         is_ai_enabled,
+
+        followup_enabled,
+        followup_max_count,
+        followup_delay_hours_1,
+        followup_delay_hours_2,
       ],
     );
 
     res.json(result.rows[0]);
   } catch (err) {
     console.error("Erro ao atualizar configurações:", err);
-    res.status(500).json({ error: "Erro ao atualizar configurações." });
+
+    res.status(500).json({
+      error: "Erro ao atualizar configurações.",
+    });
   }
 });
 
