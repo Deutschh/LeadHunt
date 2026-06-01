@@ -16,6 +16,8 @@ import {
   RotateCcw,
   Power,
   PowerOff,
+  MessageCircle,
+  Repeat,
 } from "lucide-react";
 import { io } from "socket.io-client";
 
@@ -27,6 +29,10 @@ const Automation = () => {
     daily_limit: 30,
     start_hour: "09:00",
     end_hour: "18:00",
+    followup_enabled: true,
+    followup_max_count: 2,
+    followup_delay_hours_1: 24,
+    followup_delay_hours_2: 72,
   });
 
   const [queue, setQueue] = useState([]);
@@ -441,6 +447,65 @@ const Automation = () => {
                   value={settings.end_hour}
                   onChange={(v) => updateSetting("end_hour", v)}
                 />
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white p-8 rounded-[3rem] border border-slate-100 shadow-sm">
+            <div className="flex items-center justify-between mb-8 gap-4">
+              <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 flex items-center gap-2">
+                <Repeat size={16} /> Follow-up Automático
+              </h3>
+
+              <button
+                onClick={() =>
+                  updateSetting("followup_enabled", !settings.followup_enabled)
+                }
+                className={`px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${
+                  settings.followup_enabled
+                    ? "bg-green-100 text-green-700"
+                    : "bg-slate-200 text-slate-600"
+                }`}
+              >
+                {settings.followup_enabled ? "Ligado" : "Desligado"}
+              </button>
+            </div>
+
+            <div className="space-y-6">
+              <ConfigInput
+                label="Máximo de Follow-ups"
+                value={settings.followup_max_count}
+                onChange={(v) => updateSetting("followup_max_count", Number(v))}
+              />
+
+              <div className="grid grid-cols-2 gap-4">
+                <ConfigInput
+                  label="Delay 1º Follow-up (h)"
+                  value={settings.followup_delay_hours_1}
+                  onChange={(v) =>
+                    updateSetting("followup_delay_hours_1", Number(v))
+                  }
+                />
+
+                <ConfigInput
+                  label="Delay 2º Follow-up (h)"
+                  value={settings.followup_delay_hours_2}
+                  onChange={(v) =>
+                    updateSetting("followup_delay_hours_2", Number(v))
+                  }
+                />
+              </div>
+
+              <div className="bg-slate-50 rounded-[2rem] p-5 border border-slate-100">
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-3">
+                  Regra atual
+                </p>
+
+                <p className="text-sm font-bold text-slate-700 leading-relaxed">
+                  {settings.followup_enabled
+                    ? `Enviar até ${settings.followup_max_count || 0} follow-up(s). Primeiro após ${settings.followup_delay_hours_1 || 0}h e segundo após ${settings.followup_delay_hours_2 || 0}h.`
+                    : "Follow-ups automáticos estão pausados. Leads não receberão novas tentativas."}
+                </p>
               </div>
             </div>
           </div>
