@@ -705,18 +705,24 @@ router.post("/generate-ai-mass", async (req, res) => {
 
         const updateRes = await db.query(
           `
-          UPDATE leads
-          SET
-            ai_message_suggestion = $1,
-            custom_message = $1,
-            is_ai_ready = true,
-            is_verified = true,
-            ai_prompt_angle = $2,
-            ai_prompt_version = $3,
-            ai_prompt_label = $4,
-            ai_message_generated_at = NOW(),
-            ai_generation_batch_id = $5
-          WHERE id = $6
+    UPDATE leads
+    SET
+      ai_message_suggestion = $1,
+      custom_message = $1,
+      is_ai_ready = true,
+      is_verified = true,
+      ai_prompt_angle = $2,
+      ai_prompt_version = $3,
+      ai_prompt_label = $4,
+      ai_message_generated_at = NOW(),
+      ai_generation_batch_id = $5,
+
+      offer_type = $6,
+      offer_label = $7,
+      offer_reason = $8,
+      message_type = $9
+
+    WHERE id = $10
           RETURNING
             id,
             name,
@@ -730,7 +736,11 @@ router.post("/generate-ai-mass", async (req, res) => {
             ai_prompt_version,
             ai_generation_batch_id,
             ai_message_generated_at,
-            custom_message
+            custom_message,
+            offer_type,
+            offer_label,
+            offer_reason,
+            message_type
           `,
           [
             generated.message,
@@ -738,6 +748,12 @@ router.post("/generate-ai-mass", async (req, res) => {
             generated.meta.version,
             generated.meta.angle_label,
             batchId,
+
+            generated.meta.offer_type,
+            generated.meta.offer_label,
+            generated.meta.offer_reason,
+            generated.meta.message_type,
+
             lead.id,
           ],
         );

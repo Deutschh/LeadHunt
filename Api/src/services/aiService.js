@@ -42,6 +42,114 @@ const ANGLE_CONFIGS = {
   },
 };
 
+const OFFER_TYPES = {
+  site: {
+    label: "Site / Landing Page",
+    instruction:
+      "Direcione a abordagem para presença digital, clareza, primeira impressão e conversão de visitantes em contatos.",
+  },
+  social: {
+    label: "Gestão de mídias sociais",
+    instruction:
+      "Direcione a abordagem para frequência, confiança, percepção visual, conteúdo e presença no Instagram.",
+  },
+  ads: {
+    label: "Tráfego pago",
+    instruction:
+      "Direcione a abordagem para gerar mais procura, aparecer para pessoas certas e transformar atenção em orçamento.",
+  },
+  scheduling: {
+    label: "Sistema de agendamento",
+    instruction:
+      "Direcione a abordagem para facilitar marcações, reduzir atrito no WhatsApp e organizar pedidos de orçamento.",
+  },
+  automation: {
+    label: "Sistema de prospecção / automação",
+    instruction:
+      "Direcione a abordagem para empresas que podem vender para outras empresas, captar oportunidades e organizar prospecção.",
+  },
+};
+
+function selectOfferForLead(lead) {
+  const category =
+    `${lead.lead_category || ""} ${lead.niche || ""}`.toLowerCase();
+
+  if (
+    category.includes("estética") ||
+    category.includes("beleza") ||
+    category.includes("salão") ||
+    category.includes("barbearia") ||
+    category.includes("odont")
+  ) {
+    return {
+      type: "social",
+      ...OFFER_TYPES.social,
+      reason:
+        "Negócios de estética, beleza e saúde dependem muito de confiança visual, frequência e percepção no Instagram.",
+    };
+  }
+
+  if (
+    category.includes("restaurante") ||
+    category.includes("pizzaria") ||
+    category.includes("hamburg") ||
+    category.includes("cafeteria") ||
+    category.includes("buffet")
+  ) {
+    return {
+      type: "ads",
+      ...OFFER_TYPES.ads,
+      reason:
+        "Negócios de alimentação e eventos costumam se beneficiar de procura local e campanhas para gerar pedidos ou reservas.",
+    };
+  }
+
+  if (
+    category.includes("limpeza") ||
+    category.includes("lavanderia") ||
+    category.includes("estofado") ||
+    category.includes("tapete")
+  ) {
+    return {
+      type: "scheduling",
+      ...OFFER_TYPES.scheduling,
+      reason:
+        "Serviços locais com orçamento pelo WhatsApp tendem a ganhar com agendamento e organização do atendimento.",
+    };
+  }
+
+  if (
+    category.includes("advocacia") ||
+    category.includes("arquitet") ||
+    category.includes("imobili") ||
+    category.includes("consultoria") ||
+    category.includes("contabil")
+  ) {
+    return {
+      type: "automation",
+      ...OFFER_TYPES.automation,
+      reason:
+        "Empresas B2B ou consultivas podem usar prospecção organizada para encontrar novos clientes ou parceiros.",
+    };
+  }
+
+  if (lead.has_website === false || lead.has_website === "false") {
+    return {
+      type: "site",
+      ...OFFER_TYPES.site,
+      reason:
+        "A empresa não possui site identificado, então presença digital e conversão podem ser uma oportunidade inicial.",
+    };
+  }
+
+  return {
+    type: "social",
+    ...OFFER_TYPES.social,
+    reason:
+      "Oferta geral mais leve para iniciar conversa sem parecer venda direta de site.",
+  };
+}
+
 const HUMAN_CONSULTATIVE_ANGLES = {
   ideia_rapida: {
     label: "Ideia rápida",
@@ -123,6 +231,7 @@ function buildAggressiveCuriosityPrompt({
   strategy,
   selectedAngle,
   angleConfig,
+  offer,
 }) {
   return `
 Você escreve mensagens de prospecção via WhatsApp como um humano real.
@@ -136,6 +245,10 @@ Nicho: ${lead.lead_category || lead.niche || "não informado"}
 Avaliações no Google: ${lead.reviews_count || 0}
 Estratégia do nicho: ${strategy.hook}
 CTA base: ${strategy.call_to_action}
+OFERTA SUGERIDA:
+Tipo: ${offer.label}
+Motivo interno: ${offer.reason}
+Direção da mensagem: ${offer.instruction}
 
 MODELO:
 Direto provocativo
@@ -154,7 +267,9 @@ REGRAS ABSOLUTAS:
 - NÃO se apresentar
 - NÃO usar assinatura
 - NÃO usar emojis
-- NÃO usar palavras como "site", "serviço", "proposta", "solução"
+- NÃO vender diretamente
+- Pode mencionar a direção da oferta de forma leve, sem soar como proposta comercial
+- NÃO usar palavras como "contratar", "pacote", "preço", "promoção"
 - NÃO elogiar de forma exagerada
 - Evite palavras como "incrível", "excelente", "maravilhoso"
 - Prefira observações neutras ou levemente desconfortáveis
@@ -183,6 +298,7 @@ function buildHumanConsultativePrompt({
   strategy,
   selectedAngle,
   angleConfig,
+  offer,
 }) {
   return `
 Você escreve mensagens de prospecção via WhatsApp como um humano real, educado e consultivo.
@@ -196,6 +312,10 @@ Nicho: ${lead.lead_category || lead.niche || "não informado"}
 Avaliações no Google: ${lead.reviews_count || 0}
 Estratégia do nicho: ${strategy.hook}
 CTA base: ${strategy.call_to_action}
+OFERTA SUGERIDA:
+Tipo: ${offer.label}
+Motivo interno: ${offer.reason}
+Direção da mensagem: ${offer.instruction}
 
 MODELO:
 Humano consultivo
@@ -214,7 +334,9 @@ REGRAS ABSOLUTAS:
 - NÃO usar assinatura
 - NÃO usar emojis
 - Pode usar uma saudação curta e natural
-- NÃO usar palavras como "proposta", "serviço", "solução", "contratar", "vender"
+- NÃO vender diretamente
+- Pode mencionar a direção da oferta de forma leve, sem soar como proposta comercial
+- NÃO usar palavras como "contratar", "pacote", "preço", "promoção"
 - Evite exageros como "incrível", "excelente", "maravilhoso"
 - Não invente dados específicos que não foram informados
 - Não diga que analisou profundamente
@@ -255,6 +377,7 @@ function buildVelarisConsultantPrompt({
   strategy,
   selectedAngle,
   angleConfig,
+  offer,
 }) {
   return `
 Você escreve mensagens de prospecção via WhatsApp como um consultor real da Velaris Studio.
@@ -268,6 +391,10 @@ Nicho: ${lead.lead_category || lead.niche || "não informado"}
 Avaliações no Google: ${lead.reviews_count || 0}
 Estratégia do nicho: ${strategy.hook}
 CTA base: ${strategy.call_to_action}
+OFERTA SUGERIDA:
+Tipo: ${offer.label}
+Motivo interno: ${offer.reason}
+Direção da mensagem: ${offer.instruction}
 
 MODELO:
 Consultor Velaris
@@ -281,6 +408,10 @@ REGRAS ABSOLUTAS:
 - Linguagem humana, educada e profissional
 - Parecer uma pessoa real de uma empresa real
 - Pode se apresentar como Guilherme, consultor da Velaris Studio
+- A mensagem deve conversar com a oferta sugerida sem parecer uma venda direta
+- Evite frases começando com "podemos", "consigo", "ofereço" ou "trabalho com"
+- A mensagem deve parecer uma observação antes de parecer uma oferta
+- Fale primeiro da percepção do negócio, não da solução da Velaris
 - NÃO parecer IA
 - NÃO parecer spam
 - NÃO usar emojis
@@ -305,14 +436,14 @@ Mensagem educada com:
 
 ---
 Parte 2:
-Convite simples para mostrar uma ideia, análise ou conversar rapidamente.
+Pergunta simples pedindo permissão para mostrar uma percepção rápida, sem vender diretamente.
 
 EXEMPLO DE ESTILO:
 Boa tarde, tudo bem? Sou o Guilherme, consultor da Velaris Studio.
 Vi a ${lead.name || "empresa"} pelo Google enquanto analisava alguns negócios de ${lead.lead_category || lead.niche || "esse segmento"} em ${lead.lead_city || lead.city || "sua região"}.
 
 ---
-Percebi alguns pontos que talvez ajudem a melhorar a percepção da empresa antes do primeiro contato. Posso te mostrar uma ideia rápida?
+Percebi um ponto visual que talvez influencie a confiança antes do primeiro contato. Posso te mostrar rapidamente?
 
 Agora gere apenas a mensagem final.
 `;
@@ -320,6 +451,7 @@ Agora gere apenas a mensagem final.
 
 async function generateLeadMessage(lead) {
   const promptModel = getPromptModel();
+  const offer = selectOfferForLead(lead);
 
   const angleSource =
     promptModel.key === "velaris_consultant"
@@ -350,6 +482,7 @@ async function generateLeadMessage(lead) {
         strategy,
         selectedAngle,
         angleConfig,
+        offer,
       });
     } else if (promptModel.key === "human_consultative") {
       prompt = buildHumanConsultativePrompt({
@@ -357,6 +490,7 @@ async function generateLeadMessage(lead) {
         strategy,
         selectedAngle,
         angleConfig,
+        offer,
       });
     } else {
       prompt = buildAggressiveCuriosityPrompt({
@@ -364,6 +498,7 @@ async function generateLeadMessage(lead) {
         strategy,
         selectedAngle,
         angleConfig,
+        offer,
       });
     }
 
@@ -387,6 +522,11 @@ async function generateLeadMessage(lead) {
         angle_label: `${promptModel.label} · ${angleConfig.label}`,
         angle_weight: angleConfig.weight,
         version: promptModel.version,
+
+        offer_type: offer.type,
+        offer_label: offer.label,
+        offer_reason: offer.reason,
+        message_type: `${offer.type}:${promptModel.key}:${selectedAngle}`,
       },
     };
   } catch (error) {
@@ -401,6 +541,13 @@ Posso te mostrar uma ideia rápida?`,
         angle_label: "Fallback",
         angle_weight: 0,
         version: "fallback",
+
+        offer_type: offer?.type || "social",
+        offer_label: offer?.label || "Gestão de mídias sociais",
+        offer_reason:
+          offer?.reason ||
+          "Fallback seguro para iniciar conversa sem vender site diretamente.",
+        message_type: `${offer?.type || "social"}:fallback`,
       },
     };
   }
