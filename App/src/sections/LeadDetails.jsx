@@ -920,6 +920,8 @@ const LeadDetails = ({ leadId, onBack }) => {
               "pending",
               "contacted",
               "responded",
+              "qualified",
+              "preview_sent",
               "negotiation",
               "closed",
               "lost",
@@ -932,11 +934,16 @@ const LeadDetails = ({ leadId, onBack }) => {
                     : handleUpdate({
                         status: st,
                         pipeline_stage:
-                          st === "negotiation"
-                            ? "negotiation"
-                            : st === "lost"
-                              ? "lost"
-                              : st,
+                          st === "preview_sent"
+                            ? "preview_sent"
+                            : st === "qualified"
+                              ? "qualified"
+                              : st === "negotiation"
+                                ? "negotiation"
+                                : st === "lost"
+                                  ? "lost"
+                                  : st,
+                        preview_sent: st === "preview_sent" ? true : undefined,
                         lost_reason: st === "lost" ? "manual" : undefined,
                       })
                 }
@@ -980,6 +987,19 @@ const LeadDetails = ({ leadId, onBack }) => {
                 >
                   {briefing ? "Recebido" : "Aguardando"}
                 </span>
+                {briefing && lead.pipeline_stage !== "qualified" && (
+                  <button
+                    onClick={() =>
+                      handleUpdate({
+                        status: "responded",
+                        pipeline_stage: "qualified",
+                      })
+                    }
+                    className="px-4 py-2 rounded-xl bg-purple-50 text-purple-600 text-[10px] font-black uppercase tracking-widest border border-purple-100 hover:bg-purple-100 active:scale-95 transition-all"
+                  >
+                    Marcar qualificado
+                  </button>
+                )}
               </div>
             </div>
 

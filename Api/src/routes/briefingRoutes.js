@@ -108,7 +108,39 @@ router.post("/", async (req, res) => {
       ],
     );
 
-    res.status(201).json(result.rows[0]);
+    const briefing = result.rows[0];
+
+    if (lead_id) {
+      await db.query(
+        `
+    UPDATE leads
+    SET
+      pipeline_stage = 'qualified',
+      status = CASE
+        WHEN status IN ('pending', 'contacted') THEN 'responded'
+        ELSE status
+      END,
+      last_reply_at = COALESCE(last_reply_at, NOW()),
+      responded_at = COALESCE(responded_at, NOW())
+    WHERE id = $1
+    `,
+        [lead_id],
+      );
+
+      await db.query(
+        `
+    INSERT INTO lead_activities (lead_id, description, type)
+    VALUES ($1, $2, $3)
+    `,
+        [
+          lead_id,
+          "Briefing respondido pelo cliente. Lead marcado como qualificado.",
+          "briefing_submitted",
+        ],
+      );
+    }
+
+    res.status(201).json(briefing);
   } catch (err) {
     console.error("Erro ao salvar briefing:", err);
     res.status(500).json({ error: "Erro ao salvar briefing." });
