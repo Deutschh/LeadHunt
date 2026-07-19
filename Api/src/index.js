@@ -95,26 +95,71 @@ app.get("/", (req, res) => {
 
 // --- Rota de Comando: Iniciar Scraper Remotamente ---
 app.post("/run-scraper", async (req, res) => {
-  const { niche, location, limit, minRating } = req.body;
-
-  if (!location) {
-    return res
-      .status(400)
-      .json({ error: "Localização é obrigatória para a busca." });
-  }
-
-  // Envia a ordem de busca via Socket. O seu PC (Worker) vai ouvir e abrir o Chrome.
-  io.emit("command-start-scraper", {
+  const {
     niche,
     location,
-    limit: parseInt(limit) || 10,
-    minRating: parseFloat(minRating) || 0,
-  });
+    limit,
+    minRating,
+    minReviews,
+    websiteFilter,
+  } = req.body;
 
-  console.log(
-    `🔎 Ordem de busca enviada para o Worker: ${niche} em ${location}`,
+  if (!niche || typeof niche !== "string") {
+    return res.status(400).json({
+      error: "O nicho é obrigatório para a busca.",
+    });
+  }
+
+  if (!location || typeof location !== "string") {
+    return res.status(400).json({
+      error: "Localização é obrigatória para a busca.",
+    });
+  }
+
+  const allowedWebsiteFilters = ["any", "with", "without"];
+
+  const normalizedWebsiteFilter = websiteFilter || "any";
+
+  if (!allowedWebsiteFilters.includes(normalizedWebsiteFilter)) {
+    return res.status(400).json({
+      error:
+        'Filtro de site inválido. Use "any", "with" ou "without".',
+    });
+  }
+
+  const normalizedLimit = Math.max(
+    1,
+    parseInt(limit, 10) || 10,
   );
-  res.json({ message: "Comando enviado com sucesso ao Worker local! 🔎" });
+
+  const normalizedMinRating = Math.max(
+    0,
+    parseFloat(minRating) || 0,
+  );
+
+  const normalizedMinReviews = Math.max(
+    0,
+    parseInt(minReviews, 10) || 0,
+  );
+
+  const scraperConfig = {
+    niche: niche.trim(),
+    location: location.trim(),
+    limit: normalizedLimit,
+    minRating: normalizedMinRating,
+    minReviews: normalizedMinReviews,
+    websiteFilter: normalizedWebsiteFilter,
+  };
+
+  io.emit("command-start-scraper", scraperConfig);
+
+  console.log("🔎 Ordem de busca enviada para o Worker:", scraperConfig);
+
+  return res.json({
+    success: true,
+    message: "Comando enviado com sucesso ao Worker local! 🔎",
+    config: scraperConfig,
+  });
 });
 
 // --- Inicialização ---

@@ -11,10 +11,29 @@ const logScraper = (message, type = "info") => {
 
 puppeteer.use(StealthPlugin());
 
-async function startScraping({ niche, location, limit, minRating }) {
+async function startScraping({
+  niche,
+  location,
+  limit = 10,
+  minRating = 0,
+  minReviews = 0,
+  websiteFilter = "any",
+}) {
   let browser;
   let page;
   let savedCount = 0;
+
+  const targetLimit = Math.max(1, parseInt(limit, 10) || 10);
+
+  const minimumRating = Math.max(0, Number(minRating) || 0);
+
+  const minimumReviews = Math.max(0, parseInt(minReviews, 10) || 0);
+
+  const allowedWebsiteFilters = ["any", "with", "without"];
+
+  const normalizedWebsiteFilter = allowedWebsiteFilters.includes(websiteFilter)
+    ? websiteFilter
+    : "any";
 
   try {
     const configRes = await db.query(
@@ -36,14 +55,26 @@ async function startScraping({ niche, location, limit, minRating }) {
     const query = `${niche} em ${location}`;
     const url = `https://www.google.com.br/maps/search/${encodeURIComponent(query)}`;
 
-    logScraper(`🚀 MISSÃO INICIADA: Procurando ${limit} leads...`, "info");
+    const websiteFilterLabels = {
+      any: "qualquer presença de site",
+      with: "somente empresas com site",
+      without: "somente empresas sem site",
+    };
+
+    logScraper(
+      `🚀 MISSÃO INICIADA: Procurando ${targetLimit} leads | ` +
+        `Nota mínima: ${minimumRating} | ` +
+        `Avaliações mínimas: ${minimumReviews} | ` +
+        `${websiteFilterLabels[normalizedWebsiteFilter]}`,
+      "info",
+    );
 
     await page.goto(url, { waitUntil: "networkidle2" });
     await page.waitForSelector("a.hfpxzc", { timeout: 15000 });
 
     let currentIndex = 3;
 
-    while (savedCount < limit && currentIndex < 250) {
+    while (savedCount < targetLimit && currentIndex < 250) {
       const items = await page.$$("a.hfpxzc");
 
       if (currentIndex >= items.length) {
@@ -73,7 +104,7 @@ async function startScraping({ niche, location, limit, minRating }) {
               !h.innerText.includes("Patrocinado"),
           );
 
-          const name = nameEl ? nameEl.innerText.trim() : "Sem Nome";
+          const name = nameEl?.innerText?.trim() || null;
           const painel = nameEl
             ? nameEl.closest('div[role="main"]')
             : document.body;
@@ -129,16 +160,42 @@ async function startScraping({ niche, location, limit, minRating }) {
           };
         }, dynamicSelectors);
 
-        const ehCelular = data.phone?.length === 11 && data.phone[2] === "9";
-        const phoneFormatado = ehCelular ? `55${data.phone}` : null;
-        const itemHeader = `🔎 [${data.name}] | ⭐ ${data.rating} (${data.reviewsCount} revs) | 📍 ${data.neighborhood}`;
+        let localPhone = data.phone;
 
-        if (
-          data.name &&
-          phoneFormatado &&
-          !data.hasWebsite &&
-          data.rating >= minRating
-        ) {
+        if (localPhone?.startsWith("55") && localPhone.length === 13) {
+          localPhone = localPhone.slice(2);
+        }
+
+        const hasPhone = Boolean(localPhone);
+
+        const isMobilePhone =
+          localPhone?.length === 11 && localPhone[2] === "9";
+
+        const phoneFormatado = isMobilePhone ? `55${localPhone}` : null;
+
+        const matchesWebsiteFilter =
+          normalizedWebsiteFilter === "any" ||
+          (normalizedWebsiteFilter === "with" && data.hasWebsite === true) ||
+          (normalizedWebsiteFilter === "without" && data.hasWebsite === false);
+
+        const matchesRating = Number(data.rating || 0) >= minimumRating;
+
+        const matchesReviews = Number(data.reviewsCount || 0) >= minimumReviews;
+
+        const itemHeader =
+          `🔎 [${data.name || "Sem nome"}] | ` +
+          `⭐ ${data.rating} (${data.reviewsCount} revs) | ` +
+          `📍 ${data.neighborhood} | ` +
+          `🌐 ${data.hasWebsite ? "Com site" : "Sem site"}`;
+
+        const leadMatchesSearch =
+          Boolean(data.name) &&
+          Boolean(phoneFormatado) &&
+          matchesWebsiteFilter &&
+          matchesRating &&
+          matchesReviews;
+
+        if (leadMatchesSearch) {
           const jaExiste = await db.query(
             "SELECT id FROM leads WHERE phone = $1",
             [phoneFormatado],
@@ -148,13 +205,35 @@ async function startScraping({ niche, location, limit, minRating }) {
             logScraper(`${itemHeader} ⏭️ Já cadastrado.`, "skip");
           } else {
             await db.query(
-              `INSERT INTO leads (
-                name, phone, has_website, status, niche, 
-                rating, neighborhood, reviews_count, interest_level,
-                lead_category, lead_city
-              )
-              VALUES ($1, $2, $3, 'pending', $4, $5, $6, $7, 0, $8, $9) 
-              ON CONFLICT DO NOTHING`,
+              `
+      INSERT INTO leads (
+        name,
+        phone,
+        has_website,
+        status,
+        niche,
+        rating,
+        neighborhood,
+        reviews_count,
+        interest_level,
+        lead_category,
+        lead_city
+      )
+      VALUES (
+        $1,
+        $2,
+        $3,
+        'pending',
+        $4,
+        $5,
+        $6,
+        $7,
+        0,
+        $8,
+        $9
+      )
+      ON CONFLICT DO NOTHING
+      `,
               [
                 data.name,
                 phoneFormatado,
@@ -169,16 +248,34 @@ async function startScraping({ niche, location, limit, minRating }) {
             );
 
             savedCount++;
+
             logScraper(
-              `${itemHeader} ✨ SALVO! [${savedCount}/${limit}]`,
+              `${itemHeader} ✨ SALVO! [${savedCount}/${targetLimit}]`,
               "success",
             );
           }
         } else {
-          let reason = "Nota baixa";
-          if (!data.name) reason = "Erro leitura";
-          else if (data.hasWebsite) reason = "Já possui site";
-          else if (!phoneFormatado) reason = "Não é celular";
+          let reason = "Não corresponde aos filtros";
+
+          if (!data.name) {
+            reason = "Erro de leitura";
+          } else if (!hasPhone) {
+            reason = "Telefone ausente";
+          } else if (!isMobilePhone) {
+            reason = "Não é celular";
+          } else if (!matchesWebsiteFilter) {
+            reason =
+              normalizedWebsiteFilter === "with"
+                ? "Empresa sem site"
+                : "Empresa com site";
+          } else if (!matchesRating) {
+            reason =
+              `Nota abaixo do mínimo ` + `(${data.rating} < ${minimumRating})`;
+          } else if (!matchesReviews) {
+            reason =
+              `Avaliações abaixo do mínimo ` +
+              `(${data.reviewsCount} < ${minimumReviews})`;
+          }
 
           logScraper(`${itemHeader} ⏭️ Pulado (${reason})`, "skip");
         }
