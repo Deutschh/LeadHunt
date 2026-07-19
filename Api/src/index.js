@@ -7,6 +7,7 @@ const db = require("./database/db");
 const leadsRoutes = require("./routes/leads");
 const previewRoutes = require("./routes/previewRoutes");
 const briefingRoutes = require("./routes/briefingRoutes");
+const serviceOpportunitiesRoutes = require("./routes/serviceOpportunities");
 
 // Nota: startScraping e startAutomation não são chamados aqui no modo Produção
 // mas mantemos o import se necessário para o modo Desenvolvimento local.
@@ -84,6 +85,7 @@ if (process.env.NODE_ENV === "production") {
 app.use("/api/leads", leadsRoutes);
 app.use("/api/previews", previewRoutes);
 app.use("/api/briefings", briefingRoutes);
+app.use("/api/service-opportunities", serviceOpportunitiesRoutes);
 
 app.get("/", (req, res) => {
   res.json({
@@ -95,14 +97,8 @@ app.get("/", (req, res) => {
 
 // --- Rota de Comando: Iniciar Scraper Remotamente ---
 app.post("/run-scraper", async (req, res) => {
-  const {
-    niche,
-    location,
-    limit,
-    minRating,
-    minReviews,
-    websiteFilter,
-  } = req.body;
+  const { niche, location, limit, minRating, minReviews, websiteFilter } =
+    req.body;
 
   if (!niche || typeof niche !== "string") {
     return res.status(400).json({
@@ -122,25 +118,15 @@ app.post("/run-scraper", async (req, res) => {
 
   if (!allowedWebsiteFilters.includes(normalizedWebsiteFilter)) {
     return res.status(400).json({
-      error:
-        'Filtro de site inválido. Use "any", "with" ou "without".',
+      error: 'Filtro de site inválido. Use "any", "with" ou "without".',
     });
   }
 
-  const normalizedLimit = Math.max(
-    1,
-    parseInt(limit, 10) || 10,
-  );
+  const normalizedLimit = Math.max(1, parseInt(limit, 10) || 10);
 
-  const normalizedMinRating = Math.max(
-    0,
-    parseFloat(minRating) || 0,
-  );
+  const normalizedMinRating = Math.max(0, parseFloat(minRating) || 0);
 
-  const normalizedMinReviews = Math.max(
-    0,
-    parseInt(minReviews, 10) || 0,
-  );
+  const normalizedMinReviews = Math.max(0, parseInt(minReviews, 10) || 0);
 
   const scraperConfig = {
     niche: niche.trim(),
