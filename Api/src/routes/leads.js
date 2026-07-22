@@ -770,7 +770,7 @@ router.post("/generate-ai-mass", async (req, res) => {
       success: true,
       batch_id: batchId,
       count: generatedLeads.length,
-      message: `${generatedLeads.length} leads processados com estratégia de nicho aplicada!`,
+      message: `${generatedLeads.length} mensagens neutras geradas com sucesso!`,
       generated_leads: generatedLeads,
     });
   } catch (err) {
