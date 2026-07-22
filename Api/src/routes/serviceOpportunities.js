@@ -560,4 +560,288 @@ router.post("/leads/:leadId/select", async (req, res) => {
   }
 });
 
+/**
+ * GET /api/service-opportunities/leads/:leadId/recommendations
+ *
+ * Retorna o ranking de serviços para o nicho do lead.
+ *
+ * Regras:
+ * - disponível somente depois que o lead responder;
+ * - calcula o score médio por nicho e serviço;
+ * - retorna os três primeiros;
+ * - retorna também todos os serviços ativos;
+ * - quando não há histórico, usa display_order.
+ */
+router.get("/leads/:leadId/recommendations", async (req, res) => {
+  const leadId = Number(req.params.leadId);
+
+  if (!Number.isInteger(leadId) || leadId <= 0) {
+    return res.status(400).json({
+      success: false,
+      error: "ID do lead inválido.",
+    });
+  }
+
+  try {
+    /*
+     * 1. Buscar o lead.
+     */
+    const leadResult = await db.query(
+      `
+      SELECT
+        id,
+        name,
+        status,
+        pipeline_stage,
+        responded_at,
+        last_reply_at,
+        lead_category,
+        niche,
+        lead_city,
+        has_website,
+        rating,
+        reviews_count
+      FROM leads
+      WHERE id = $1
+      LIMIT 1
+      `,
+      [leadId],
+    );
+
+    if (leadResult.rowCount === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Lead não encontrado.",
+      });
+    }
+
+    const lead = leadResult.rows[0];
+
+    const leadCategory = lead.lead_category || lead.niche || "Geral";
+
+    const nicheKey = normalizeNicheKey(leadCategory);
+
+    const hasResponded = hasLeadResponded(lead);
+
+    /*
+     * 2. Não apresentar recomendações antes da resposta.
+     *
+     * Retornamos status 200 para facilitar o uso no frontend.
+     */
+    if (!hasResponded) {
+      return res.json({
+        success: true,
+        available: false,
+        code: "LEAD_HAS_NOT_RESPONDED",
+        message: "As recomendações estarão disponíveis após o lead responder.",
+
+        lead: {
+          id: lead.id,
+          name: lead.name,
+          lead_category: leadCategory,
+          niche_key: nicheKey,
+          has_responded: false,
+        },
+
+        top_recommendations: [],
+        all_services: [],
+      });
+    }
+
+    /*
+     * 3. Buscar o serviço atualmente selecionado,
+     * caso exista.
+     */
+    const currentOpportunityResult = await db.query(
+      `
+      SELECT
+        id,
+        service_id
+      FROM lead_service_opportunities
+      WHERE lead_id = $1
+        AND is_active = TRUE
+      LIMIT 1
+      `,
+      [leadId],
+    );
+
+    const selectedServiceId =
+      currentOpportunityResult.rows[0]?.service_id || null;
+
+    /*
+     * 4. Calcular o ranking.
+     *
+     * score médio =
+     * soma de total_score
+     * ÷ quantidade de oportunidades
+     */
+    const rankingResult = await db.query(
+      `
+      WITH service_stats AS (
+        SELECT
+          service_id,
+
+          COUNT(*)::integer AS times_selected,
+
+          COALESCE(
+            SUM(total_score),
+            0
+          )::integer AS total_points,
+
+          ROUND(
+            AVG(total_score)::numeric,
+            2
+          ) AS average_score
+
+        FROM lead_service_opportunities
+
+        WHERE niche_key = $1
+
+        GROUP BY service_id
+      )
+
+      SELECT
+        service.id,
+        service.service_key,
+        service.service_name,
+        service.service_type,
+        service.problem_category,
+        service.description,
+        service.how_it_works,
+        service.problems_solved,
+        service.target_niches,
+        service.display_order,
+
+        COALESCE(
+          stats.times_selected,
+          0
+        )::integer AS times_selected,
+
+        COALESCE(
+          stats.total_points,
+          0
+        )::integer AS total_points,
+
+        COALESCE(
+          stats.average_score,
+          0
+        ) AS average_score
+
+      FROM velaris_services service
+
+      LEFT JOIN service_stats stats
+        ON stats.service_id = service.id
+
+      WHERE service.is_active = TRUE
+
+      ORDER BY
+        CASE
+          WHEN COALESCE(stats.times_selected, 0) = 0
+          THEN 1
+          ELSE 0
+        END ASC,
+
+        COALESCE(stats.average_score, 0) DESC,
+
+        COALESCE(stats.times_selected, 0) DESC,
+
+        service.display_order ASC,
+
+        service.service_name ASC
+      `,
+      [nicheKey],
+    );
+
+    /*
+     * 5. Preparar os dados para o frontend.
+     */
+    const recommendations = rankingResult.rows.map((service, index) => {
+      const timesSelected = Number(service.times_selected || 0);
+
+      const totalPoints = Number(service.total_points || 0);
+
+      const averageScore = Number(service.average_score || 0);
+
+      let sampleStatus = "Sem histórico";
+
+      if (timesSelected >= 10) {
+        sampleStatus = "Histórico relevante";
+      } else if (timesSelected >= 5) {
+        sampleStatus = "Histórico inicial";
+      } else if (timesSelected >= 1) {
+        sampleStatus = "Amostra pequena";
+      }
+
+      return {
+        rank: index + 1,
+
+        id: service.id,
+        service_id: service.id,
+        service_key: service.service_key,
+        service_name: service.service_name,
+        service_type: service.service_type,
+        problem_category: service.problem_category,
+
+        description: service.description,
+        how_it_works: service.how_it_works,
+        problems_solved: service.problems_solved || [],
+        target_niches: service.target_niches || [],
+
+        display_order: service.display_order,
+
+        times_selected: timesSelected,
+        total_points: totalPoints,
+        average_score: averageScore,
+
+        has_history: timesSelected > 0,
+        sample_status: sampleStatus,
+
+        is_selected:
+          selectedServiceId !== null &&
+          Number(selectedServiceId) === Number(service.id),
+      };
+    });
+
+    return res.json({
+      success: true,
+      available: true,
+
+      lead: {
+        id: lead.id,
+        name: lead.name,
+        lead_category: leadCategory,
+        niche_key: nicheKey,
+        lead_city: lead.lead_city,
+        has_website: lead.has_website,
+        rating: Number(lead.rating || 0),
+        reviews_count: Number(lead.reviews_count || 0),
+        has_responded: true,
+      },
+
+      ranking_summary: {
+        total_services: recommendations.length,
+
+        services_with_history: recommendations.filter(
+          (service) => service.has_history,
+        ).length,
+
+        selected_service_id: selectedServiceId
+          ? Number(selectedServiceId)
+          : null,
+      },
+
+      top_recommendations: recommendations.slice(0, 3),
+
+      all_services: recommendations,
+    });
+  } catch (error) {
+    console.error("Erro ao calcular recomendações de serviços:", error);
+
+    return res.status(500).json({
+      success: false,
+      error: "Erro ao calcular as recomendações de serviços.",
+    });
+  }
+});
+
 module.exports = router;
