@@ -705,59 +705,61 @@ router.post("/generate-ai-mass", async (req, res) => {
 
         const updateRes = await db.query(
           `
-    UPDATE leads
-    SET
-      ai_message_suggestion = $1,
-      custom_message = $1,
-      is_ai_ready = true,
-      is_verified = true,
-      ai_prompt_angle = $2,
-      ai_prompt_version = $3,
-      ai_prompt_label = $4,
-      ai_message_generated_at = NOW(),
-      ai_generation_batch_id = $5,
+  UPDATE leads
+  SET
+    ai_message_suggestion = $1,
+    custom_message = $1,
 
-      offer_type = $6,
-      offer_label = $7,
-      offer_reason = $8,
-      message_type = $9
+    is_ai_ready = true,
+    is_verified = true,
 
-    WHERE id = $10
-          RETURNING
-            id,
-            name,
-            phone,
-            lead_category,
-            lead_city,
-            rating,
-            reviews_count,
-            ai_prompt_angle,
-            ai_prompt_label,
-            ai_prompt_version,
-            ai_generation_batch_id,
-            ai_message_generated_at,
-            custom_message,
-            offer_type,
-            offer_label,
-            offer_reason,
-            message_type
-          `,
+    ai_prompt_angle = $2,
+    ai_prompt_version = $3,
+    ai_prompt_label = $4,
+
+    ai_message_generated_at = NOW(),
+    ai_generation_batch_id = $5,
+
+    offer_type = NULL,
+    offer_label = NULL,
+    offer_reason = NULL,
+
+    message_type = $6
+
+  WHERE id = $7
+
+  RETURNING
+    id,
+    name,
+    phone,
+    lead_category,
+    lead_city,
+    rating,
+    reviews_count,
+
+    ai_prompt_angle,
+    ai_prompt_label,
+    ai_prompt_version,
+    ai_generation_batch_id,
+    ai_message_generated_at,
+
+    custom_message,
+
+    offer_type,
+    offer_label,
+    offer_reason,
+    message_type
+  `,
           [
             generated.message,
             generated.meta.angle,
             generated.meta.version,
             generated.meta.angle_label,
             batchId,
-
-            generated.meta.offer_type,
-            generated.meta.offer_label,
-            generated.meta.offer_reason,
             generated.meta.message_type,
-
             lead.id,
           ],
         );
-
         generatedLeads.push(updateRes.rows[0]);
       } catch (aiErr) {
         console.error(`Erro no lead ${lead.id}:`, aiErr.message);
