@@ -1,6 +1,9 @@
 const express = require("express");
 const router = express.Router();
 const db = require("../database/db");
+const {
+  generateNegotiationGuide,
+} = require("../services/negotiationGuideService");
 
 /**
  * Converte uma categoria em uma chave estável para rankings.
@@ -1071,6 +1074,310 @@ router.patch("/leads/:leadId/analysis", async (req, res) => {
     return res.status(500).json({
       success: false,
       error: "Erro ao salvar a análise comercial.",
+    });
+  }
+});
+
+/**
+ * POST /api/service-opportunities/leads/:leadId/guide
+ *
+ * Gera ou regenera o guia de negociação
+ * da oportunidade ativa.
+ */
+router.post("/leads/:leadId/guide", async (req, res) => {
+  const leadId = Number(req.params.leadId);
+
+  if (!Number.isInteger(leadId) || leadId <= 0) {
+    return res.status(400).json({
+      success: false,
+      code: "INVALID_LEAD_ID",
+      error: "ID do lead inválido.",
+    });
+  }
+
+  try {
+    const contextResult = await db.query(
+      `
+          SELECT
+            l.id AS lead_id,
+            l.name AS lead_name,
+            l.lead_category,
+            l.niche,
+            l.lead_city,
+            l.rating,
+            l.reviews_count,
+            l.has_website,
+            l.status AS lead_status,
+            l.pipeline_stage,
+            l.preview_sent,
+            l.price_requested,
+            l.market_observation,
+            l.internal_notes,
+            l.custom_message,
+            l.ai_message_suggestion,
+            l.responded_at,
+            l.last_reply_at,
+
+            opportunity.id
+              AS opportunity_id,
+
+            opportunity.service_id,
+            opportunity.analysis_notes,
+            opportunity.perceived_goal,
+            opportunity.pain_points,
+            opportunity.negotiation_guide,
+            opportunity.guide_generated_at,
+            opportunity.interest_score,
+            opportunity.preview_score,
+            opportunity.price_score,
+            opportunity.closed_score,
+            opportunity.total_score,
+
+            service.service_key,
+            service.service_name,
+            service.service_type,
+            service.problem_category,
+            service.description
+              AS service_description,
+            service.how_it_works,
+            service.problems_solved,
+            service.target_niches
+
+          FROM leads l
+
+          INNER JOIN
+            lead_service_opportunities
+              opportunity
+            ON opportunity.lead_id = l.id
+           AND opportunity.is_active = TRUE
+
+          INNER JOIN
+            velaris_services service
+            ON service.id =
+              opportunity.service_id
+
+          WHERE l.id = $1
+          LIMIT 1
+          `,
+      [leadId],
+    );
+
+    if (contextResult.rowCount === 0) {
+      return res.status(404).json({
+        success: false,
+        code: "ACTIVE_OPPORTUNITY_NOT_FOUND",
+
+        error: "Este lead não possui um serviço ativo em negociação.",
+      });
+    }
+
+    const row = contextResult.rows[0];
+
+    const painPoints = Array.isArray(row.pain_points) ? row.pain_points : [];
+
+    const hasAnalysis = Boolean(
+      String(row.analysis_notes || "").trim() ||
+      String(row.perceived_goal || "").trim() ||
+      painPoints.length > 0,
+    );
+
+    if (!hasAnalysis) {
+      return res.status(400).json({
+        success: false,
+        code: "ANALYSIS_REQUIRED",
+
+        error: "Preencha e salve a análise comercial antes de gerar o guia.",
+      });
+    }
+
+    const activitiesResult = await db.query(
+      `
+          SELECT
+            type,
+            description,
+            created_at
+          FROM lead_activities
+          WHERE lead_id = $1
+          ORDER BY created_at DESC
+          LIMIT 20
+          `,
+      [leadId],
+    );
+
+    const hadPreviousGuide = Boolean(row.negotiation_guide);
+
+    const context = {
+      lead: {
+        id: row.lead_id,
+        name: row.lead_name,
+
+        category: row.lead_category || row.niche || "Não informado",
+
+        city: row.lead_city || "Não informada",
+
+        google_rating: row.rating ?? null,
+
+        google_reviews: row.reviews_count ?? null,
+
+        has_website: row.has_website ?? null,
+
+        status: row.lead_status,
+
+        pipeline_stage: row.pipeline_stage,
+
+        has_responded: Boolean(row.responded_at || row.last_reply_at),
+
+        preview_sent: Boolean(row.preview_sent),
+
+        price_requested: Boolean(row.price_requested),
+      },
+
+      selected_service: {
+        id: row.service_id,
+        key: row.service_key,
+        name: row.service_name,
+
+        type: row.service_type,
+
+        problem_category: row.problem_category,
+
+        description: row.service_description,
+
+        how_it_works: row.how_it_works,
+
+        problems_solved: row.problems_solved || [],
+
+        target_niches: row.target_niches || [],
+      },
+
+      human_analysis: {
+        analysis_notes: row.analysis_notes || "",
+
+        perceived_goal: row.perceived_goal || "",
+
+        pain_points: painPoints,
+      },
+
+      commercial_context: {
+        market_observation: row.market_observation || "",
+
+        internal_notes: row.internal_notes || "",
+
+        initial_message: row.custom_message || row.ai_message_suggestion || "",
+
+        opportunity_score: Number(row.total_score || 0),
+
+        interest_registered: Number(row.interest_score || 0) > 0,
+
+        preview_registered: Number(row.preview_score || 0) > 0,
+
+        price_registered: Number(row.price_score || 0) > 0,
+
+        closed: Number(row.closed_score || 0) > 0,
+      },
+
+      recent_activities: activitiesResult.rows.map((activity) => ({
+        type: activity.type,
+
+        description: activity.description,
+
+        created_at: activity.created_at,
+      })),
+    };
+
+    let guide;
+
+    try {
+      guide = await generateNegotiationGuide(context);
+    } catch (generationError) {
+      console.error("Erro na geração do guia:", generationError);
+
+      return res.status(502).json({
+        success: false,
+        code: "GUIDE_GENERATION_FAILED",
+
+        error: "A IA não conseguiu gerar um guia válido.",
+
+        details: generationError.message,
+      });
+    }
+
+    /*
+     * A oportunidade pode ter sido trocada
+     * enquanto a IA estava processando.
+     * Por isso validamos novamente ID e serviço.
+     */
+    const saveResult = await db.query(
+      `
+          UPDATE
+            lead_service_opportunities
+
+          SET
+            negotiation_guide =
+              $1::jsonb,
+
+            guide_generated_at =
+              NOW()
+
+          WHERE id = $2
+            AND lead_id = $3
+            AND service_id = $4
+            AND is_active = TRUE
+
+          RETURNING *
+          `,
+      [JSON.stringify(guide), row.opportunity_id, leadId, row.service_id],
+    );
+
+    if (saveResult.rowCount === 0) {
+      return res.status(409).json({
+        success: false,
+        code: "OPPORTUNITY_CHANGED",
+
+        error:
+          "O serviço em negociação foi alterado durante a geração. Gere o guia novamente.",
+      });
+    }
+
+    const opportunity = saveResult.rows[0];
+
+    return res.json({
+      success: true,
+
+      action: hadPreviousGuide ? "regenerated" : "generated",
+
+      message: hadPreviousGuide
+        ? "Guia de negociação regenerado com sucesso."
+        : "Guia de negociação gerado com sucesso.",
+
+      guide,
+
+      guide_status: {
+        has_guide: true,
+        is_outdated: false,
+
+        generated_at: opportunity.guide_generated_at,
+
+        version: guide.metadata?.version || null,
+
+        model: guide.metadata?.model || null,
+      },
+
+      service: {
+        id: row.service_id,
+        service_key: row.service_key,
+        service_name: row.service_name,
+        problem_category: row.problem_category,
+      },
+
+      opportunity,
+    });
+  } catch (error) {
+    console.error("Erro ao processar guia:", error);
+
+    return res.status(500).json({
+      success: false,
+      error: "Erro ao gerar o guia de negociação.",
     });
   }
 });
