@@ -23,6 +23,13 @@ import {
   Target,
   ClipboardList,
   Link,
+  BrainCircuit,
+  BarChart3,
+  Layers3,
+  ChevronDown,
+  ChevronUp,
+  Loader2,
+  AlertCircle,
 } from "lucide-react";
 
 const LeadDetails = ({ leadId, onBack }) => {
@@ -36,11 +43,20 @@ const LeadDetails = ({ leadId, onBack }) => {
   const [copiedBriefingLink, setCopiedBriefingLink] = useState(false);
   const [loadingBriefing, setLoadingBriefing] = useState(false);
 
-  const [selectedServices, setSelectedServices] = useState([]);
   const [observation, setObservation] = useState("");
   const [internalNotes, setInternalNotes] = useState("");
   const [customMessage, setCustomMessage] = useState("");
   const [aiSuggestion, setAiSuggestion] = useState("");
+
+  const [recommendations, setRecommendations] = useState(null);
+  const [currentOpportunity, setCurrentOpportunity] = useState(null);
+
+  const [loadingRecommendations, setLoadingRecommendations] = useState(true);
+  const [recommendationError, setRecommendationError] = useState("");
+  const [serviceFeedback, setServiceFeedback] = useState("");
+
+  const [showAllServices, setShowAllServices] = useState(false);
+  const [selectingServiceId, setSelectingServiceId] = useState(null);
 
   const [showClosingModal, setShowClosingModal] = useState(false);
   const [dealData, setDealData] = useState({
@@ -49,16 +65,6 @@ const LeadDetails = ({ leadId, onBack }) => {
     monthlyRecurringValue: 0,
     closingDate: new Date().toISOString().split("T")[0],
   });
-
-  const templates = {
-    website:
-      "Notei que sua empresa ainda não tem um site oficial. Isso faz com que você perca muitos clientes que buscam no Google.",
-    automation:
-      "Vi que vocês têm um fluxo alto. Já pensou em colocar um sistema de atendimento automático no WhatsApp?",
-    ads: "Analisei sua região e seus concorrentes estão investindo em anúncios. Podemos te colocar no topo hoje.",
-    social:
-      "Seu Instagram tem potencial, mas percebi que as postagens estão pouco frequentes. Vamos profissionalizar?",
-  };
 
   const AVAILABLE_DEAL_SERVICES = [
     { id: "social", label: "Gestão Social", icon: "📱" },
@@ -72,25 +78,15 @@ const LeadDetails = ({ leadId, onBack }) => {
   ];
 
   useEffect(() => {
+    if (!leadId) return;
+
+    setShowAllServices(false);
+    setServiceFeedback("");
+    setRecommendationError("");
+
     fetchData();
+    fetchServiceOpportunityData();
   }, [leadId]);
-
-  const generateMessage = (currentLead, currentServices, currentObs) => {
-    if (!currentLead) return "";
-
-    let msg = `Sou o Guilherme, vi a *${currentLead.name}* aqui no Google...\n\n`;
-
-    if (currentObs) {
-      msg += `*Análise:* ${currentObs}\n\n`;
-    }
-
-    currentServices.forEach((s) => {
-      if (templates[s]) msg += `${templates[s]}\n\n`;
-    });
-
-    msg += "Podemos conversar sobre como implementar isso para você?";
-    return msg;
-  };
 
   const getTemperatureMeta = (score = 0, band = "cold") => {
     if (band === "converted") {
@@ -219,6 +215,59 @@ const LeadDetails = ({ leadId, onBack }) => {
       };
     }
 
+    const hasResponded = Boolean(
+      lead.responded_at ||
+      lead.last_reply_at ||
+      ["responded", "qualified", "negotiation", "closed"].includes(
+        lead.status,
+      ) ||
+      [
+        "responded",
+        "qualified",
+        "interested",
+        "preview_sent",
+        "negotiation",
+        "closed",
+      ].includes(lead.pipeline_stage),
+    );
+
+    if (hasResponded && loadingRecommendations) {
+      return {
+        title: "Analisando oportunidades",
+        description:
+          "O sistema está carregando as recomendações para este nicho.",
+        classes: "bg-blue-50 text-blue-700 border-blue-200",
+      };
+    }
+
+    if (hasResponded && !currentOpportunity) {
+      return {
+        title: "Analise e selecione um serviço",
+        description:
+          "Compare as recomendações do nicho com sua análise comercial.",
+        classes: "bg-purple-50 text-purple-700 border-purple-200",
+      };
+    }
+
+    if (currentOpportunity && !currentOpportunity.negotiation_guide) {
+      return {
+        title: "Preencha a análise e gere o guia",
+        description: `O serviço em negociação é ${currentOpportunity.service_name}.`,
+        classes: "bg-indigo-50 text-indigo-700 border-indigo-200",
+      };
+    }
+
+    if (
+      currentOpportunity?.negotiation_guide &&
+      Number(currentOpportunity.interest_score || 0) === 0
+    ) {
+      return {
+        title: "Conduza a descoberta usando o guia",
+        description: "Explore as dores e confirme se existe interesse real.",
+        classes: "bg-purple-50 text-purple-700 border-purple-200",
+      };
+    }
+
     if (lead.status === "responded" && !lead.preview_sent) {
       return {
         title: "Enviar preview",
@@ -271,39 +320,116 @@ const LeadDetails = ({ leadId, onBack }) => {
 
       const data = leadRes.data;
 
-      let initialServices = [];
-      if (data.services_offered) {
-        initialServices = Array.isArray(data.services_offered)
-          ? data.services_offered
-          : JSON.parse(data.services_offered);
-      } else if (data.has_website === false) {
-        initialServices = ["website"];
-      }
-
       setLead(data);
       setObservation(data.market_observation || "");
       setInternalNotes(data.internal_notes || "");
       setActivities(activityRes.data);
       setBriefing(briefingRes.data);
-      setSelectedServices(initialServices);
       setAiSuggestion(data.ai_message_suggestion || "");
 
-      if (data.custom_message) {
-        setCustomMessage(data.custom_message);
-      } else if (data.ai_message_suggestion) {
-        setCustomMessage(data.ai_message_suggestion);
-      } else {
-        setCustomMessage(
-          generateMessage(data, initialServices, data.market_observation || ""),
-        );
-      }
+      setCustomMessage(data.custom_message || data.ai_message_suggestion || "");
 
       if (data.deal_details?.items) {
         setDealData(data.deal_details);
       }
+
       setLoading(false);
     } catch (err) {
       console.error("Erro ao carregar dados", err);
+    }
+  };
+
+  const fetchServiceOpportunityData = async () => {
+    if (!leadId) return;
+
+    setLoadingRecommendations(true);
+    setRecommendationError("");
+
+    try {
+      const [recommendationsRes, currentRes] = await Promise.all([
+        api.get(`/service-opportunities/leads/${leadId}/recommendations`),
+
+        api.get(`/service-opportunities/leads/${leadId}/current`),
+      ]);
+
+      setRecommendations(recommendationsRes.data);
+
+      setCurrentOpportunity(currentRes.data?.opportunity || null);
+    } catch (error) {
+      console.error("Erro ao carregar recomendações:", error);
+
+      setRecommendationError(
+        error.response?.data?.error ||
+          "Não foi possível carregar as recomendações.",
+      );
+    } finally {
+      setLoadingRecommendations(false);
+    }
+  };
+
+  const handleSelectRecommendedService = async (
+    service,
+    confirmReset = false,
+  ) => {
+    const serviceId = Number(service.service_id || service.id);
+
+    if (!serviceId) {
+      setRecommendationError("Não foi possível identificar o serviço.");
+      return;
+    }
+
+    setSelectingServiceId(serviceId);
+    setRecommendationError("");
+    setServiceFeedback("");
+
+    try {
+      const response = await api.post(
+        `/service-opportunities/leads/${leadId}/select`,
+        {
+          service_id: serviceId,
+          confirm_reset: confirmReset,
+        },
+      );
+
+      setServiceFeedback(
+        response.data?.message || "Serviço selecionado com sucesso.",
+      );
+
+      await fetchServiceOpportunityData();
+    } catch (error) {
+      const responseData = error.response?.data;
+
+      if (
+        error.response?.status === 409 &&
+        responseData?.requires_confirmation &&
+        confirmReset === false
+      ) {
+        const currentName =
+          responseData.current_service?.service_name || "serviço atual";
+
+        const requestedName =
+          responseData.requested_service?.service_name || service.service_name;
+
+        const confirmed = window.confirm(
+          `O lead já possui progresso registrado em "${currentName}".\n\n` +
+            `Ao trocar para "${requestedName}", a análise, o guia e a pontuação atual serão reiniciados.\n\n` +
+            "Deseja continuar?",
+        );
+
+        if (confirmed) {
+          await handleSelectRecommendedService(service, true);
+        }
+
+        return;
+      }
+
+      console.error("Erro ao selecionar serviço:", error);
+
+      setRecommendationError(
+        responseData?.error || "Não foi possível selecionar o serviço.",
+      );
+    } finally {
+      setSelectingServiceId(null);
     }
   };
 
@@ -311,18 +437,6 @@ const LeadDetails = ({ leadId, onBack }) => {
     if (aiSuggestion) {
       setCustomMessage(aiSuggestion);
     }
-  };
-
-  const toggleService = (serviceId) => {
-    setSelectedServices((prev) => {
-      const isSelected = prev.includes(serviceId);
-      const newServices = isSelected
-        ? prev.filter((s) => s !== serviceId)
-        : [...prev, serviceId];
-
-      setCustomMessage(generateMessage(lead, newServices, observation));
-      return newServices;
-    });
   };
 
   const addDealItem = () => {
@@ -434,9 +548,12 @@ const LeadDetails = ({ leadId, onBack }) => {
 
   const handleUpdate = async (payload) => {
     setIsSaving(true);
+
     try {
       await api.patch(`/leads/${leadId}`, payload);
-      await fetchData();
+
+      await Promise.all([fetchData(), fetchServiceOpportunityData()]);
+
       setTimeout(() => setIsSaving(false), 1500);
     } catch (err) {
       console.error(err);
@@ -486,7 +603,6 @@ const LeadDetails = ({ leadId, onBack }) => {
     await handleUpdate({
       market_observation: observation,
       internal_notes: internalNotes,
-      services_offered: selectedServices,
       update_contact: true,
       status: "contacted",
       custom_message: customMessage,
@@ -499,7 +615,7 @@ const LeadDetails = ({ leadId, onBack }) => {
   };
 
   const handleResetMessage = () => {
-    setCustomMessage(generateMessage(lead, selectedServices, observation));
+    setCustomMessage(aiSuggestion || lead?.custom_message || "");
   };
 
   if (loading) {
@@ -514,6 +630,16 @@ const LeadDetails = ({ leadId, onBack }) => {
   const temp = getTemperatureMeta(score, lead?.temperature_band || "cold");
   const followupStatus = getFollowupStatus();
   const suggestedAction = getSuggestedAction();
+
+  const visibleRecommendedServices = showAllServices
+    ? recommendations?.all_services || []
+    : recommendations?.top_recommendations || [];
+
+  const selectedServiceRanking =
+    recommendations?.all_services?.find(
+      (service) =>
+        Number(service.service_id) === Number(currentOpportunity?.service_id),
+    ) || null;
 
   return (
     <div className="p-8 max-w-[1600px] mx-auto animate-in fade-in duration-700 pb-20 relative">
@@ -1115,6 +1241,323 @@ const LeadDetails = ({ leadId, onBack }) => {
           </div>
 
           <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
+            <div className="flex items-start justify-between gap-4 mb-8 flex-wrap">
+              <div className="flex items-start gap-3">
+                <div className="p-3 rounded-2xl bg-purple-50 text-purple-600">
+                  <BrainCircuit size={21} />
+                </div>
+
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.22em] text-purple-500 mb-2">
+                    Inteligência comercial
+                  </p>
+
+                  <h3 className="text-xl font-black tracking-tight text-slate-900">
+                    Serviços recomendados
+                  </h3>
+
+                  <p className="text-sm font-medium text-slate-400 mt-1">
+                    Ranking baseado nos resultados registrados para{" "}
+                    <span className="text-slate-700 font-black">
+                      {recommendations?.lead?.lead_category ||
+                        lead.lead_category ||
+                        "este nicho"}
+                    </span>
+                    .
+                  </p>
+                </div>
+              </div>
+
+              {recommendations?.available &&
+                recommendations?.all_services?.length > 3 && (
+                  <button
+                    onClick={() => setShowAllServices((current) => !current)}
+                    className="px-4 py-3 rounded-2xl bg-slate-50 text-slate-600 hover:bg-slate-100 text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all"
+                  >
+                    {showAllServices ? (
+                      <>
+                        <ChevronUp size={15} />
+                        Mostrar top 3
+                      </>
+                    ) : (
+                      <>
+                        <ChevronDown size={15} />
+                        Ver todos ({recommendations.all_services.length})
+                      </>
+                    )}
+                  </button>
+                )}
+            </div>
+
+            {loadingRecommendations ? (
+              <div className="py-12 flex flex-col items-center justify-center text-center">
+                <Loader2
+                  size={30}
+                  className="animate-spin text-purple-500 mb-4"
+                />
+
+                <p className="text-sm font-black text-slate-700">
+                  Calculando recomendações
+                </p>
+
+                <p className="text-xs font-medium text-slate-400 mt-1">
+                  Consultando o histórico comercial do nicho.
+                </p>
+              </div>
+            ) : recommendationError ? (
+              <div className="p-6 rounded-[2rem] bg-red-50 border border-red-100">
+                <div className="flex items-start gap-3">
+                  <AlertCircle size={20} className="text-red-500 shrink-0" />
+
+                  <div className="flex-1">
+                    <p className="font-black text-red-700 text-sm">
+                      Não foi possível carregar
+                    </p>
+
+                    <p className="text-xs text-red-500 font-medium mt-1">
+                      {recommendationError}
+                    </p>
+
+                    <button
+                      onClick={fetchServiceOpportunityData}
+                      className="mt-4 px-4 py-2 rounded-xl bg-white text-red-600 text-[10px] font-black uppercase tracking-widest border border-red-100"
+                    >
+                      Tentar novamente
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : recommendations?.available === false ? (
+              <div className="p-8 rounded-[2rem] bg-slate-50 border border-dashed border-slate-200 text-center">
+                <div className="w-12 h-12 mx-auto rounded-2xl bg-white border border-slate-100 flex items-center justify-center text-slate-400 mb-4">
+                  <Layers3 size={21} />
+                </div>
+
+                <p className="text-sm font-black text-slate-700">
+                  Recomendação disponível após o lead responder
+                </p>
+
+                <p className="text-xs font-medium text-slate-400 mt-2 max-w-md mx-auto">
+                  Depois da resposta, o sistema mostrará os serviços com melhor
+                  histórico para este nicho.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {currentOpportunity && (
+                  <div className="bg-slate-900 text-white p-6 rounded-[2rem] relative overflow-hidden">
+                    <div className="absolute -right-10 -top-10 w-40 h-40 rounded-full bg-purple-500/10" />
+
+                    <div className="relative z-10">
+                      <div className="flex items-start justify-between gap-5 flex-wrap">
+                        <div>
+                          <div className="flex items-center gap-2 mb-3">
+                            <CheckCircle2
+                              size={15}
+                              className="text-green-400"
+                            />
+
+                            <p className="text-[10px] font-black uppercase tracking-[0.22em] text-green-400">
+                              Serviço em negociação
+                            </p>
+                          </div>
+
+                          <h4 className="text-2xl font-black tracking-tight">
+                            {currentOpportunity.service_name}
+                          </h4>
+
+                          <p className="text-sm font-bold text-slate-400 mt-1">
+                            {currentOpportunity.problem_category}
+                          </p>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2">
+                          <span className="px-3 py-2 rounded-full bg-white/10 text-[10px] font-black uppercase tracking-widest">
+                            Oportunidade: {currentOpportunity.total_score}/8
+                          </span>
+
+                          {selectedServiceRanking?.has_history && (
+                            <span className="px-3 py-2 rounded-full bg-purple-500/20 text-purple-200 text-[10px] font-black uppercase tracking-widest">
+                              Média no nicho:{" "}
+                              {Number(
+                                selectedServiceRanking.average_score || 0,
+                              ).toFixed(1)}
+                              /8
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap gap-3 mt-6">
+                        <button
+                          disabled
+                          title="Será ativado na etapa de análise comercial"
+                          className="px-4 py-3 rounded-xl bg-white/5 text-slate-500 text-[10px] font-black uppercase tracking-widest cursor-not-allowed"
+                        >
+                          Editar análise
+                        </button>
+
+                        <button
+                          disabled
+                          title="Será ativado quando o guia for implementado"
+                          className="px-4 py-3 rounded-xl bg-white/5 text-slate-500 text-[10px] font-black uppercase tracking-widest cursor-not-allowed"
+                        >
+                          Ver guia
+                        </button>
+
+                        <button
+                          onClick={() => setShowAllServices(true)}
+                          className="px-4 py-3 rounded-xl bg-white text-slate-900 hover:bg-slate-100 text-[10px] font-black uppercase tracking-widest transition-all"
+                        >
+                          Trocar serviço
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {serviceFeedback && (
+                  <div className="px-5 py-4 rounded-2xl bg-green-50 text-green-700 border border-green-100 text-sm font-bold flex items-center gap-2">
+                    <CheckCircle2 size={17} />
+                    {serviceFeedback}
+                  </div>
+                )}
+
+                <div>
+                  <div className="flex items-center justify-between gap-4 mb-4">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+                        {showAllServices
+                          ? "Todos os serviços"
+                          : "Top 3 do nicho"}
+                      </p>
+
+                      <p className="text-xs font-medium text-slate-400 mt-1">
+                        A decisão final continua sendo sua.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                      <BarChart3 size={14} />
+                      {
+                        recommendations?.ranking_summary?.services_with_history
+                      }{" "}
+                      com histórico
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+                    {visibleRecommendedServices.map((service) => {
+                      const isSelected = service.is_selected === true;
+
+                      const isSelecting =
+                        selectingServiceId === Number(service.service_id);
+
+                      const sampleClasses =
+                        service.sample_status === "Histórico relevante"
+                          ? "bg-green-50 text-green-600 border-green-100"
+                          : service.sample_status === "Histórico inicial"
+                            ? "bg-blue-50 text-blue-600 border-blue-100"
+                            : service.sample_status === "Amostra pequena"
+                              ? "bg-orange-50 text-orange-600 border-orange-100"
+                              : "bg-slate-50 text-slate-400 border-slate-100";
+
+                      return (
+                        <div
+                          key={service.service_id}
+                          className={`p-5 rounded-[2rem] border transition-all ${
+                            isSelected
+                              ? "border-purple-300 bg-purple-50/60 ring-2 ring-purple-100"
+                              : "border-slate-100 bg-white hover:border-purple-200 hover:shadow-lg"
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-3 mb-5">
+                            <div className="w-10 h-10 rounded-2xl bg-slate-900 text-white flex items-center justify-center font-black">
+                              {service.rank}
+                            </div>
+
+                            <span
+                              className={`px-3 py-1.5 rounded-full border text-[9px] font-black uppercase tracking-widest ${sampleClasses}`}
+                            >
+                              {service.sample_status}
+                            </span>
+                          </div>
+
+                          <h4 className="text-base font-black text-slate-900 tracking-tight">
+                            {service.service_name}
+                          </h4>
+
+                          <p className="text-[10px] font-black uppercase tracking-widest text-purple-500 mt-2">
+                            {service.problem_category}
+                          </p>
+
+                          <p className="text-xs font-medium text-slate-400 leading-relaxed mt-4 line-clamp-3">
+                            {service.description}
+                          </p>
+
+                          <div className="grid grid-cols-2 gap-3 mt-5">
+                            <div className="bg-slate-50 rounded-2xl p-3">
+                              <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">
+                                Score médio
+                              </p>
+
+                              <p className="text-lg font-black text-slate-900 mt-1">
+                                {service.has_history
+                                  ? `${Number(
+                                      service.average_score || 0,
+                                    ).toFixed(1)}/8`
+                                  : "—"}
+                              </p>
+                            </div>
+
+                            <div className="bg-slate-50 rounded-2xl p-3">
+                              <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">
+                                Utilizações
+                              </p>
+
+                              <p className="text-lg font-black text-slate-900 mt-1">
+                                {service.times_selected}
+                              </p>
+                            </div>
+                          </div>
+
+                          <button
+                            onClick={() =>
+                              handleSelectRecommendedService(service)
+                            }
+                            disabled={isSelected || isSelecting}
+                            className={`w-full mt-5 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 transition-all ${
+                              isSelected
+                                ? "bg-purple-100 text-purple-600 cursor-default"
+                                : "bg-slate-900 text-white hover:bg-black active:scale-95"
+                            }`}
+                          >
+                            {isSelecting ? (
+                              <>
+                                <Loader2 size={15} className="animate-spin" />
+                                Salvando
+                              </>
+                            ) : isSelected ? (
+                              <>
+                                <CheckCircle2 size={15} />
+                                Selecionado
+                              </>
+                            ) : currentOpportunity ? (
+                              "Trocar para este"
+                            ) : (
+                              "Selecionar"
+                            )}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
             <div className="flex items-center justify-between mb-8">
               <h3 className="font-black text-xs uppercase tracking-[0.2em] text-slate-400 flex items-center gap-2">
                 <TrendingUp size={16} className="text-orange-500" /> Ações de
@@ -1305,32 +1748,6 @@ const LeadDetails = ({ leadId, onBack }) => {
                   handleUpdate({ acquisition_cost: e.target.value })
                 }
               />
-            </div>
-          </div>
-
-          <div className="bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100">
-            <div className="grid grid-cols-2 gap-3">
-              {[
-                { id: "website", icon: "🌐", label: "Site" },
-                { id: "automation", icon: "🤖", label: "Whats" },
-                { id: "ads", icon: "📈", label: "Ads" },
-                { id: "social", icon: "📱", label: "Social" },
-              ].map((s) => (
-                <button
-                  key={s.id}
-                  onClick={() => toggleService(s.id)}
-                  className={`flex flex-col items-center p-4 rounded-2xl border-2 transition-all ${
-                    selectedServices.includes(s.id)
-                      ? "border-blue-600 bg-blue-50 text-blue-600"
-                      : "border-slate-50 bg-slate-50 text-slate-300"
-                  }`}
-                >
-                  <span className="text-2xl mb-1">{s.icon}</span>
-                  <span className="text-[9px] font-black uppercase tracking-tighter">
-                    {s.label}
-                  </span>
-                </button>
-              ))}
             </div>
           </div>
 
