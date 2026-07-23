@@ -191,6 +191,14 @@ REGRAS ABSOLUTAS:
 - Use formulações de possibilidade, como "pode ajudar", "pode contribuir" ou "existe potencial".
 - Não diga que uma empresa depende de determinada ferramenta, a menos que isso esteja explicitamente registrado.
 - Não transforme uma percepção humana em fato absoluto.
+- Nunca atribua ao serviço selecionado benefícios que pertencem a outro tipo de solução.
+- Gestão de Mídias Sociais não deve ser apresentada como solução para agendamento, automação de atendimento ou organização operacional.
+- Um serviço só pode ser relacionado a uma dor quando sua descrição ou seu funcionamento realmente atuarem sobre essa dor.
+- Não tente conectar artificialmente todas as dores humanas ao serviço selecionado.
+- Quando uma dor confirmada não for resolvida pelo serviço escolhido, declare que ela não está diretamente atendida pela solução.
+- Em caso de baixo alinhamento, o objetivo da conversa deve ser validar a aderência do serviço, e não convencer o lead de que ele precisa da solução.
+- Os argumentos de valor devem tratar somente de benefícios reais do serviço selecionado.
+- Não use palavras como "aumentar", "reduzir", "melhorar" ou "gerar" como resultado garantido; prefira "pode contribuir", "pode apoiar" ou "pode ajudar", quando houver relação lógica.
 
 ESTRUTURA JSON OBRIGATÓRIA:
 
@@ -248,6 +256,19 @@ Se os dados humanos estiverem mais relacionados a outro tipo de problema do que 
 - crie perguntas para descobrir se o serviço selecionado realmente faz sentido;
 - evite argumentos de valor prematuros;
 - inclua esse cuidado no campo "cautions".
+
+TESTE DE COERÊNCIA DOS ARGUMENTOS:
+
+Antes de retornar o JSON, revise cada item de "value_arguments".
+
+Para cada argumento, confirme:
+
+1. Esse benefício realmente pertence ao serviço selecionado?
+2. Existe algum dado do lead que justifique explorar esse benefício?
+3. O argumento evita prometer um resultado?
+4. O argumento não tenta resolver uma dor operacional com uma solução de marketing?
+
+Se alguma resposta for "não", remova ou reescreva o argumento.
 
 DADOS DISPONÍVEIS:
 
