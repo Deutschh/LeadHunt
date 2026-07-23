@@ -31,6 +31,11 @@ import {
   Loader2,
   AlertCircle,
   FileText,
+  BookOpen,
+  Copy,
+  Check,
+  RefreshCw,
+  AlertTriangle,
 } from "lucide-react";
 
 const ANALYSIS_PAIN_POINTS = [
@@ -46,6 +51,20 @@ const ANALYSIS_PAIN_POINTS = [
   "Outro",
 ];
 
+const INITIAL_GUIDE_SECTIONS = {
+  objective: true,
+  scenario_reading: true,
+  main_opportunity: true,
+  pains_to_explore: false,
+  recommended_questions: true,
+  value_arguments: true,
+  likely_objections: false,
+  objection_responses: false,
+  ideal_demo_moment: false,
+  next_step: true,
+  cautions: false,
+};
+
 const LeadDetails = ({ leadId, onBack }) => {
   const [lead, setLead] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -55,7 +74,6 @@ const LeadDetails = ({ leadId, onBack }) => {
   const [showBriefingLinkModal, setShowBriefingLinkModal] = useState(false);
   const [briefingLink, setBriefingLink] = useState("");
   const [copiedBriefingLink, setCopiedBriefingLink] = useState(false);
-  const [loadingBriefing, setLoadingBriefing] = useState(false);
 
   const [observation, setObservation] = useState("");
   const [internalNotes, setInternalNotes] = useState("");
@@ -84,6 +102,15 @@ const LeadDetails = ({ leadId, onBack }) => {
   const [analysisError, setAnalysisError] = useState("");
   const [analysisFeedback, setAnalysisFeedback] = useState("");
 
+  const [showNegotiationGuide, setShowNegotiationGuide] = useState(false);
+  const [generatingGuide, setGeneratingGuide] = useState(false);
+  const [guideError, setGuideError] = useState("");
+  const [copiedGuideItem, setCopiedGuideItem] = useState("");
+
+  const [expandedGuideSections, setExpandedGuideSections] = useState(
+    INITIAL_GUIDE_SECTIONS,
+  );
+
   const [showClosingModal, setShowClosingModal] = useState(false);
   const [dealData, setDealData] = useState({
     items: [],
@@ -109,6 +136,10 @@ const LeadDetails = ({ leadId, onBack }) => {
     setShowAllServices(false);
     setServiceFeedback("");
     setRecommendationError("");
+    setShowNegotiationGuide(false);
+    setGuideError("");
+    setCopiedGuideItem("");
+    setExpandedGuideSections(INITIAL_GUIDE_SECTIONS);
 
     fetchData();
     fetchServiceOpportunityData();
@@ -477,6 +508,30 @@ const LeadDetails = ({ leadId, onBack }) => {
       return false;
     }
 
+    const currentPainPoints = Array.isArray(currentOpportunity.pain_points)
+      ? [...currentOpportunity.pain_points].sort()
+      : [];
+
+    const nextPainPoints = [...normalizedForm.pain_points].sort();
+
+    const hasChanges =
+      String(currentOpportunity.analysis_notes || "").trim() !==
+        normalizedForm.analysis_notes ||
+      String(currentOpportunity.perceived_goal || "").trim() !==
+        normalizedForm.perceived_goal ||
+      JSON.stringify(currentPainPoints) !== JSON.stringify(nextPainPoints);
+
+    if (!hasChanges) {
+      setAnalysisError("");
+      setAnalysisFeedback("A análise já está atualizada.");
+
+      if (closeAfterSave) {
+        setShowAnalysisModal(false);
+      }
+
+      return true;
+    }
+
     setSavingAnalysis(true);
     setAnalysisError("");
     setAnalysisFeedback("");
@@ -518,6 +573,8 @@ const LeadDetails = ({ leadId, onBack }) => {
       const successMessage =
         response.data?.message || "Análise comercial salva com sucesso.";
 
+      setGuideError("");
+
       setAnalysisFeedback(successMessage);
       setServiceFeedback(successMessage);
 
@@ -537,6 +594,113 @@ const LeadDetails = ({ leadId, onBack }) => {
       return false;
     } finally {
       setSavingAnalysis(false);
+    }
+  };
+
+  const toggleGuideSection = (sectionId) => {
+    setExpandedGuideSections((current) => ({
+      ...current,
+      [sectionId]: !current[sectionId],
+    }));
+  };
+
+  const handleCopyGuideText = async (text, copyId) => {
+    const normalizedText = String(text || "").trim();
+
+    if (!normalizedText) return;
+
+    try {
+      await navigator.clipboard.writeText(normalizedText);
+
+      setCopiedGuideItem(copyId);
+
+      setTimeout(() => {
+        setCopiedGuideItem((current) => (current === copyId ? "" : current));
+      }, 1800);
+    } catch (error) {
+      console.error("Erro ao copiar conteúdo:", error);
+
+      prompt("Copie o conteúdo:", normalizedText);
+    }
+  };
+
+  const handleGenerateGuide = async ({
+    saveAnalysisFirst = false,
+    confirmRegeneration = false,
+  } = {}) => {
+    if (!currentOpportunity) {
+      setGuideError("Nenhum serviço ativo foi encontrado.");
+      return false;
+    }
+
+    if (confirmRegeneration && currentOpportunity.negotiation_guide) {
+      const confirmed = window.confirm(
+        "Deseja regenerar o guia usando a análise comercial atual?\n\nO guia anterior será substituído.",
+      );
+
+      if (!confirmed) {
+        return false;
+      }
+    }
+
+    if (saveAnalysisFirst) {
+      const analysisSaved = await handleSaveAnalysis({
+        closeAfterSave: false,
+      });
+
+      if (!analysisSaved) {
+        return false;
+      }
+    }
+
+    setGeneratingGuide(true);
+    setGuideError("");
+    setAnalysisError("");
+    setAnalysisFeedback("");
+
+    try {
+      const response = await api.post(
+        `/service-opportunities/leads/${leadId}/guide`,
+        {},
+      );
+
+      const opportunity = response.data?.opportunity || {};
+
+      const service = response.data?.service || {};
+
+      setCurrentOpportunity((current) => ({
+        ...current,
+        ...opportunity,
+
+        service_name: service.service_name || current?.service_name,
+
+        service_key: service.service_key || current?.service_key,
+
+        problem_category: service.problem_category || current?.problem_category,
+      }));
+
+      setServiceFeedback(
+        response.data?.message || "Guia de negociação gerado com sucesso.",
+      );
+
+      setShowAnalysisModal(false);
+      setShowNegotiationGuide(true);
+
+      setExpandedGuideSections(INITIAL_GUIDE_SECTIONS);
+
+      return true;
+    } catch (error) {
+      console.error("Erro ao gerar guia:", error);
+
+      setGuideError(
+        error.response?.data?.error ||
+          error.response?.data?.details ||
+          "Não foi possível gerar o guia de negociação.",
+      );
+
+      return false;
+    } finally {
+      setGeneratingGuide(false);
     }
   };
 
@@ -591,6 +755,9 @@ const LeadDetails = ({ leadId, onBack }) => {
       setServiceFeedback(
         response.data?.message || "Serviço selecionado com sucesso.",
       );
+
+      setShowNegotiationGuide(false);
+      setGuideError("");
 
       await fetchServiceOpportunityData();
 
@@ -852,6 +1019,93 @@ const LeadDetails = ({ leadId, onBack }) => {
       currentOpportunity.pain_points.length > 0),
   );
 
+  const negotiationGuide =
+    currentOpportunity?.negotiation_guide &&
+    typeof currentOpportunity.negotiation_guide === "object"
+      ? currentOpportunity.negotiation_guide
+      : null;
+
+  const hasNegotiationGuide = Boolean(negotiationGuide);
+
+  const guideGeneratedAt = currentOpportunity?.guide_generated_at || null;
+
+  const guideIsOutdated = Boolean(
+    hasNegotiationGuide &&
+    currentOpportunity?.updated_at &&
+    guideGeneratedAt &&
+    new Date(currentOpportunity.updated_at).getTime() >
+      new Date(guideGeneratedAt).getTime(),
+  );
+
+  const guideSections = [
+    {
+      id: "objective",
+      title: "1. Objetivo da conversa",
+      type: "text",
+      value: negotiationGuide?.objective,
+    },
+    {
+      id: "scenario_reading",
+      title: "2. Leitura do cenário",
+      type: "text",
+      value: negotiationGuide?.scenario_reading,
+    },
+    {
+      id: "main_opportunity",
+      title: "3. Oportunidade principal",
+      type: "text",
+      value: negotiationGuide?.main_opportunity,
+    },
+    {
+      id: "pains_to_explore",
+      title: "4. Dores para explorar",
+      type: "list",
+      value: negotiationGuide?.pains_to_explore,
+    },
+    {
+      id: "recommended_questions",
+      title: "5. Perguntas recomendadas",
+      type: "list",
+      value: negotiationGuide?.recommended_questions,
+    },
+    {
+      id: "value_arguments",
+      title: "6. Argumentos de valor",
+      type: "list",
+      value: negotiationGuide?.value_arguments,
+    },
+    {
+      id: "likely_objections",
+      title: "7. Objeções prováveis",
+      type: "list",
+      value: negotiationGuide?.likely_objections,
+    },
+    {
+      id: "objection_responses",
+      title: "8. Respostas às objeções",
+      type: "objections",
+      value: negotiationGuide?.objection_responses,
+    },
+    {
+      id: "ideal_demo_moment",
+      title: "9. Momento ideal para mostrar exemplo",
+      type: "text",
+      value: negotiationGuide?.ideal_demo_moment,
+    },
+    {
+      id: "next_step",
+      title: "10. Próximo passo sugerido",
+      type: "text",
+      value: negotiationGuide?.next_step,
+    },
+    {
+      id: "cautions",
+      title: "11. Cuidados",
+      type: "list",
+      value: negotiationGuide?.cautions,
+    },
+  ];
+
   return (
     <div className="p-8 max-w-[1600px] mx-auto animate-in fade-in duration-700 pb-20 relative">
       {showAnalysisModal && currentOpportunity && (
@@ -880,7 +1134,7 @@ const LeadDetails = ({ leadId, onBack }) => {
 
               <button
                 onClick={() => setShowAnalysisModal(false)}
-                disabled={savingAnalysis}
+                disabled={savingAnalysis || generatingGuide}
                 className="p-2 rounded-full hover:bg-white/10 text-slate-400 hover:text-white transition-all"
               >
                 <X size={22} />
@@ -997,6 +1251,20 @@ const LeadDetails = ({ leadId, onBack }) => {
                 </div>
               )}
 
+              {guideError && (
+                <div className="p-4 rounded-2xl bg-red-50 text-red-600 border border-red-100 flex items-start gap-3">
+                  <AlertCircle size={18} className="shrink-0 mt-0.5" />
+
+                  <div>
+                    <p className="text-sm font-black">
+                      Não foi possível gerar o guia
+                    </p>
+
+                    <p className="text-xs font-medium mt-1">{guideError}</p>
+                  </div>
+                </div>
+              )}
+
               {analysisFeedback && (
                 <div className="p-4 rounded-2xl bg-green-50 text-green-700 border border-green-100 flex items-start gap-3">
                   <CheckCircle2 size={18} className="shrink-0 mt-0.5" />
@@ -1010,7 +1278,7 @@ const LeadDetails = ({ leadId, onBack }) => {
               <button
                 type="button"
                 onClick={() => setShowAnalysisModal(false)}
-                disabled={savingAnalysis}
+                disabled={savingAnalysis || generatingGuide}
                 className="py-4 rounded-2xl text-slate-500 font-black text-[10px] uppercase tracking-widest hover:bg-slate-100 transition-all"
               >
                 Cancelar
@@ -1023,7 +1291,7 @@ const LeadDetails = ({ leadId, onBack }) => {
                     closeAfterSave: true,
                   })
                 }
-                disabled={savingAnalysis}
+                disabled={savingAnalysis || generatingGuide}
                 className="py-4 rounded-2xl bg-slate-900 text-white font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center justify-center gap-2 disabled:opacity-60"
               >
                 {savingAnalysis ? (
@@ -1041,12 +1309,25 @@ const LeadDetails = ({ leadId, onBack }) => {
 
               <button
                 type="button"
-                disabled
-                title="Será ativado na próxima etapa"
-                className="py-4 rounded-2xl bg-purple-100 text-purple-400 font-black text-[10px] uppercase tracking-widest cursor-not-allowed flex items-center justify-center gap-2"
+                onClick={() =>
+                  handleGenerateGuide({
+                    saveAnalysisFirst: true,
+                  })
+                }
+                disabled={savingAnalysis || generatingGuide}
+                className="py-4 rounded-2xl bg-purple-600 text-white font-black text-[10px] uppercase tracking-widest hover:bg-purple-700 transition-all flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed shadow-lg shadow-purple-600/20"
               >
-                <Sparkles size={15} />
-                Gerar guia
+                {generatingGuide ? (
+                  <>
+                    <Loader2 size={15} className="animate-spin" />
+                    Gerando guia
+                  </>
+                ) : (
+                  <>
+                    <Sparkles size={15} />
+                    Gerar guia
+                  </>
+                )}
               </button>
             </div>
           </div>
@@ -1421,7 +1702,7 @@ const LeadDetails = ({ leadId, onBack }) => {
           </div>
         </div>
 
-        <div className="flex items-center gap-3 flex-wrap bg-amaber-600 justify-end">
+        <div className="flex items-center gap-3 flex-wrap justify-end">
           <div className="w-full justify-end flex">
             <button
               onClick={() =>
@@ -1810,11 +2091,47 @@ const LeadDetails = ({ leadId, onBack }) => {
                         </button>
 
                         <button
-                          disabled
-                          title="Será ativado quando o guia for implementado"
-                          className="px-4 py-3 rounded-xl bg-white/5 text-slate-500 text-[10px] font-black uppercase tracking-widest cursor-not-allowed"
+                          onClick={() => {
+                            setGuideError("");
+
+                            if (hasNegotiationGuide) {
+                              setShowNegotiationGuide((current) => !current);
+                              return;
+                            }
+
+                            if (hasCommercialAnalysis) {
+                              handleGenerateGuide();
+                              return;
+                            }
+
+                            openAnalysisModal(currentOpportunity);
+                          }}
+                          disabled={generatingGuide}
+                          className="px-4 py-3 rounded-xl bg-purple-500/20 text-purple-200 hover:bg-purple-500/30 text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2 disabled:opacity-60"
                         >
-                          Ver guia
+                          {generatingGuide ? (
+                            <>
+                              <Loader2 size={14} className="animate-spin" />
+                              Gerando
+                            </>
+                          ) : hasNegotiationGuide ? (
+                            <>
+                              <BookOpen size={14} />
+                              {showNegotiationGuide
+                                ? "Ocultar guia"
+                                : "Ver guia"}
+                            </>
+                          ) : hasCommercialAnalysis ? (
+                            <>
+                              <Sparkles size={14} />
+                              Gerar guia
+                            </>
+                          ) : (
+                            <>
+                              <FileText size={14} />
+                              Preencher análise
+                            </>
+                          )}
                         </button>
 
                         <button
@@ -1824,6 +2141,906 @@ const LeadDetails = ({ leadId, onBack }) => {
                           Trocar serviço
                         </button>
                       </div>
+                    </div>
+                  </div>
+                )}
+
+                {showNegotiationGuide && hasNegotiationGuide && (
+                  <div className="rounded-[2.5rem] border border-purple-100 bg-gradient-to-b from-purple-50/70 to-white overflow-hidden shadow-sm animate-in fade-in slide-in-from-top-3 duration-300">
+                    <div className="p-7 border-b border-purple-100 bg-white/70">
+                      <div className="flex items-start justify-between gap-5 flex-wrap">
+                        <div className="flex items-start gap-4">
+                          <div className="p-3 rounded-2xl bg-purple-600 text-white shadow-lg shadow-purple-600/20">
+                            <BookOpen size={22} />
+                          </div>
+
+                          <div>
+                            <p className="text-[10px] font-black uppercase tracking-[0.22em] text-purple-500 mb-2">
+                              Assistente comercial
+                            </p>
+
+                            <h4 className="text-xl font-black text-slate-900 tracking-tight">
+                              Guia da negociação
+                            </h4>
+
+                            <p className="text-sm font-medium text-slate-400 mt-1">
+                              Estratégia interna para{" "}
+                              <span className="font-black text-slate-700">
+                                {currentOpportunity.service_name}
+                              </span>
+                            </p>
+
+                            <div className="flex flex-wrap gap-2 mt-3">
+                              <span className="px-3 py-1.5 rounded-full bg-slate-100 text-slate-500 text-[9px] font-black uppercase tracking-widest">
+                                Gerado em {formatDateTime(guideGeneratedAt)}
+                              </span>
+
+                              {negotiationGuide?.metadata?.version && (
+                                <span className="px-3 py-1.5 rounded-full bg-purple-100 text-purple-600 text-[9px] font-black uppercase tracking-widest">
+                                  Versão {negotiationGuide.metadata.version}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            onClick={() =>
+                              openAnalysisModal(currentOpportunity)
+                            }
+                            className="px-4 py-3 rounded-xl bg-white text-slate-600 border border-slate-200 hover:border-purple-300 hover:text-purple-600 text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all"
+                          >
+                            <FileText size={14} />
+                            Editar análise
+                          </button>
+
+                          <button
+                            onClick={() =>
+                              handleGenerateGuide({
+                                confirmRegeneration: true,
+                              })
+                            }
+                            disabled={generatingGuide}
+                            className="px-4 py-3 rounded-xl bg-purple-600 text-white hover:bg-purple-700 text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all disabled:opacity-60"
+                          >
+                            {generatingGuide ? (
+                              <Loader2 size={14} className="animate-spin" />
+                            ) : (
+                              <RefreshCw size={14} />
+                            )}
+                            Regenerar
+                          </button>
+
+                          <button
+                            onClick={() => setShowNegotiationGuide(false)}
+                            className="px-4 py-3 rounded-xl bg-slate-100 text-slate-500 hover:bg-slate-200 text-[10px] font-black uppercase tracking-widest transition-all"
+                          >
+                            Ocultar
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {guideIsOutdated && (
+                      <div className="mx-7 mt-6 p-5 rounded-[2rem] bg-orange-50 border border-orange-200 text-orange-700">
+                        <div className="flex items-start gap-3">
+                          <AlertTriangle
+                            size={20}
+                            className="shrink-0 mt-0.5"
+                          />
+
+                          <div className="flex-1">
+                            <p className="text-sm font-black">
+                              Este guia está desatualizado
+                            </p>
+
+                            <p className="text-xs font-medium mt-1">
+                              A análise comercial foi modificada depois da
+                              última geração.
+                            </p>
+
+                            <button
+                              onClick={() =>
+                                handleGenerateGuide({
+                                  confirmRegeneration: true,
+                                })
+                              }
+                              disabled={generatingGuide}
+                              className="mt-4 px-4 py-2.5 rounded-xl bg-orange-600 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2 disabled:opacity-60"
+                            >
+                              <RefreshCw
+                                size={13}
+                                className={
+                                  generatingGuide ? "animate-spin" : ""
+                                }
+                              />
+                              Regenerar com análise atual
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="p-7 space-y-3">
+                      {guideSections.map((section) => {
+                        const expanded = expandedGuideSections[section.id];
+
+                        const itemCount = Array.isArray(section.value)
+                          ? section.value.length
+                          : null;
+
+                        return (
+                          <div
+                            key={section.id}
+                            className="rounded-[1.75rem] bg-white border border-slate-100 overflow-hidden"
+                          >
+                            <button
+                              type="button"
+                              onClick={() => toggleGuideSection(section.id)}
+                              className="w-full p-5 flex items-center justify-between gap-4 text-left hover:bg-slate-50 transition-all"
+                            >
+                              <div>
+                                <p className="text-sm font-black text-slate-800">
+                                  {section.title}
+                                </p>
+
+                                {itemCount !== null && (
+                                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-300 mt-1">
+                                    {itemCount}{" "}
+                                    {itemCount === 1 ? "item" : "itens"}
+                                  </p>
+                                )}
+                              </div>
+
+                              {expanded ? (
+                                <ChevronUp
+                                  size={18}
+                                  className="text-purple-500"
+                                />
+                              ) : (
+                                <ChevronDown
+                                  size={18}
+                                  className="text-slate-300"
+                                />
+                              )}
+                            </button>
+
+                            {expanded && (
+                              <div className="px-5 pb-5 border-t border-slate-50">
+                                {section.type === "text" && (
+                                  <div className="pt-5">
+                                    <p className="text-sm font-medium leading-relaxed text-slate-600 whitespace-pre-line">
+                                      {section.value ||
+                                        "Nenhuma informação disponível."}
+                                    </p>
+
+                                    {section.value && (
+                                      <div className="flex justify-end mt-4">
+                                        <GuideCopyButton
+                                          copied={
+                                            copiedGuideItem === section.id
+                                          }
+                                          onClick={() =>
+                                            handleCopyGuideText(
+                                              section.value,
+                                              section.id,
+                                            )
+                                          }
+                                        />
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+
+                                {section.type === "list" && (
+                                  <div className="pt-5 space-y-3">
+                                    {Array.isArray(section.value) &&
+                                    section.value.length > 0 ? (
+                                      section.value.map((item, index) => {
+                                        const copyId = `${section.id}-${index}`;
+
+                                        return (
+                                          <div
+                                            key={copyId}
+                                            className="p-4 rounded-2xl bg-slate-50 border border-slate-100 flex items-start gap-3"
+                                          >
+                                            <div className="w-7 h-7 shrink-0 rounded-xl bg-white text-purple-600 flex items-center justify-center text-[10px] font-black border border-slate-100">
+                                              {index + 1}
+                                            </div>
+
+                                            <p className="flex-1 text-sm font-medium leading-relaxed text-slate-600">
+                                              {item}
+                                            </p>
+
+                                            <GuideCopyButton
+                                              compact
+                                              copied={
+                                                copiedGuideItem === copyId
+                                              }
+                                              onClick={() =>
+                                                handleCopyGuideText(
+                                                  item,
+                                                  copyId,
+                                                )
+                                              }
+                                            />
+                                          </div>
+                                        );
+                                      })
+                                    ) : (
+                                      <p className="text-sm text-slate-400 font-medium">
+                                        Nenhum item disponível.
+                                      </p>
+                                    )}
+                                  </div>
+                                )}
+
+                                {section.type === "objections" && (
+                                  <div className="pt-5 space-y-4">
+                                    {Array.isArray(section.value) &&
+                                    section.value.length > 0 ? (
+                                      section.value.map((item, index) => {
+                                        const copyId = `objection-response-${index}`;
+
+                                        return (
+                                          <div
+                                            key={copyId}
+                                            className="p-5 rounded-[1.5rem] bg-slate-50 border border-slate-100"
+                                          >
+                                            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-red-400 mb-2">
+                                              Objeção
+                                            </p>
+
+                                            <p className="text-sm font-black text-slate-800">
+                                              {item.objection ||
+                                                "Objeção não informada"}
+                                            </p>
+
+                                            <div className="my-4 h-px bg-slate-200" />
+
+                                            <div className="flex items-start gap-3">
+                                              <div className="flex-1">
+                                                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-green-500 mb-2">
+                                                  Resposta sugerida
+                                                </p>
+
+                                                <p className="text-sm font-medium leading-relaxed text-slate-600">
+                                                  {item.response ||
+                                                    "Resposta não informada"}
+                                                </p>
+                                              </div>
+
+                                              {item.response && (
+                                                <GuideCopyButton
+                                                  compact
+                                                  copied={
+                                                    copiedGuideItem === copyId
+                                                  }
+                                                  onClick={() =>
+                                                    handleCopyGuideText(
+                                                      item.response,
+                                                      copyId,
+                                                    )
+                                                  }
+                                                />
+                                              )}
+                                            </div>
+                                          </div>
+                                        );
+                                      })
+                                    ) : (
+                                      <p className="text-sm text-slate-400 font-medium">
+                                        Nenhuma resposta disponível.
+                                      </p>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {showNegotiationGuide && hasNegotiationGuide && (
+                  <div className="rounded-[2.5rem] border border-purple-100 bg-gradient-to-b from-purple-50/70 to-white overflow-hidden shadow-sm animate-in fade-in slide-in-from-top-3 duration-300">
+                    <div className="p-7 border-b border-purple-100 bg-white/70">
+                      <div className="flex items-start justify-between gap-5 flex-wrap">
+                        <div className="flex items-start gap-4">
+                          <div className="p-3 rounded-2xl bg-purple-600 text-white shadow-lg shadow-purple-600/20">
+                            <BookOpen size={22} />
+                          </div>
+
+                          <div>
+                            <p className="text-[10px] font-black uppercase tracking-[0.22em] text-purple-500 mb-2">
+                              Assistente comercial
+                            </p>
+
+                            <h4 className="text-xl font-black text-slate-900 tracking-tight">
+                              Guia da negociação
+                            </h4>
+
+                            <p className="text-sm font-medium text-slate-400 mt-1">
+                              Estratégia interna para{" "}
+                              <span className="font-black text-slate-700">
+                                {currentOpportunity.service_name}
+                              </span>
+                            </p>
+
+                            <div className="flex flex-wrap gap-2 mt-3">
+                              <span className="px-3 py-1.5 rounded-full bg-slate-100 text-slate-500 text-[9px] font-black uppercase tracking-widest">
+                                Gerado em {formatDateTime(guideGeneratedAt)}
+                              </span>
+
+                              {negotiationGuide?.metadata?.version && (
+                                <span className="px-3 py-1.5 rounded-full bg-purple-100 text-purple-600 text-[9px] font-black uppercase tracking-widest">
+                                  Versão {negotiationGuide.metadata.version}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            onClick={() =>
+                              openAnalysisModal(currentOpportunity)
+                            }
+                            className="px-4 py-3 rounded-xl bg-white text-slate-600 border border-slate-200 hover:border-purple-300 hover:text-purple-600 text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all"
+                          >
+                            <FileText size={14} />
+                            Editar análise
+                          </button>
+
+                          <button
+                            onClick={() =>
+                              handleGenerateGuide({
+                                confirmRegeneration: true,
+                              })
+                            }
+                            disabled={generatingGuide}
+                            className="px-4 py-3 rounded-xl bg-purple-600 text-white hover:bg-purple-700 text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all disabled:opacity-60"
+                          >
+                            {generatingGuide ? (
+                              <Loader2 size={14} className="animate-spin" />
+                            ) : (
+                              <RefreshCw size={14} />
+                            )}
+                            Regenerar
+                          </button>
+
+                          <button
+                            onClick={() => setShowNegotiationGuide(false)}
+                            className="px-4 py-3 rounded-xl bg-slate-100 text-slate-500 hover:bg-slate-200 text-[10px] font-black uppercase tracking-widest transition-all"
+                          >
+                            Ocultar
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {guideIsOutdated && (
+                      <div className="mx-7 mt-6 p-5 rounded-[2rem] bg-orange-50 border border-orange-200 text-orange-700">
+                        <div className="flex items-start gap-3">
+                          <AlertTriangle
+                            size={20}
+                            className="shrink-0 mt-0.5"
+                          />
+
+                          <div className="flex-1">
+                            <p className="text-sm font-black">
+                              Este guia está desatualizado
+                            </p>
+
+                            <p className="text-xs font-medium mt-1">
+                              A análise comercial foi modificada depois da
+                              última geração.
+                            </p>
+
+                            <button
+                              onClick={() =>
+                                handleGenerateGuide({
+                                  confirmRegeneration: true,
+                                })
+                              }
+                              disabled={generatingGuide}
+                              className="mt-4 px-4 py-2.5 rounded-xl bg-orange-600 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2 disabled:opacity-60"
+                            >
+                              <RefreshCw
+                                size={13}
+                                className={
+                                  generatingGuide ? "animate-spin" : ""
+                                }
+                              />
+                              Regenerar com análise atual
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="p-7 space-y-3">
+                      {guideSections.map((section) => {
+                        const expanded = expandedGuideSections[section.id];
+
+                        const itemCount = Array.isArray(section.value)
+                          ? section.value.length
+                          : null;
+
+                        return (
+                          <div
+                            key={section.id}
+                            className="rounded-[1.75rem] bg-white border border-slate-100 overflow-hidden"
+                          >
+                            <button
+                              type="button"
+                              onClick={() => toggleGuideSection(section.id)}
+                              className="w-full p-5 flex items-center justify-between gap-4 text-left hover:bg-slate-50 transition-all"
+                            >
+                              <div>
+                                <p className="text-sm font-black text-slate-800">
+                                  {section.title}
+                                </p>
+
+                                {itemCount !== null && (
+                                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-300 mt-1">
+                                    {itemCount}{" "}
+                                    {itemCount === 1 ? "item" : "itens"}
+                                  </p>
+                                )}
+                              </div>
+
+                              {expanded ? (
+                                <ChevronUp
+                                  size={18}
+                                  className="text-purple-500"
+                                />
+                              ) : (
+                                <ChevronDown
+                                  size={18}
+                                  className="text-slate-300"
+                                />
+                              )}
+                            </button>
+
+                            {expanded && (
+                              <div className="px-5 pb-5 border-t border-slate-50">
+                                {section.type === "text" && (
+                                  <div className="pt-5">
+                                    <p className="text-sm font-medium leading-relaxed text-slate-600 whitespace-pre-line">
+                                      {section.value ||
+                                        "Nenhuma informação disponível."}
+                                    </p>
+
+                                    {section.value && (
+                                      <div className="flex justify-end mt-4">
+                                        <GuideCopyButton
+                                          copied={
+                                            copiedGuideItem === section.id
+                                          }
+                                          onClick={() =>
+                                            handleCopyGuideText(
+                                              section.value,
+                                              section.id,
+                                            )
+                                          }
+                                        />
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+
+                                {section.type === "list" && (
+                                  <div className="pt-5 space-y-3">
+                                    {Array.isArray(section.value) &&
+                                    section.value.length > 0 ? (
+                                      section.value.map((item, index) => {
+                                        const copyId = `${section.id}-${index}`;
+
+                                        return (
+                                          <div
+                                            key={copyId}
+                                            className="p-4 rounded-2xl bg-slate-50 border border-slate-100 flex items-start gap-3"
+                                          >
+                                            <div className="w-7 h-7 shrink-0 rounded-xl bg-white text-purple-600 flex items-center justify-center text-[10px] font-black border border-slate-100">
+                                              {index + 1}
+                                            </div>
+
+                                            <p className="flex-1 text-sm font-medium leading-relaxed text-slate-600">
+                                              {item}
+                                            </p>
+
+                                            <GuideCopyButton
+                                              compact
+                                              copied={
+                                                copiedGuideItem === copyId
+                                              }
+                                              onClick={() =>
+                                                handleCopyGuideText(
+                                                  item,
+                                                  copyId,
+                                                )
+                                              }
+                                            />
+                                          </div>
+                                        );
+                                      })
+                                    ) : (
+                                      <p className="text-sm text-slate-400 font-medium">
+                                        Nenhum item disponível.
+                                      </p>
+                                    )}
+                                  </div>
+                                )}
+
+                                {section.type === "objections" && (
+                                  <div className="pt-5 space-y-4">
+                                    {Array.isArray(section.value) &&
+                                    section.value.length > 0 ? (
+                                      section.value.map((item, index) => {
+                                        const copyId = `objection-response-${index}`;
+
+                                        return (
+                                          <div
+                                            key={copyId}
+                                            className="p-5 rounded-[1.5rem] bg-slate-50 border border-slate-100"
+                                          >
+                                            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-red-400 mb-2">
+                                              Objeção
+                                            </p>
+
+                                            <p className="text-sm font-black text-slate-800">
+                                              {item.objection ||
+                                                "Objeção não informada"}
+                                            </p>
+
+                                            <div className="my-4 h-px bg-slate-200" />
+
+                                            <div className="flex items-start gap-3">
+                                              <div className="flex-1">
+                                                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-green-500 mb-2">
+                                                  Resposta sugerida
+                                                </p>
+
+                                                <p className="text-sm font-medium leading-relaxed text-slate-600">
+                                                  {item.response ||
+                                                    "Resposta não informada"}
+                                                </p>
+                                              </div>
+
+                                              {item.response && (
+                                                <GuideCopyButton
+                                                  compact
+                                                  copied={
+                                                    copiedGuideItem === copyId
+                                                  }
+                                                  onClick={() =>
+                                                    handleCopyGuideText(
+                                                      item.response,
+                                                      copyId,
+                                                    )
+                                                  }
+                                                />
+                                              )}
+                                            </div>
+                                          </div>
+                                        );
+                                      })
+                                    ) : (
+                                      <p className="text-sm text-slate-400 font-medium">
+                                        Nenhuma resposta disponível.
+                                      </p>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {showNegotiationGuide && hasNegotiationGuide && (
+                  <div className="rounded-[2.5rem] border border-purple-100 bg-gradient-to-b from-purple-50/70 to-white overflow-hidden shadow-sm animate-in fade-in slide-in-from-top-3 duration-300">
+                    <div className="p-7 border-b border-purple-100 bg-white/70">
+                      <div className="flex items-start justify-between gap-5 flex-wrap">
+                        <div className="flex items-start gap-4">
+                          <div className="p-3 rounded-2xl bg-purple-600 text-white shadow-lg shadow-purple-600/20">
+                            <BookOpen size={22} />
+                          </div>
+
+                          <div>
+                            <p className="text-[10px] font-black uppercase tracking-[0.22em] text-purple-500 mb-2">
+                              Assistente comercial
+                            </p>
+
+                            <h4 className="text-xl font-black text-slate-900 tracking-tight">
+                              Guia da negociação
+                            </h4>
+
+                            <p className="text-sm font-medium text-slate-400 mt-1">
+                              Estratégia interna para{" "}
+                              <span className="font-black text-slate-700">
+                                {currentOpportunity.service_name}
+                              </span>
+                            </p>
+
+                            <div className="flex flex-wrap gap-2 mt-3">
+                              <span className="px-3 py-1.5 rounded-full bg-slate-100 text-slate-500 text-[9px] font-black uppercase tracking-widest">
+                                Gerado em {formatDateTime(guideGeneratedAt)}
+                              </span>
+
+                              {negotiationGuide?.metadata?.version && (
+                                <span className="px-3 py-1.5 rounded-full bg-purple-100 text-purple-600 text-[9px] font-black uppercase tracking-widest">
+                                  Versão {negotiationGuide.metadata.version}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            onClick={() =>
+                              openAnalysisModal(currentOpportunity)
+                            }
+                            className="px-4 py-3 rounded-xl bg-white text-slate-600 border border-slate-200 hover:border-purple-300 hover:text-purple-600 text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all"
+                          >
+                            <FileText size={14} />
+                            Editar análise
+                          </button>
+
+                          <button
+                            onClick={() =>
+                              handleGenerateGuide({
+                                confirmRegeneration: true,
+                              })
+                            }
+                            disabled={generatingGuide}
+                            className="px-4 py-3 rounded-xl bg-purple-600 text-white hover:bg-purple-700 text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all disabled:opacity-60"
+                          >
+                            {generatingGuide ? (
+                              <Loader2 size={14} className="animate-spin" />
+                            ) : (
+                              <RefreshCw size={14} />
+                            )}
+                            Regenerar
+                          </button>
+
+                          <button
+                            onClick={() => setShowNegotiationGuide(false)}
+                            className="px-4 py-3 rounded-xl bg-slate-100 text-slate-500 hover:bg-slate-200 text-[10px] font-black uppercase tracking-widest transition-all"
+                          >
+                            Ocultar
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {guideIsOutdated && (
+                      <div className="mx-7 mt-6 p-5 rounded-[2rem] bg-orange-50 border border-orange-200 text-orange-700">
+                        <div className="flex items-start gap-3">
+                          <AlertTriangle
+                            size={20}
+                            className="shrink-0 mt-0.5"
+                          />
+
+                          <div className="flex-1">
+                            <p className="text-sm font-black">
+                              Este guia está desatualizado
+                            </p>
+
+                            <p className="text-xs font-medium mt-1">
+                              A análise comercial foi modificada depois da
+                              última geração.
+                            </p>
+
+                            <button
+                              onClick={() =>
+                                handleGenerateGuide({
+                                  confirmRegeneration: true,
+                                })
+                              }
+                              disabled={generatingGuide}
+                              className="mt-4 px-4 py-2.5 rounded-xl bg-orange-600 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2 disabled:opacity-60"
+                            >
+                              <RefreshCw
+                                size={13}
+                                className={
+                                  generatingGuide ? "animate-spin" : ""
+                                }
+                              />
+                              Regenerar com análise atual
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="p-7 space-y-3">
+                      {guideSections.map((section) => {
+                        const expanded = expandedGuideSections[section.id];
+
+                        const itemCount = Array.isArray(section.value)
+                          ? section.value.length
+                          : null;
+
+                        return (
+                          <div
+                            key={section.id}
+                            className="rounded-[1.75rem] bg-white border border-slate-100 overflow-hidden"
+                          >
+                            <button
+                              type="button"
+                              onClick={() => toggleGuideSection(section.id)}
+                              className="w-full p-5 flex items-center justify-between gap-4 text-left hover:bg-slate-50 transition-all"
+                            >
+                              <div>
+                                <p className="text-sm font-black text-slate-800">
+                                  {section.title}
+                                </p>
+
+                                {itemCount !== null && (
+                                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-300 mt-1">
+                                    {itemCount}{" "}
+                                    {itemCount === 1 ? "item" : "itens"}
+                                  </p>
+                                )}
+                              </div>
+
+                              {expanded ? (
+                                <ChevronUp
+                                  size={18}
+                                  className="text-purple-500"
+                                />
+                              ) : (
+                                <ChevronDown
+                                  size={18}
+                                  className="text-slate-300"
+                                />
+                              )}
+                            </button>
+
+                            {expanded && (
+                              <div className="px-5 pb-5 border-t border-slate-50">
+                                {section.type === "text" && (
+                                  <div className="pt-5">
+                                    <p className="text-sm font-medium leading-relaxed text-slate-600 whitespace-pre-line">
+                                      {section.value ||
+                                        "Nenhuma informação disponível."}
+                                    </p>
+
+                                    {section.value && (
+                                      <div className="flex justify-end mt-4">
+                                        <GuideCopyButton
+                                          copied={
+                                            copiedGuideItem === section.id
+                                          }
+                                          onClick={() =>
+                                            handleCopyGuideText(
+                                              section.value,
+                                              section.id,
+                                            )
+                                          }
+                                        />
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+
+                                {section.type === "list" && (
+                                  <div className="pt-5 space-y-3">
+                                    {Array.isArray(section.value) &&
+                                    section.value.length > 0 ? (
+                                      section.value.map((item, index) => {
+                                        const copyId = `${section.id}-${index}`;
+
+                                        return (
+                                          <div
+                                            key={copyId}
+                                            className="p-4 rounded-2xl bg-slate-50 border border-slate-100 flex items-start gap-3"
+                                          >
+                                            <div className="w-7 h-7 shrink-0 rounded-xl bg-white text-purple-600 flex items-center justify-center text-[10px] font-black border border-slate-100">
+                                              {index + 1}
+                                            </div>
+
+                                            <p className="flex-1 text-sm font-medium leading-relaxed text-slate-600">
+                                              {item}
+                                            </p>
+
+                                            <GuideCopyButton
+                                              compact
+                                              copied={
+                                                copiedGuideItem === copyId
+                                              }
+                                              onClick={() =>
+                                                handleCopyGuideText(
+                                                  item,
+                                                  copyId,
+                                                )
+                                              }
+                                            />
+                                          </div>
+                                        );
+                                      })
+                                    ) : (
+                                      <p className="text-sm text-slate-400 font-medium">
+                                        Nenhum item disponível.
+                                      </p>
+                                    )}
+                                  </div>
+                                )}
+
+                                {section.type === "objections" && (
+                                  <div className="pt-5 space-y-4">
+                                    {Array.isArray(section.value) &&
+                                    section.value.length > 0 ? (
+                                      section.value.map((item, index) => {
+                                        const copyId = `objection-response-${index}`;
+
+                                        return (
+                                          <div
+                                            key={copyId}
+                                            className="p-5 rounded-[1.5rem] bg-slate-50 border border-slate-100"
+                                          >
+                                            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-red-400 mb-2">
+                                              Objeção
+                                            </p>
+
+                                            <p className="text-sm font-black text-slate-800">
+                                              {item.objection ||
+                                                "Objeção não informada"}
+                                            </p>
+
+                                            <div className="my-4 h-px bg-slate-200" />
+
+                                            <div className="flex items-start gap-3">
+                                              <div className="flex-1">
+                                                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-green-500 mb-2">
+                                                  Resposta sugerida
+                                                </p>
+
+                                                <p className="text-sm font-medium leading-relaxed text-slate-600">
+                                                  {item.response ||
+                                                    "Resposta não informada"}
+                                                </p>
+                                              </div>
+
+                                              {item.response && (
+                                                <GuideCopyButton
+                                                  compact
+                                                  copied={
+                                                    copiedGuideItem === copyId
+                                                  }
+                                                  onClick={() =>
+                                                    handleCopyGuideText(
+                                                      item.response,
+                                                      copyId,
+                                                    )
+                                                  }
+                                                />
+                                              )}
+                                            </div>
+                                          </div>
+                                        );
+                                      })
+                                    ) : (
+                                      <p className="text-sm text-slate-400 font-medium">
+                                        Nenhuma resposta disponível.
+                                      </p>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
@@ -2252,6 +3469,25 @@ const formatCurrency = (value) => {
     currency: "BRL",
   });
 };
+
+const GuideCopyButton = ({ copied, onClick, compact = false }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className={`rounded-xl border font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${
+      compact ? "w-9 h-9 shrink-0" : "px-3 py-2 text-[9px]"
+    } ${
+      copied
+        ? "bg-green-50 text-green-600 border-green-100"
+        : "bg-white text-slate-400 border-slate-200 hover:text-purple-600 hover:border-purple-200"
+    }`}
+    title={copied ? "Copiado" : "Copiar conteúdo"}
+  >
+    {copied ? <Check size={13} /> : <Copy size={13} />}
+
+    {!compact && (copied ? "Copiado" : "Copiar")}
+  </button>
+);
 
 const InfoMiniCard = ({ label, value }) => (
   <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100">
