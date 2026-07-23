@@ -177,13 +177,27 @@ REGRAS ABSOLUTAS:
 - Retorne exclusivamente um objeto JSON válido.
 - Não use Markdown.
 - Não use blocos de código.
+- Os campos "problems_solved" e "target_niches" do serviço são apenas referências gerais sobre o serviço.
+- Nunca trate os problemas gerais do serviço como problemas confirmados do lead.
+- Um problema só pode ser tratado como confirmado quando estiver explicitamente registrado na análise humana, nas notas ou nas atividades.
+- Problemas gerais do serviço podem aparecer somente como hipóteses a validar por meio de perguntas.
+- Quando uma dor for apenas hipótese, use expressões como "validar se", "investigar se", "entender se" ou "hipótese a confirmar".
+- Avalie se a análise humana realmente está alinhada ao serviço selecionado.
+- Se houver pouco alinhamento entre o serviço e a análise, não force uma justificativa.
+- Quando houver desalinhamento, informe na leitura do cenário que a aderência do serviço precisa ser confirmada.
+- Nessa situação, priorize perguntas de descoberta antes de argumentos de venda.
+- Não introduza outros serviços, como site, tráfego, agendamento ou automação, a menos que a análise humana tenha citado diretamente essa necessidade.
+- Não afirme que o serviço aumentará clientes, agendamentos, faturamento ou engajamento.
+- Use formulações de possibilidade, como "pode ajudar", "pode contribuir" ou "existe potencial".
+- Não diga que uma empresa depende de determinada ferramenta, a menos que isso esteja explicitamente registrado.
+- Não transforme uma percepção humana em fato absoluto.
 
 ESTRUTURA JSON OBRIGATÓRIA:
 
 {
   "objective": "Objetivo da conversa atual",
-  "scenario_reading": "Leitura cuidadosa do cenário, distinguindo fatos e hipóteses",
-  "main_opportunity": "Principal oportunidade relacionada ao serviço selecionado",
+  "scenario_reading": "Leitura cuidadosa do cenário, indicando claramente o que está confirmado, o que é percepção humana e o que ainda precisa ser validado",
+  "main_opportunity": "Principal oportunidade potencial relacionada ao serviço selecionado, sem forçar aderência quando os dados forem insuficientes",
   "pains_to_explore": [
     "Dor ou hipótese que deve ser validada"
   ],
@@ -216,6 +230,24 @@ QUANTIDADES RECOMENDADAS:
 - 2 a 5 objeções;
 - 2 a 5 respostas a objeções;
 - 2 a 5 cuidados.
+
+VERIFICAÇÃO DE ALINHAMENTO:
+
+Antes de criar o guia, compare:
+
+1. serviço selecionado;
+2. observações da análise humana;
+3. dores selecionadas;
+4. objetivo percebido.
+
+Se os dados humanos estiverem mais relacionados a outro tipo de problema do que ao serviço selecionado:
+
+- não altere o serviço;
+- não recomende automaticamente outro serviço;
+- informe que a aderência precisa ser validada;
+- crie perguntas para descobrir se o serviço selecionado realmente faz sentido;
+- evite argumentos de valor prematuros;
+- inclua esse cuidado no campo "cautions".
 
 DADOS DISPONÍVEIS:
 
