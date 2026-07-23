@@ -30,7 +30,21 @@ import {
   ChevronUp,
   Loader2,
   AlertCircle,
+  FileText,
 } from "lucide-react";
+
+const ANALYSIS_PAIN_POINTS = [
+  "Organização",
+  "Credibilidade",
+  "Aquisição de clientes",
+  "Atendimento",
+  "Processos internos",
+  "Visibilidade local",
+  "Conversão",
+  "Agilidade",
+  "Prospecção",
+  "Outro",
+];
 
 const LeadDetails = ({ leadId, onBack }) => {
   const [lead, setLead] = useState(null);
@@ -57,6 +71,18 @@ const LeadDetails = ({ leadId, onBack }) => {
 
   const [showAllServices, setShowAllServices] = useState(false);
   const [selectingServiceId, setSelectingServiceId] = useState(null);
+
+  const [showAnalysisModal, setShowAnalysisModal] = useState(false);
+
+  const [analysisForm, setAnalysisForm] = useState({
+    analysis_notes: "",
+    pain_points: [],
+    perceived_goal: "",
+  });
+
+  const [savingAnalysis, setSavingAnalysis] = useState(false);
+  const [analysisError, setAnalysisError] = useState("");
+  const [analysisFeedback, setAnalysisFeedback] = useState("");
 
   const [showClosingModal, setShowClosingModal] = useState(false);
   const [dealData, setDealData] = useState({
@@ -249,11 +275,31 @@ const LeadDetails = ({ leadId, onBack }) => {
       };
     }
 
-    if (currentOpportunity && !currentOpportunity.negotiation_guide) {
+    const hasCommercialAnalysis = Boolean(
+      currentOpportunity?.analysis_notes?.trim() ||
+      currentOpportunity?.perceived_goal?.trim() ||
+      (Array.isArray(currentOpportunity?.pain_points) &&
+        currentOpportunity.pain_points.length > 0),
+    );
+
+    if (currentOpportunity && !hasCommercialAnalysis) {
       return {
-        title: "Preencha a análise e gere o guia",
-        description: `O serviço em negociação é ${currentOpportunity.service_name}.`,
+        title: "Preencha a análise comercial",
+        description: `Registre o que percebeu sobre a oportunidade de ${currentOpportunity.service_name}.`,
         classes: "bg-indigo-50 text-indigo-700 border-indigo-200",
+      };
+    }
+
+    if (
+      currentOpportunity &&
+      hasCommercialAnalysis &&
+      !currentOpportunity.negotiation_guide
+    ) {
+      return {
+        title: "Gere o guia da negociação",
+        description:
+          "A análise está salva. Agora a IA pode estruturar sua estratégia comercial.",
+        classes: "bg-purple-50 text-purple-700 border-purple-200",
       };
     }
 
@@ -367,6 +413,133 @@ const LeadDetails = ({ leadId, onBack }) => {
     }
   };
 
+  const openAnalysisModal = (opportunity = currentOpportunity) => {
+    if (!opportunity) {
+      setRecommendationError(
+        "Selecione um serviço antes de preencher a análise.",
+      );
+      return;
+    }
+
+    setAnalysisForm({
+      analysis_notes: opportunity.analysis_notes || "",
+
+      pain_points: Array.isArray(opportunity.pain_points)
+        ? opportunity.pain_points
+        : [],
+
+      perceived_goal: opportunity.perceived_goal || "",
+    });
+
+    setAnalysisError("");
+    setAnalysisFeedback("");
+    setShowAnalysisModal(true);
+  };
+
+  const toggleAnalysisPainPoint = (painPoint) => {
+    setAnalysisForm((current) => {
+      const alreadySelected = current.pain_points.includes(painPoint);
+
+      return {
+        ...current,
+
+        pain_points: alreadySelected
+          ? current.pain_points.filter((item) => item !== painPoint)
+          : [...current.pain_points, painPoint],
+      };
+    });
+  };
+
+  const handleSaveAnalysis = async ({ closeAfterSave = true } = {}) => {
+    if (!currentOpportunity) {
+      setAnalysisError("Nenhum serviço ativo foi encontrado.");
+      return false;
+    }
+
+    const normalizedForm = {
+      analysis_notes: analysisForm.analysis_notes.trim(),
+
+      pain_points: analysisForm.pain_points,
+
+      perceived_goal: analysisForm.perceived_goal.trim(),
+    };
+
+    const hasContent = Boolean(
+      normalizedForm.analysis_notes ||
+      normalizedForm.perceived_goal ||
+      normalizedForm.pain_points.length > 0,
+    );
+
+    if (!hasContent) {
+      setAnalysisError(
+        "Preencha pelo menos uma observação, uma dor ou um objetivo percebido.",
+      );
+      return false;
+    }
+
+    setSavingAnalysis(true);
+    setAnalysisError("");
+    setAnalysisFeedback("");
+
+    try {
+      const response = await api.patch(
+        `/service-opportunities/leads/${leadId}/analysis`,
+        normalizedForm,
+      );
+
+      const opportunity = response.data?.opportunity || {};
+
+      const service = response.data?.service || {};
+
+      const updatedOpportunity = {
+        ...currentOpportunity,
+        ...opportunity,
+
+        service_name: service.service_name || currentOpportunity.service_name,
+
+        service_key: service.service_key || currentOpportunity.service_key,
+
+        problem_category:
+          service.problem_category || currentOpportunity.problem_category,
+      };
+
+      setCurrentOpportunity(updatedOpportunity);
+
+      setAnalysisForm({
+        analysis_notes: updatedOpportunity.analysis_notes || "",
+
+        pain_points: Array.isArray(updatedOpportunity.pain_points)
+          ? updatedOpportunity.pain_points
+          : [],
+
+        perceived_goal: updatedOpportunity.perceived_goal || "",
+      });
+
+      const successMessage =
+        response.data?.message || "Análise comercial salva com sucesso.";
+
+      setAnalysisFeedback(successMessage);
+      setServiceFeedback(successMessage);
+
+      if (closeAfterSave) {
+        setShowAnalysisModal(false);
+      }
+
+      return true;
+    } catch (error) {
+      console.error("Erro ao salvar análise:", error);
+
+      setAnalysisError(
+        error.response?.data?.error ||
+          "Não foi possível salvar a análise comercial.",
+      );
+
+      return false;
+    } finally {
+      setSavingAnalysis(false);
+    }
+  };
+
   const handleSelectRecommendedService = async (
     service,
     confirmReset = false,
@@ -391,11 +564,42 @@ const LeadDetails = ({ leadId, onBack }) => {
         },
       );
 
+      const returnedOpportunity = response.data?.opportunity || null;
+
+      const returnedService = response.data?.service || null;
+
+      const enrichedOpportunity = returnedOpportunity
+        ? {
+            ...returnedOpportunity,
+
+            service_name:
+              returnedService?.service_name || returnedOpportunity.service_name,
+
+            service_key:
+              returnedService?.service_key || returnedOpportunity.service_key,
+
+            problem_category:
+              returnedService?.problem_category ||
+              returnedOpportunity.problem_category,
+          }
+        : null;
+
+      if (enrichedOpportunity) {
+        setCurrentOpportunity(enrichedOpportunity);
+      }
+
       setServiceFeedback(
         response.data?.message || "Serviço selecionado com sucesso.",
       );
 
       await fetchServiceOpportunityData();
+
+      if (
+        enrichedOpportunity &&
+        ["created", "changed"].includes(response.data?.action)
+      ) {
+        openAnalysisModal(enrichedOpportunity);
+      }
     } catch (error) {
       const responseData = error.response?.data;
 
@@ -641,8 +845,213 @@ const LeadDetails = ({ leadId, onBack }) => {
         Number(service.service_id) === Number(currentOpportunity?.service_id),
     ) || null;
 
+  const hasCommercialAnalysis = Boolean(
+    currentOpportunity?.analysis_notes?.trim() ||
+    currentOpportunity?.perceived_goal?.trim() ||
+    (Array.isArray(currentOpportunity?.pain_points) &&
+      currentOpportunity.pain_points.length > 0),
+  );
+
   return (
     <div className="p-8 max-w-[1600px] mx-auto animate-in fade-in duration-700 pb-20 relative">
+      {showAnalysisModal && currentOpportunity && (
+        <div className="fixed inset-0 z-[140] flex items-center justify-center p-4 bg-slate-900/65 backdrop-blur-sm">
+          <div className="bg-white w-full max-w-3xl max-h-[90vh] overflow-hidden rounded-[3rem] shadow-2xl border border-white/20 animate-in zoom-in duration-200">
+            <div className="bg-slate-900 text-white p-8 flex items-start justify-between gap-5">
+              <div className="flex items-start gap-4">
+                <div className="p-3 rounded-2xl bg-purple-500 text-white shadow-lg shadow-purple-500/20">
+                  <BrainCircuit size={23} />
+                </div>
+
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.24em] text-purple-300 mb-2">
+                    Análise comercial
+                  </p>
+
+                  <h2 className="text-2xl font-black tracking-tight">
+                    {currentOpportunity.service_name}
+                  </h2>
+
+                  <p className="text-sm font-bold text-slate-400 mt-1">
+                    {currentOpportunity.problem_category}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setShowAnalysisModal(false)}
+                disabled={savingAnalysis}
+                className="p-2 rounded-full hover:bg-white/10 text-slate-400 hover:text-white transition-all"
+              >
+                <X size={22} />
+              </button>
+            </div>
+
+            <div className="p-8 space-y-7 max-h-[65vh] overflow-y-auto scrollbar-hide">
+              <div className="p-5 rounded-[2rem] bg-purple-50 border border-purple-100">
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-purple-500 mb-2">
+                  Serviço escolhido
+                </p>
+
+                <p className="text-lg font-black text-slate-900">
+                  {currentOpportunity.service_name}
+                </p>
+
+                <p className="text-sm font-medium text-slate-500 mt-1">
+                  A seleção do serviço não altera a mensagem inicial enviada ao
+                  lead.
+                </p>
+              </div>
+
+              <div>
+                <div className="flex items-end justify-between gap-3 mb-3">
+                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
+                    O que você percebeu?
+                  </label>
+
+                  <span className="text-[10px] font-bold text-slate-300">
+                    {analysisForm.analysis_notes.length}/5000
+                  </span>
+                </div>
+
+                <textarea
+                  value={analysisForm.analysis_notes}
+                  maxLength={5000}
+                  onChange={(event) =>
+                    setAnalysisForm((current) => ({
+                      ...current,
+                      analysis_notes: event.target.value,
+                    }))
+                  }
+                  placeholder="Ex: A empresa possui boa reputação, mas aparenta depender bastante do WhatsApp para organizar horários e contatos..."
+                  className="w-full min-h-[150px] resize-none rounded-[2rem] bg-slate-50 border border-slate-100 p-5 text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 block mb-4">
+                  Principais dores
+                </label>
+
+                <div className="flex flex-wrap gap-3">
+                  {ANALYSIS_PAIN_POINTS.map((painPoint) => {
+                    const selected =
+                      analysisForm.pain_points.includes(painPoint);
+
+                    return (
+                      <button
+                        key={painPoint}
+                        type="button"
+                        onClick={() => toggleAnalysisPainPoint(painPoint)}
+                        className={`px-4 py-3 rounded-2xl border text-[10px] font-black uppercase tracking-widest transition-all ${
+                          selected
+                            ? "bg-purple-600 text-white border-purple-600 shadow-lg shadow-purple-600/20"
+                            : "bg-white text-slate-500 border-slate-200 hover:border-purple-300 hover:text-purple-600"
+                        }`}
+                      >
+                        {selected && (
+                          <CheckCircle2 size={13} className="inline mr-2" />
+                        )}
+
+                        {painPoint}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <p className="text-xs text-slate-400 font-medium mt-3">
+                  Você pode selecionar mais de uma dor.
+                </p>
+              </div>
+
+              <div>
+                <div className="flex items-end justify-between gap-3 mb-3">
+                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
+                    Objetivo percebido
+                  </label>
+
+                  <span className="text-[10px] font-bold text-slate-300">
+                    {analysisForm.perceived_goal.length}/2000
+                  </span>
+                </div>
+
+                <textarea
+                  value={analysisForm.perceived_goal}
+                  maxLength={2000}
+                  onChange={(event) =>
+                    setAnalysisForm((current) => ({
+                      ...current,
+                      perceived_goal: event.target.value,
+                    }))
+                  }
+                  placeholder="Ex: Facilitar as marcações, diminuir o trabalho manual e oferecer uma experiência mais organizada aos clientes."
+                  className="w-full min-h-[110px] resize-none rounded-[2rem] bg-slate-50 border border-slate-100 p-5 text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
+                />
+              </div>
+
+              {analysisError && (
+                <div className="p-4 rounded-2xl bg-red-50 text-red-600 border border-red-100 flex items-start gap-3">
+                  <AlertCircle size={18} className="shrink-0 mt-0.5" />
+
+                  <p className="text-sm font-bold">{analysisError}</p>
+                </div>
+              )}
+
+              {analysisFeedback && (
+                <div className="p-4 rounded-2xl bg-green-50 text-green-700 border border-green-100 flex items-start gap-3">
+                  <CheckCircle2 size={18} className="shrink-0 mt-0.5" />
+
+                  <p className="text-sm font-bold">{analysisFeedback}</p>
+                </div>
+              )}
+            </div>
+
+            <div className="p-7 bg-slate-50 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <button
+                type="button"
+                onClick={() => setShowAnalysisModal(false)}
+                disabled={savingAnalysis}
+                className="py-4 rounded-2xl text-slate-500 font-black text-[10px] uppercase tracking-widest hover:bg-slate-100 transition-all"
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="button"
+                onClick={() =>
+                  handleSaveAnalysis({
+                    closeAfterSave: true,
+                  })
+                }
+                disabled={savingAnalysis}
+                className="py-4 rounded-2xl bg-slate-900 text-white font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center justify-center gap-2 disabled:opacity-60"
+              >
+                {savingAnalysis ? (
+                  <>
+                    <Loader2 size={15} className="animate-spin" />
+                    Salvando
+                  </>
+                ) : (
+                  <>
+                    <Save size={15} />
+                    Salvar análise
+                  </>
+                )}
+              </button>
+
+              <button
+                type="button"
+                disabled
+                title="Será ativado na próxima etapa"
+                className="py-4 rounded-2xl bg-purple-100 text-purple-400 font-black text-[10px] uppercase tracking-widest cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                <Sparkles size={15} />
+                Gerar guia
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {showBriefingLinkModal && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
           <div className="bg-white w-full max-w-lg rounded-[3rem] shadow-2xl overflow-hidden border border-white/20 animate-in zoom-in duration-200">
@@ -1390,11 +1799,14 @@ const LeadDetails = ({ leadId, onBack }) => {
 
                       <div className="flex flex-wrap gap-3 mt-6">
                         <button
-                          disabled
-                          title="Será ativado na etapa de análise comercial"
-                          className="px-4 py-3 rounded-xl bg-white/5 text-slate-500 text-[10px] font-black uppercase tracking-widest cursor-not-allowed"
+                          onClick={() => openAnalysisModal(currentOpportunity)}
+                          className="px-4 py-3 rounded-xl bg-white/10 text-white hover:bg-white/20 text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2"
                         >
-                          Editar análise
+                          <FileText size={14} />
+
+                          {hasCommercialAnalysis
+                            ? "Editar análise"
+                            : "Preencher análise"}
                         </button>
 
                         <button
