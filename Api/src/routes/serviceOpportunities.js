@@ -62,6 +62,39 @@ function hasOpportunityProgress(opportunity) {
   );
 }
 
+const ALLOWED_ANALYSIS_PAIN_POINTS = [
+  "Organização",
+  "Credibilidade",
+  "Aquisição de clientes",
+  "Atendimento",
+  "Processos internos",
+  "Visibilidade local",
+  "Conversão",
+  "Agilidade",
+  "Prospecção",
+  "Outro",
+];
+
+function normalizeTextField(value, maxLength) {
+  if (value === null || value === undefined) {
+    return "";
+  }
+
+  return String(value).trim().slice(0, maxLength);
+}
+
+function normalizePainPoints(painPoints) {
+  if (!Array.isArray(painPoints)) {
+    return [];
+  }
+
+  return [
+    ...new Set(
+      painPoints.map((item) => String(item || "").trim()).filter(Boolean),
+    ),
+  ];
+}
+
 /**
  * GET /api/service-opportunities/services
  *
@@ -840,6 +873,204 @@ router.get("/leads/:leadId/recommendations", async (req, res) => {
     return res.status(500).json({
       success: false,
       error: "Erro ao calcular as recomendações de serviços.",
+    });
+  }
+});
+
+/**
+ * PATCH /api/service-opportunities/leads/:leadId/analysis
+ *
+ * Salva a análise humana da oportunidade ativa.
+ *
+ * Campos:
+ * - analysis_notes
+ * - perceived_goal
+ * - pain_points
+ */
+router.patch("/leads/:leadId/analysis", async (req, res) => {
+  const leadId = Number(req.params.leadId);
+
+  if (!Number.isInteger(leadId) || leadId <= 0) {
+    return res.status(400).json({
+      success: false,
+      code: "INVALID_LEAD_ID",
+      error: "ID do lead inválido.",
+    });
+  }
+
+  const body = req.body || {};
+
+  const hasAnalysisNotes = Object.prototype.hasOwnProperty.call(
+    body,
+    "analysis_notes",
+  );
+
+  const hasPerceivedGoal = Object.prototype.hasOwnProperty.call(
+    body,
+    "perceived_goal",
+  );
+
+  const hasPainPoints = Object.prototype.hasOwnProperty.call(
+    body,
+    "pain_points",
+  );
+
+  if (!hasAnalysisNotes && !hasPerceivedGoal && !hasPainPoints) {
+    return res.status(400).json({
+      success: false,
+      code: "NO_ANALYSIS_FIELDS",
+      error: "Envie ao menos um campo da análise para atualizar.",
+    });
+  }
+
+  if (hasPainPoints && !Array.isArray(body.pain_points)) {
+    return res.status(400).json({
+      success: false,
+      code: "INVALID_PAIN_POINTS",
+      error: "pain_points deve ser uma lista.",
+    });
+  }
+
+  const analysisNotes = normalizeTextField(body.analysis_notes, 5000);
+
+  const perceivedGoal = normalizeTextField(body.perceived_goal, 2000);
+
+  const painPoints = normalizePainPoints(body.pain_points);
+
+  if (painPoints.length > 10) {
+    return res.status(400).json({
+      success: false,
+      code: "TOO_MANY_PAIN_POINTS",
+      error: "Selecione no máximo 10 dores principais.",
+    });
+  }
+
+  const invalidPainPoints = painPoints.filter(
+    (painPoint) => !ALLOWED_ANALYSIS_PAIN_POINTS.includes(painPoint),
+  );
+
+  if (invalidPainPoints.length > 0) {
+    return res.status(400).json({
+      success: false,
+      code: "UNKNOWN_PAIN_POINTS",
+      error: "Uma ou mais dores selecionadas são inválidas.",
+      invalid_pain_points: invalidPainPoints,
+      allowed_pain_points: ALLOWED_ANALYSIS_PAIN_POINTS,
+    });
+  }
+
+  try {
+    const result = await db.query(
+      `
+      UPDATE lead_service_opportunities
+      SET
+        analysis_notes =
+          CASE
+            WHEN $2::boolean = TRUE
+            THEN $3
+            ELSE analysis_notes
+          END,
+
+        perceived_goal =
+          CASE
+            WHEN $4::boolean = TRUE
+            THEN $5
+            ELSE perceived_goal
+          END,
+
+        pain_points =
+          CASE
+            WHEN $6::boolean = TRUE
+            THEN $7::jsonb
+            ELSE pain_points
+          END
+
+      WHERE lead_id = $1
+        AND is_active = TRUE
+
+      RETURNING *
+      `,
+      [
+        leadId,
+
+        hasAnalysisNotes,
+        analysisNotes,
+
+        hasPerceivedGoal,
+        perceivedGoal,
+
+        hasPainPoints,
+        JSON.stringify(painPoints),
+      ],
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({
+        success: false,
+        code: "ACTIVE_OPPORTUNITY_NOT_FOUND",
+        error: "Este lead não possui um serviço ativo em negociação.",
+      });
+    }
+
+    const opportunity = result.rows[0];
+
+    const serviceResult = await db.query(
+      `
+      SELECT
+        id,
+        service_key,
+        service_name,
+        service_type,
+        problem_category,
+        description,
+        how_it_works,
+        problems_solved,
+        target_niches
+      FROM velaris_services
+      WHERE id = $1
+      LIMIT 1
+      `,
+      [opportunity.service_id],
+    );
+
+    const service = serviceResult.rows[0] || null;
+
+    const hasGuide = Boolean(opportunity.negotiation_guide);
+
+    const guideIsOutdated = Boolean(
+      hasGuide &&
+      opportunity.guide_generated_at &&
+      opportunity.updated_at &&
+      new Date(opportunity.updated_at).getTime() >
+        new Date(opportunity.guide_generated_at).getTime(),
+    );
+
+    return res.json({
+      success: true,
+      message: "Análise comercial salva com sucesso.",
+
+      analysis: {
+        analysis_notes: opportunity.analysis_notes || "",
+        perceived_goal: opportunity.perceived_goal || "",
+        pain_points: opportunity.pain_points || [],
+      },
+
+      guide_status: {
+        has_guide: hasGuide,
+        is_outdated: guideIsOutdated,
+        generated_at: opportunity.guide_generated_at || null,
+      },
+
+      service,
+
+      opportunity,
+    });
+  } catch (error) {
+    console.error("Erro ao salvar análise comercial:", error);
+
+    return res.status(500).json({
+      success: false,
+      error: "Erro ao salvar a análise comercial.",
     });
   }
 });
