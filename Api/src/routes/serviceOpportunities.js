@@ -4,6 +4,7 @@ const db = require("../database/db");
 const {
   generateNegotiationGuide,
 } = require("../services/negotiationGuideService");
+const { createLeadEvent } = require("../services/eventService");
 
 /**
  * Converte uma categoria em uma chave estável para rankings.
@@ -32,6 +33,7 @@ function normalizeNicheKey(value) {
 function hasLeadResponded(lead) {
   const respondedStatuses = [
     "responded",
+    "qualified",
     "interested",
     "negotiation",
     "closed",
@@ -39,6 +41,7 @@ function hasLeadResponded(lead) {
 
   const respondedStages = [
     "responded",
+    "qualified",
     "interested",
     "preview_sent",
     "negotiation",
@@ -97,6 +100,36 @@ function normalizePainPoints(painPoints) {
     ),
   ];
 }
+
+const PROGRESS_EVENTS = {
+  interest: {
+    opportunityField: "interest_score",
+    points: 1,
+    leadEventType: "interest_confirmed",
+    activityDescription: "Interesse confirmado no serviço em negociação.",
+  },
+
+  preview: {
+    opportunityField: "preview_score",
+    points: 1,
+    leadEventType: "preview_sent",
+    activityDescription: "Preview ou demonstração apresentado ao lead.",
+  },
+
+  price: {
+    opportunityField: "price_score",
+    points: 1,
+    leadEventType: "price_requested",
+    activityDescription: "Lead avançou para conversa sobre preço.",
+  },
+
+  closed: {
+    opportunityField: "closed_score",
+    points: 4,
+    leadEventType: "deal_closed",
+    activityDescription: "Negócio fechado e atribuído ao serviço selecionado.",
+  },
+};
 
 /**
  * GET /api/service-opportunities/services
@@ -1379,6 +1412,470 @@ router.post("/leads/:leadId/guide", async (req, res) => {
       success: false,
       error: "Erro ao gerar o guia de negociação.",
     });
+  }
+});
+
+/**
+ * PATCH /api/service-opportunities/leads/:leadId/progress
+ *
+ * Body:
+ * {
+ *   "event": "interest" | "preview" | "price" | "closed",
+ *   "sale_value": 500,
+ *   "deal_details": {}
+ * }
+ */
+router.patch("/leads/:leadId/progress", async (req, res) => {
+  const leadId = Number(req.params.leadId);
+
+  const { event, sale_value = null, deal_details = null } = req.body || {};
+
+  if (!Number.isInteger(leadId) || leadId <= 0) {
+    return res.status(400).json({
+      success: false,
+      code: "INVALID_LEAD_ID",
+      error: "ID do lead inválido.",
+    });
+  }
+
+  if (!PROGRESS_EVENTS[event]) {
+    return res.status(400).json({
+      success: false,
+      code: "INVALID_PROGRESS_EVENT",
+      error: "Evento inválido. Use interest, preview, price ou closed.",
+      allowed_events: Object.keys(PROGRESS_EVENTS),
+    });
+  }
+
+  let normalizedSaleValue = null;
+
+  if (sale_value !== null && sale_value !== undefined && sale_value !== "") {
+    normalizedSaleValue = Number(sale_value);
+
+    if (!Number.isFinite(normalizedSaleValue) || normalizedSaleValue < 0) {
+      return res.status(400).json({
+        success: false,
+        code: "INVALID_SALE_VALUE",
+        error: "Valor da venda inválido.",
+      });
+    }
+  }
+
+  const config = PROGRESS_EVENTS[event];
+
+  const client = await db.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    /*
+     * Bloqueia o lead durante toda a transação.
+     * Isso também protege contra dois cliques simultâneos.
+     */
+    const leadResult = await client.query(
+      `
+      SELECT
+        id,
+        name,
+        status,
+        pipeline_stage,
+        preview_sent,
+        price_requested,
+        sale_value,
+        deal_details
+      FROM leads
+      WHERE id = $1
+      FOR UPDATE
+      `,
+      [leadId],
+    );
+
+    if (leadResult.rowCount === 0) {
+      await client.query("ROLLBACK");
+
+      return res.status(404).json({
+        success: false,
+        code: "LEAD_NOT_FOUND",
+        error: "Lead não encontrado.",
+      });
+    }
+
+    const leadBeforeProgress = leadResult.rows[0];
+
+    /*
+     * Busca e bloqueia a oportunidade ativa.
+     *
+     * A ausência de oportunidade não impede o avanço
+     * normal do pipeline.
+     */
+    const opportunityResult = await client.query(
+      `
+      SELECT
+        opportunity.*,
+        service.service_key,
+        service.service_name,
+        service.problem_category
+      FROM lead_service_opportunities opportunity
+
+      INNER JOIN velaris_services service
+        ON service.id = opportunity.service_id
+
+      WHERE opportunity.lead_id = $1
+        AND opportunity.is_active = TRUE
+
+      LIMIT 1
+
+      FOR UPDATE OF opportunity
+      `,
+      [leadId],
+    );
+
+    const currentOpportunity = opportunityResult.rows[0] || null;
+
+    let opportunity = null;
+    let alreadyAttributed = false;
+    let warning = null;
+
+    /*
+     * Atualiza a oportunidade quando existe serviço ativo.
+     */
+    if (currentOpportunity) {
+      alreadyAttributed =
+        Number(currentOpportunity[config.opportunityField] || 0) > 0;
+
+      const selectedScore = Math.max(
+        1,
+        Number(currentOpportunity.selected_score || 1),
+      );
+
+      const interestScore =
+        event === "interest"
+          ? 1
+          : Number(currentOpportunity.interest_score || 0);
+
+      const previewScore =
+        event === "preview" ? 1 : Number(currentOpportunity.preview_score || 0);
+
+      const priceScore =
+        event === "price" ? 1 : Number(currentOpportunity.price_score || 0);
+
+      const closedScore =
+        event === "closed" ? 4 : Number(currentOpportunity.closed_score || 0);
+
+      const updatedOpportunityResult = await client.query(
+        `
+          UPDATE lead_service_opportunities
+      SET
+        selected_score = $2,
+        interest_score = $3,
+        preview_score = $4,
+        price_score = $5,
+        closed_score = $6,
+
+        interest_marked_at =
+          CASE
+            WHEN interest_score = 0
+              AND $3 > 0
+            THEN NOW()
+            ELSE interest_marked_at
+          END,
+
+        preview_marked_at =
+          CASE
+            WHEN preview_score = 0
+              AND $4 > 0
+            THEN NOW()
+            ELSE preview_marked_at
+          END,
+
+        price_marked_at =
+          CASE
+            WHEN price_score = 0
+              AND $5 > 0
+            THEN NOW()
+            ELSE price_marked_at
+          END,
+
+        closed_marked_at =
+          CASE
+            WHEN closed_score = 0
+              AND $6 > 0
+            THEN NOW()
+            ELSE closed_marked_at
+          END
+
+      WHERE id = $1
+
+      RETURNING *
+          `,
+        [
+          currentOpportunity.id,
+          selectedScore,
+          interestScore,
+          previewScore,
+          priceScore,
+          closedScore,
+        ],
+      );
+
+      opportunity = updatedOpportunityResult.rows[0];
+    } else {
+      warning =
+        "O avanço foi registrado no lead, mas não foi atribuído a um serviço porque não existe oportunidade ativa.";
+    }
+
+    /*
+     * Atualiza o pipeline principal.
+     *
+     * Eventos posteriores nunca rebaixam um estágio mais avançado.
+     */
+    const updatedLeadResult = await client.query(
+      `
+      UPDATE leads
+      SET
+        status =
+          CASE
+            WHEN $2 = 'closed'
+              THEN 'closed'
+
+            WHEN $2 = 'price'
+              AND status <> 'closed'
+              THEN 'negotiation'
+
+            WHEN $2 IN ('interest', 'preview')
+              AND status NOT IN (
+                'closed',
+                'negotiation'
+              )
+              THEN 'qualified'
+
+            ELSE status
+          END,
+
+        pipeline_stage =
+          CASE
+            WHEN $2 = 'closed'
+              THEN 'closed'
+
+            WHEN $2 = 'price'
+              AND pipeline_stage <> 'closed'
+              THEN 'negotiation'
+
+            WHEN $2 = 'preview'
+              AND pipeline_stage NOT IN (
+                'closed',
+                'negotiation'
+              )
+              THEN 'preview_sent'
+
+            WHEN $2 = 'interest'
+              AND pipeline_stage NOT IN (
+                'closed',
+                'negotiation',
+                'preview_sent'
+              )
+              THEN 'interested'
+
+            ELSE pipeline_stage
+          END,
+
+        preview_sent =
+          CASE
+            WHEN $2 = 'preview'
+              THEN TRUE
+            ELSE preview_sent
+          END,
+
+        price_requested =
+          CASE
+            WHEN $2 = 'price'
+              THEN TRUE
+            ELSE price_requested
+          END,
+
+        preview_sent_at =
+          CASE
+            WHEN $2 = 'preview'
+              AND preview_sent_at IS NULL
+            THEN NOW()
+            ELSE preview_sent_at
+          END,
+
+        closed_at =
+          CASE
+            WHEN $2 = 'closed'
+              AND closed_at IS NULL
+            THEN NOW()
+            ELSE closed_at
+          END,
+
+        sale_value =
+          CASE
+            WHEN $2 = 'closed'
+              AND $3::numeric IS NOT NULL
+            THEN $3::numeric
+            ELSE sale_value
+          END,
+
+        deal_details =
+          CASE
+            WHEN $2 = 'closed'
+              AND $4::jsonb IS NOT NULL
+            THEN $4::jsonb
+            ELSE deal_details
+          END,
+
+        temperature_band =
+          CASE
+            WHEN $2 = 'closed'
+              THEN 'converted'
+            ELSE temperature_band
+          END
+
+      WHERE id = $1
+
+      RETURNING *
+      `,
+      [
+        leadId,
+        event,
+        normalizedSaleValue,
+        deal_details ? JSON.stringify(deal_details) : null,
+      ],
+    );
+
+    const updatedLead = updatedLeadResult.rows[0];
+
+    /*
+     * Evita duplicação em lead_events.
+     *
+     * O bloqueio do lead com FOR UPDATE garante que duas
+     * requisições simultâneas não passem por esse teste.
+     */
+    const existingEventResult = await client.query(
+      `
+        SELECT id
+        FROM lead_events
+        WHERE lead_id = $1
+          AND event_type = $2
+        LIMIT 1
+        `,
+      [leadId, config.leadEventType],
+    );
+
+    const eventAlreadyExists = existingEventResult.rowCount > 0;
+
+    if (!eventAlreadyExists) {
+      await createLeadEvent(
+        leadId,
+        config.leadEventType,
+
+        event === "closed" && normalizedSaleValue !== null
+          ? String(normalizedSaleValue)
+          : null,
+
+        "manual",
+
+        {
+          progress_event: event,
+
+          attributed_to_opportunity: Boolean(opportunity),
+
+          opportunity_id: opportunity?.id || null,
+
+          service_id: opportunity?.service_id || null,
+
+          service_name: currentOpportunity?.service_name || null,
+
+          opportunity_total_score: opportunity?.total_score || null,
+
+          sale_value: event === "closed" ? normalizedSaleValue : null,
+        },
+
+        client,
+      );
+
+      const serviceLabel = currentOpportunity?.service_name
+        ? ` Serviço: ${currentOpportunity.service_name}.`
+        : "";
+
+      await client.query(
+        `
+        INSERT INTO lead_activities (
+          lead_id,
+          description,
+          type
+        )
+        VALUES ($1, $2, $3)
+        `,
+        [
+          leadId,
+          `${config.activityDescription}${serviceLabel}`,
+          `service_${event}`,
+        ],
+      );
+    }
+
+    await client.query("COMMIT");
+
+    const action = currentOpportunity
+      ? alreadyAttributed
+        ? "unchanged"
+        : "applied"
+      : "applied_without_opportunity";
+
+    return res.json({
+      success: true,
+      action,
+      event,
+
+      attributed_to_opportunity: Boolean(opportunity),
+
+      already_attributed: alreadyAttributed,
+
+      event_already_registered: eventAlreadyExists,
+
+      message: currentOpportunity
+        ? alreadyAttributed
+          ? "Este avanço já estava registrado para o serviço."
+          : "Avanço comercial registrado com sucesso."
+        : "Avanço registrado no lead sem atribuição a um serviço.",
+
+      warning,
+
+      lead: updatedLead,
+
+      opportunity,
+
+      progress: opportunity
+        ? {
+            selected_score: opportunity.selected_score,
+
+            interest_score: opportunity.interest_score,
+
+            preview_score: opportunity.preview_score,
+
+            price_score: opportunity.price_score,
+
+            closed_score: opportunity.closed_score,
+
+            total_score: opportunity.total_score,
+
+            maximum_score: 8,
+          }
+        : null,
+    });
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+
+    console.error("Erro ao registrar progresso comercial:", error);
+
+    return res.status(500).json({
+      success: false,
+      error: "Erro ao registrar o progresso comercial.",
+    });
+  } finally {
+    client.release();
   }
 });
 
