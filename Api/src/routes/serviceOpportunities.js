@@ -1564,50 +1564,50 @@ router.patch("/leads/:leadId/progress", async (req, res) => {
 
       const updatedOpportunityResult = await client.query(
         `
-          UPDATE lead_service_opportunities
-      SET
-        selected_score = $2,
-        interest_score = $3,
-        preview_score = $4,
-        price_score = $5,
-        closed_score = $6,
+  UPDATE lead_service_opportunities
+  SET
+    selected_score = $2::smallint,
+    interest_score = $3::smallint,
+    preview_score = $4::smallint,
+    price_score = $5::smallint,
+    closed_score = $6::smallint,
 
-        interest_marked_at =
-          CASE
-            WHEN interest_score = 0
-              AND $3 > 0
-            THEN NOW()
-            ELSE interest_marked_at
-          END,
+    interest_marked_at =
+      CASE
+        WHEN interest_score = 0
+          AND $3::smallint > 0
+        THEN NOW()
+        ELSE interest_marked_at
+      END,
 
-        preview_marked_at =
-          CASE
-            WHEN preview_score = 0
-              AND $4 > 0
-            THEN NOW()
-            ELSE preview_marked_at
-          END,
+    preview_marked_at =
+      CASE
+        WHEN preview_score = 0
+          AND $4::smallint > 0
+        THEN NOW()
+        ELSE preview_marked_at
+      END,
 
-        price_marked_at =
-          CASE
-            WHEN price_score = 0
-              AND $5 > 0
-            THEN NOW()
-            ELSE price_marked_at
-          END,
+    price_marked_at =
+      CASE
+        WHEN price_score = 0
+          AND $5::smallint > 0
+        THEN NOW()
+        ELSE price_marked_at
+      END,
 
-        closed_marked_at =
-          CASE
-            WHEN closed_score = 0
-              AND $6 > 0
-            THEN NOW()
-            ELSE closed_marked_at
-          END
+    closed_marked_at =
+      CASE
+        WHEN closed_score = 0
+          AND $6::smallint > 0
+        THEN NOW()
+        ELSE closed_marked_at
+      END
 
-      WHERE id = $1
+  WHERE id = $1
 
-      RETURNING *
-          `,
+  RETURNING *
+  `,
         [
           currentOpportunity.id,
           selectedScore,
