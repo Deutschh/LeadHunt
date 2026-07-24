@@ -8,7 +8,7 @@ async function createLeadEvent(
   metadata = {},
   queryExecutor = db,
 ) {
-  await queryExecutor.query(
+  return queryExecutor.query(
     `
     INSERT INTO lead_events (
       lead_id,
@@ -26,3 +26,4 @@ async function createLeadEvent(
 module.exports = {
   createLeadEvent,
 };
+  
