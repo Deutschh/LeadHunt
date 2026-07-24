@@ -7,6 +7,7 @@ import FunnelRow from "../components/Analisy/FunnelRow";
 import InfoRow from "../components/Analisy/InfoRow";
 import useAnalysisMetrics from "../hooks/useAnalysisMetrics";
 import PromptPerformanceTable from "../components/Analisy/PromptPerformanceTable";
+import ServiceOpportunityMetrics from "../components/Analisy/ServiceOpportunityMetrics";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
 
@@ -17,6 +18,17 @@ const Analysis = () => {
   const [period, setPeriod] = useState("30");
   const [loading, setLoading] = useState(true);
   const [showAllPrompts, setShowAllPrompts] = useState(false);
+
+  const [serviceOpportunityStats, setServiceOpportunityStats] = useState(null);
+
+  const [serviceOpportunityLoading, setServiceOpportunityLoading] =
+    useState(true);
+
+  const [serviceOpportunityError, setServiceOpportunityError] = useState("");
+
+  const [serviceNicheFilter, setServiceNicheFilter] = useState("all");
+
+  const [serviceFilter, setServiceFilter] = useState("all");
 
   const loadStats = async () => {
     try {
@@ -45,9 +57,47 @@ const Analysis = () => {
     }
   };
 
+  const loadServiceOpportunityStats = async () => {
+    setServiceOpportunityLoading(true);
+    setServiceOpportunityError("");
+
+    try {
+      const params = new URLSearchParams({
+        period,
+      });
+
+      if (serviceNicheFilter !== "all") {
+        params.set("niche", serviceNicheFilter);
+      }
+
+      if (serviceFilter !== "all") {
+        params.set("service", serviceFilter);
+      }
+
+      const response = await axios.get(
+        `${API_URL}/api/service-opportunities/stats?${params.toString()}`,
+      );
+
+      setServiceOpportunityStats(response.data);
+    } catch (error) {
+      console.error("Erro ao carregar métricas de serviços:", error);
+
+      setServiceOpportunityError(
+        error.response?.data?.error ||
+          "Não foi possível carregar as métricas comerciais.",
+      );
+    } finally {
+      setServiceOpportunityLoading(false);
+    }
+  };
+
   useEffect(() => {
     loadStats();
   }, [period, showAllPrompts]);
+
+  useEffect(() => {
+    loadServiceOpportunityStats();
+  }, [period, serviceNicheFilter, serviceFilter]);
 
   const core = useMemo(() => {
     if (!data?.core) {
@@ -199,6 +249,17 @@ const Analysis = () => {
           desc="Enviados vs Fechados"
         />
       </div>
+
+      <ServiceOpportunityMetrics
+        data={serviceOpportunityStats}
+        loading={serviceOpportunityLoading}
+        error={serviceOpportunityError}
+        nicheFilter={serviceNicheFilter}
+        serviceFilter={serviceFilter}
+        onNicheChange={setServiceNicheFilter}
+        onServiceChange={setServiceFilter}
+        onRefresh={loadServiceOpportunityStats}
+      />
 
       <div className="bg-white p-10 rounded-[40px] shadow-sm border border-slate-100">
         <div className="flex items-center justify-between mb-10 flex-wrap gap-3">
