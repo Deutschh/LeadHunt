@@ -101,6 +101,128 @@ function normalizePainPoints(painPoints) {
   ];
 }
 
+/**
+ * Converte o período recebido pela rota de métricas.
+ *
+ * Valores aceitos:
+ * - números positivos, como 1, 7, 30, 90;
+ * - "all" ou "todos", para considerar todo o histórico.
+ *
+ * Retornos:
+ * - número: quantidade de dias;
+ * - null: todo o histórico;
+ * - undefined: período inválido.
+ */
+function parseStatsPeriod(value) {
+  const normalized = String(value ?? "30")
+    .trim()
+    .toLowerCase();
+
+  if (normalized === "all" || normalized === "todos") {
+    return null;
+  }
+
+  const days = Number(normalized);
+
+  if (!Number.isInteger(days) || days <= 0 || days > 3650) {
+    return undefined;
+  }
+
+  return days;
+}
+
+/**
+ * Calcula uma taxa percentual protegendo contra divisão por zero.
+ */
+function calculatePercentage(numerator, denominator) {
+  const safeNumerator = Number(numerator || 0);
+  const safeDenominator = Number(denominator || 0);
+
+  if (safeDenominator <= 0) {
+    return 0;
+  }
+
+  return Number(((safeNumerator / safeDenominator) * 100).toFixed(2));
+}
+
+/**
+ * Classifica a qualidade da amostra.
+ */
+function getStatsSampleStatus(opportunities) {
+  const total = Number(opportunities || 0);
+
+  if (total >= 10) {
+    return "Histórico relevante";
+  }
+
+  if (total >= 5) {
+    return "Histórico inicial";
+  }
+
+  if (total >= 1) {
+    return "Amostra pequena";
+  }
+
+  return "Sem histórico";
+}
+
+/**
+ * Normaliza os valores retornados pelo PostgreSQL
+ * e calcula as taxas entre as etapas.
+ */
+function normalizeStatsMetrics(row = {}) {
+  const opportunities = Number(row.opportunities || 0);
+
+  const interests = Number(row.interests || 0);
+
+  const previews = Number(row.previews || 0);
+
+  const priceRequests = Number(row.price_requests || 0);
+
+  const closings = Number(row.closings || 0);
+
+  return {
+    opportunities,
+    interests,
+    previews,
+    price_requests: priceRequests,
+    closings,
+
+    total_points: Number(row.total_points || 0),
+
+    average_score: Number(row.average_score || 0),
+
+    rates: {
+      /*
+       * Serviço selecionado → interesse.
+       */
+      interest_rate: calculatePercentage(interests, opportunities),
+
+      /*
+       * Interesse → preview.
+       */
+      preview_rate: calculatePercentage(previews, interests),
+
+      /*
+       * Preview → pedido de preço.
+       */
+      price_rate: calculatePercentage(priceRequests, previews),
+
+      /*
+       * Pedido de preço → fechamento.
+       */
+      closing_rate: calculatePercentage(closings, priceRequests),
+
+      /*
+       * Serviço selecionado → fechamento.
+       */
+      overall_closing_rate: calculatePercentage(closings, opportunities),
+    },
+
+    sample_status: getStatsSampleStatus(opportunities),
+  };
+}
+
 const PROGRESS_EVENTS = {
   interest: {
     opportunityField: "interest_score",
@@ -174,6 +296,569 @@ router.get("/services", async (_req, res) => {
 });
 
 /**
+ * GET /api/service-opportunities/stats
+ *
+ * Métricas comerciais por serviço e nicho.
+ *
+ * Filtros:
+ * - period: quantidade de dias ou "all";
+ * - niche: niche_key ou nome da categoria;
+ * - service: service_id ou service_key.
+ *
+ * Exemplos:
+ * /stats?period=30
+ * /stats?period=30&niche=salao_de_beleza
+ * /stats?period=30&service=social
+ * /stats?period=all&niche=clinica_veterinaria&service=site
+ *
+ * O período considera a data em que a oportunidade
+ * foi selecionada: selected_at.
+ */
+router.get("/stats", async (req, res) => {
+  const periodDays = parseStatsPeriod(req.query.period);
+
+  if (periodDays === undefined) {
+    return res.status(400).json({
+      success: false,
+      code: "INVALID_STATS_PERIOD",
+      error:
+        'Período inválido. Informe uma quantidade positiva de dias ou use "all".',
+    });
+  }
+
+  const rawNiche = String(req.query.niche || "").trim();
+
+  const nicheKey =
+    rawNiche && rawNiche.toLowerCase() !== "all"
+      ? normalizeNicheKey(rawNiche)
+      : null;
+
+  const rawService = String(req.query.service || "").trim();
+
+  let serviceId = null;
+  let serviceKey = null;
+
+  if (rawService && rawService.toLowerCase() !== "all") {
+    const numericService = Number(rawService);
+
+    if (Number.isInteger(numericService) && numericService > 0) {
+      serviceId = numericService;
+    } else {
+      serviceKey = rawService;
+    }
+  }
+
+  /*
+   * Os filtros são montados com parâmetros,
+   * evitando interpolação de dados do usuário.
+   */
+  const queryValues = [];
+
+  const conditions = ["1 = 1"];
+
+  if (periodDays !== null) {
+    queryValues.push(periodDays);
+
+    conditions.push(`
+      COALESCE(
+        opportunity.selected_at,
+        opportunity.created_at
+      ) >=
+      NOW() - (
+        $${queryValues.length}::integer *
+        INTERVAL '1 day'
+      )
+    `);
+  }
+
+  if (nicheKey) {
+    queryValues.push(nicheKey);
+
+    conditions.push(`
+      opportunity.niche_key =
+      $${queryValues.length}
+    `);
+  }
+
+  if (serviceId !== null) {
+    queryValues.push(serviceId);
+
+    conditions.push(`
+      service.id =
+      $${queryValues.length}
+    `);
+  } else if (serviceKey) {
+    queryValues.push(serviceKey);
+
+    conditions.push(`
+      service.service_key =
+      $${queryValues.length}
+    `);
+  }
+
+  const whereClause = conditions.join("\n AND ");
+
+  try {
+    /*
+     * 1. Resumo geral do filtro aplicado.
+     */
+    const summaryQuery = `
+      SELECT
+        COUNT(*)::integer
+          AS opportunities,
+
+        COUNT(*) FILTER (
+          WHERE opportunity.interest_score > 0
+        )::integer
+          AS interests,
+
+        COUNT(*) FILTER (
+          WHERE opportunity.preview_score > 0
+        )::integer
+          AS previews,
+
+        COUNT(*) FILTER (
+          WHERE opportunity.price_score > 0
+        )::integer
+          AS price_requests,
+
+        COUNT(*) FILTER (
+          WHERE opportunity.closed_score > 0
+        )::integer
+          AS closings,
+
+        COALESCE(
+          SUM(opportunity.total_score),
+          0
+        )::integer
+          AS total_points,
+
+        COALESCE(
+          ROUND(
+            AVG(
+              opportunity.total_score
+            )::numeric,
+            2
+          ),
+          0
+        )
+          AS average_score,
+
+        COUNT(
+          DISTINCT opportunity.service_id
+        )::integer
+          AS services_with_opportunities,
+
+        COUNT(
+          DISTINCT opportunity.niche_key
+        )::integer
+          AS niches_with_opportunities
+
+      FROM lead_service_opportunities
+        opportunity
+
+      INNER JOIN velaris_services
+        service
+        ON service.id =
+          opportunity.service_id
+
+      WHERE ${whereClause}
+    `;
+
+    /*
+     * 2. Métricas agrupadas por serviço.
+     */
+    const servicesQuery = `
+      SELECT
+        service.id
+          AS service_id,
+
+        service.service_key,
+        service.service_name,
+        service.service_type,
+        service.problem_category,
+        service.display_order,
+
+        COUNT(*)::integer
+          AS opportunities,
+
+        COUNT(*) FILTER (
+          WHERE opportunity.interest_score > 0
+        )::integer
+          AS interests,
+
+        COUNT(*) FILTER (
+          WHERE opportunity.preview_score > 0
+        )::integer
+          AS previews,
+
+        COUNT(*) FILTER (
+          WHERE opportunity.price_score > 0
+        )::integer
+          AS price_requests,
+
+        COUNT(*) FILTER (
+          WHERE opportunity.closed_score > 0
+        )::integer
+          AS closings,
+
+        COALESCE(
+          SUM(opportunity.total_score),
+          0
+        )::integer
+          AS total_points,
+
+        COALESCE(
+          ROUND(
+            AVG(
+              opportunity.total_score
+            )::numeric,
+            2
+          ),
+          0
+        )
+          AS average_score
+
+      FROM lead_service_opportunities
+        opportunity
+
+      INNER JOIN velaris_services
+        service
+        ON service.id =
+          opportunity.service_id
+
+      WHERE ${whereClause}
+
+      GROUP BY
+        service.id,
+        service.service_key,
+        service.service_name,
+        service.service_type,
+        service.problem_category,
+        service.display_order
+
+      ORDER BY
+        average_score DESC,
+        opportunities DESC,
+        service.display_order ASC,
+        service.service_name ASC
+    `;
+
+    /*
+     * 3. Métricas agrupadas por nicho.
+     */
+    const nichesQuery = `
+      SELECT
+        opportunity.niche_key,
+
+        COALESCE(
+          MAX(
+            NULLIF(
+              TRIM(
+                opportunity.lead_category
+              ),
+              ''
+            )
+          ),
+          opportunity.niche_key
+        )
+          AS niche_label,
+
+        COUNT(*)::integer
+          AS opportunities,
+
+        COUNT(
+          DISTINCT opportunity.service_id
+        )::integer
+          AS services_count,
+
+        COUNT(*) FILTER (
+          WHERE opportunity.interest_score > 0
+        )::integer
+          AS interests,
+
+        COUNT(*) FILTER (
+          WHERE opportunity.preview_score > 0
+        )::integer
+          AS previews,
+
+        COUNT(*) FILTER (
+          WHERE opportunity.price_score > 0
+        )::integer
+          AS price_requests,
+
+        COUNT(*) FILTER (
+          WHERE opportunity.closed_score > 0
+        )::integer
+          AS closings,
+
+        COALESCE(
+          SUM(opportunity.total_score),
+          0
+        )::integer
+          AS total_points,
+
+        COALESCE(
+          ROUND(
+            AVG(
+              opportunity.total_score
+            )::numeric,
+            2
+          ),
+          0
+        )
+          AS average_score
+
+      FROM lead_service_opportunities
+        opportunity
+
+      INNER JOIN velaris_services
+        service
+        ON service.id =
+          opportunity.service_id
+
+      WHERE ${whereClause}
+
+      GROUP BY
+        opportunity.niche_key
+
+      ORDER BY
+        average_score DESC,
+        opportunities DESC,
+        opportunity.niche_key ASC
+    `;
+
+    /*
+     * 4. Opções disponíveis nos filtros.
+     *
+     * Essas duas consultas não recebem os filtros atuais
+     * para que a interface sempre consiga listar todas
+     * as opções existentes.
+     */
+    const availableServicesQuery = `
+      SELECT
+        id AS service_id,
+        service_key,
+        service_name,
+        problem_category,
+        display_order
+      FROM velaris_services
+      WHERE is_active = TRUE
+      ORDER BY
+        display_order ASC,
+        service_name ASC
+    `;
+
+    const availableNichesQuery = `
+      SELECT
+        niche_key,
+
+        COALESCE(
+          MAX(
+            NULLIF(
+              TRIM(lead_category),
+              ''
+            )
+          ),
+          niche_key
+        )
+          AS niche_label,
+
+        COUNT(*)::integer
+          AS opportunities
+
+      FROM lead_service_opportunities
+
+      WHERE niche_key IS NOT NULL
+        AND TRIM(niche_key) <> ''
+
+      GROUP BY niche_key
+
+      ORDER BY niche_label ASC
+    `;
+
+    const [
+      summaryResult,
+      servicesResult,
+      nichesResult,
+      availableServicesResult,
+      availableNichesResult,
+    ] = await Promise.all([
+      db.query(summaryQuery, queryValues),
+
+      db.query(servicesQuery, queryValues),
+
+      db.query(nichesQuery, queryValues),
+
+      db.query(availableServicesQuery),
+
+      db.query(availableNichesQuery),
+    ]);
+
+    const rawSummary = summaryResult.rows[0] || {};
+
+    const summaryMetrics = normalizeStatsMetrics(rawSummary);
+
+    const serviceStats = servicesResult.rows.map((row, index) => ({
+      rank: index + 1,
+
+      service_id: Number(row.service_id),
+
+      service_key: row.service_key,
+
+      service_name: row.service_name,
+
+      service_type: row.service_type,
+
+      problem_category: row.problem_category,
+
+      display_order: Number(row.display_order || 0),
+
+      ...normalizeStatsMetrics(row),
+    }));
+
+    const nicheStats = nichesResult.rows.map((row, index) => ({
+      rank: index + 1,
+
+      niche_key: row.niche_key,
+
+      niche_label: row.niche_label || row.niche_key,
+
+      services_count: Number(row.services_count || 0),
+
+      ...normalizeStatsMetrics(row),
+    }));
+
+    /*
+     * Escolhe o líder de determinada métrica.
+     */
+    const getLeader = (rows, selector) => {
+      if (!rows.length) {
+        return null;
+      }
+
+      return [...rows].sort((first, second) => {
+        const valueDifference =
+          Number(selector(second) || 0) - Number(selector(first) || 0);
+
+        if (valueDifference !== 0) {
+          return valueDifference;
+        }
+
+        return (
+          Number(second.opportunities || 0) - Number(first.opportunities || 0)
+        );
+      })[0];
+    };
+
+    const serviceLeaders = {
+      most_selected: getLeader(serviceStats, (item) => item.opportunities),
+
+      highest_average_score: getLeader(
+        serviceStats,
+        (item) => item.average_score,
+      ),
+
+      most_closings: getLeader(serviceStats, (item) => item.closings),
+
+      highest_closing_rate: getLeader(
+        serviceStats.filter((item) => item.opportunities > 0),
+        (item) => item.rates.overall_closing_rate,
+      ),
+    };
+
+    const nicheLeaders = {
+      most_opportunities: getLeader(nicheStats, (item) => item.opportunities),
+
+      highest_average_score: getLeader(
+        nicheStats,
+        (item) => item.average_score,
+      ),
+
+      most_closings: getLeader(nicheStats, (item) => item.closings),
+
+      highest_closing_rate: getLeader(
+        nicheStats.filter((item) => item.opportunities > 0),
+        (item) => item.rates.overall_closing_rate,
+      ),
+    };
+
+    return res.json({
+      success: true,
+
+      period: {
+        days: periodDays,
+        label: periodDays === null ? "Todo o histórico" : `${periodDays} dias`,
+
+        /*
+         * O período é aplicado com base na seleção
+         * da oportunidade.
+         */
+        basis: "selected_at",
+      },
+
+      filters: {
+        applied: {
+          period: periodDays === null ? "all" : periodDays,
+
+          niche: nicheKey,
+
+          service: serviceId ?? serviceKey ?? null,
+        },
+
+        options: {
+          services: availableServicesResult.rows.map((service) => ({
+            service_id: Number(service.service_id),
+
+            service_key: service.service_key,
+
+            service_name: service.service_name,
+
+            problem_category: service.problem_category,
+          })),
+
+          niches: availableNichesResult.rows.map((niche) => ({
+            niche_key: niche.niche_key,
+
+            niche_label: niche.niche_label || niche.niche_key,
+
+            opportunities: Number(niche.opportunities || 0),
+          })),
+        },
+      },
+
+      summary: {
+        ...summaryMetrics,
+
+        services_with_opportunities: Number(
+          rawSummary.services_with_opportunities || 0,
+        ),
+
+        niches_with_opportunities: Number(
+          rawSummary.niches_with_opportunities || 0,
+        ),
+      },
+
+      leaders: {
+        services: serviceLeaders,
+        niches: nicheLeaders,
+      },
+
+      by_service: serviceStats,
+
+      by_niche: nicheStats,
+    });
+  } catch (error) {
+    console.error("Erro ao calcular métricas de serviços:", error);
+
+    return res.status(500).json({
+      success: false,
+      error: "Erro ao calcular as métricas de serviços e nichos.",
+    });
+  }
+});
+
+/**
  * GET /api/service-opportunities/leads/:leadId/current
  *
  * Retorna a oportunidade ativa atual de determinado lead.
@@ -233,6 +918,7 @@ router.get("/leads/:leadId/current", async (req, res) => {
         opportunity.pain_points,
         opportunity.negotiation_guide,
         opportunity.guide_generated_at,
+        opportunity.analysis_updated_at,
 
         opportunity.selected_score,
         opportunity.interest_score,
@@ -574,13 +1260,13 @@ router.post("/leads/:leadId/select", async (req, res) => {
         niche_key = $4,
 
         analysis_notes = NULL,
-        analysis_notes = NULL,
         perceived_goal = NULL,
         pain_points = '[]'::jsonb,
         analysis_updated_at = NULL,
 
         negotiation_guide = NULL,
         guide_generated_at = NULL,
+        opportunity.analysis_updated_at,
 
         selected_score = 1,
         interest_score = 0,
@@ -1156,11 +1842,6 @@ router.post("/leads/:leadId/guide", async (req, res) => {
               AS opportunity_id,
 
             opportunity.service_id,
-            opportunity.analysis_notes,
-            opportunity.perceived_goal,
-            opportunity.pain_points,
-            opportunity.negotiation_guide,
-            opportunity.guide_generated_at,
             opportunity.analysis_notes,
             opportunity.perceived_goal,
             opportunity.pain_points,

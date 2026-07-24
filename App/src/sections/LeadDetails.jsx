@@ -1585,17 +1585,12 @@ const LeadDetails = ({ leadId, onBack }) => {
 
             <div className="p-8 space-y-6 max-h-[60vh] overflow-y-auto scrollbar-hide">
               {progressError && (
-  <div className="p-4 rounded-2xl bg-red-50 border border-red-100 text-red-600 flex items-start gap-3">
-    <AlertCircle
-      size={18}
-      className="shrink-0 mt-0.5"
-    />
+                <div className="p-4 rounded-2xl bg-red-50 border border-red-100 text-red-600 flex items-start gap-3">
+                  <AlertCircle size={18} className="shrink-0 mt-0.5" />
 
-    <p className="text-sm font-bold">
-      {progressError}
-    </p>
-  </div>
-)}
+                  <p className="text-sm font-bold">{progressError}</p>
+                </div>
+              )}
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="font-black text-slate-900 text-sm uppercase tracking-widest">
