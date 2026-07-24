@@ -574,8 +574,10 @@ router.post("/leads/:leadId/select", async (req, res) => {
         niche_key = $4,
 
         analysis_notes = NULL,
+        analysis_notes = NULL,
         perceived_goal = NULL,
         pain_points = '[]'::jsonb,
+        analysis_updated_at = NULL,
 
         negotiation_guide = NULL,
         guide_generated_at = NULL,
@@ -998,43 +1000,42 @@ router.patch("/leads/:leadId/analysis", async (req, res) => {
   try {
     const result = await db.query(
       `
-      UPDATE lead_service_opportunities
-      SET
-        analysis_notes =
-          CASE
-            WHEN $2::boolean = TRUE
-            THEN $3
-            ELSE analysis_notes
-          END,
+  UPDATE lead_service_opportunities
+  SET
+    analysis_notes =
+      CASE
+        WHEN $2::boolean = TRUE
+        THEN $3
+        ELSE analysis_notes
+      END,
 
-        perceived_goal =
-          CASE
-            WHEN $4::boolean = TRUE
-            THEN $5
-            ELSE perceived_goal
-          END,
+    perceived_goal =
+      CASE
+        WHEN $4::boolean = TRUE
+        THEN $5
+        ELSE perceived_goal
+      END,
 
-        pain_points =
-          CASE
-            WHEN $6::boolean = TRUE
-            THEN $7::jsonb
-            ELSE pain_points
-          END
+    pain_points =
+      CASE
+        WHEN $6::boolean = TRUE
+        THEN $7::jsonb
+        ELSE pain_points
+      END,
 
-      WHERE lead_id = $1
-        AND is_active = TRUE
+    analysis_updated_at = NOW()
 
-      RETURNING *
-      `,
+  WHERE lead_id = $1
+    AND is_active = TRUE
+
+  RETURNING *
+  `,
       [
         leadId,
-
         hasAnalysisNotes,
         analysisNotes,
-
         hasPerceivedGoal,
         perceivedGoal,
-
         hasPainPoints,
         JSON.stringify(painPoints),
       ],
@@ -1076,8 +1077,8 @@ router.patch("/leads/:leadId/analysis", async (req, res) => {
     const guideIsOutdated = Boolean(
       hasGuide &&
       opportunity.guide_generated_at &&
-      opportunity.updated_at &&
-      new Date(opportunity.updated_at).getTime() >
+      opportunity.analysis_updated_at &&
+      new Date(opportunity.analysis_updated_at).getTime() >
         new Date(opportunity.guide_generated_at).getTime(),
     );
 
@@ -1160,6 +1161,12 @@ router.post("/leads/:leadId/guide", async (req, res) => {
             opportunity.pain_points,
             opportunity.negotiation_guide,
             opportunity.guide_generated_at,
+            opportunity.analysis_notes,
+            opportunity.perceived_goal,
+            opportunity.pain_points,
+            opportunity.negotiation_guide,
+            opportunity.guide_generated_at,
+            opportunity.analysis_updated_at,
             opportunity.interest_score,
             opportunity.preview_score,
             opportunity.price_score,

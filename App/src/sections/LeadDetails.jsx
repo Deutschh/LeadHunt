@@ -917,9 +917,7 @@ const LeadDetails = ({ leadId, onBack }) => {
 
   const isPipelineStatusActive = (status) => {
     if (status === "qualified") {
-      return (
-        lead.status === "qualified" || lead.pipeline_stage === "interested"
-      );
+      return ["qualified", "interested"].includes(lead.pipeline_stage);
     }
 
     if (status === "preview_sent") {
@@ -1207,9 +1205,9 @@ const LeadDetails = ({ leadId, onBack }) => {
 
   const guideIsOutdated = Boolean(
     hasNegotiationGuide &&
-    currentOpportunity?.updated_at &&
+    currentOpportunity?.analysis_updated_at &&
     guideGeneratedAt &&
-    new Date(currentOpportunity.updated_at).getTime() >
+    new Date(currentOpportunity.analysis_updated_at).getTime() >
       new Date(guideGeneratedAt).getTime(),
   );
 
@@ -1586,6 +1584,18 @@ const LeadDetails = ({ leadId, onBack }) => {
             </div>
 
             <div className="p-8 space-y-6 max-h-[60vh] overflow-y-auto scrollbar-hide">
+              {progressError && (
+  <div className="p-4 rounded-2xl bg-red-50 border border-red-100 text-red-600 flex items-start gap-3">
+    <AlertCircle
+      size={18}
+      className="shrink-0 mt-0.5"
+    />
+
+    <p className="text-sm font-bold">
+      {progressError}
+    </p>
+  </div>
+)}
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="font-black text-slate-900 text-sm uppercase tracking-widest">
@@ -2248,28 +2258,26 @@ const LeadDetails = ({ leadId, onBack }) => {
                         </div>
                       </div>
 
-<div className="mt-5">
-  <div className="h-2 rounded-full bg-white/10 overflow-hidden">
-    <div
-      className="h-full rounded-full bg-gradient-to-r from-purple-500 to-green-400 transition-all duration-500"
-      style={{
-        width: `${Math.min(
-          100,
-          (Number(
-            currentOpportunity.total_score || 0,
-          ) /
-            8) *
-            100,
-        )}%`,
-      }}
-    />
-  </div>
+                      <div className="mt-5">
+                        <div className="h-2 rounded-full bg-white/10 overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-gradient-to-r from-purple-500 to-green-400 transition-all duration-500"
+                            style={{
+                              width: `${Math.min(
+                                100,
+                                (Number(currentOpportunity.total_score || 0) /
+                                  8) *
+                                  100,
+                              )}%`,
+                            }}
+                          />
+                        </div>
 
-  <div className="flex justify-between mt-2 text-[9px] font-black uppercase tracking-widest text-slate-500">
-    <span>Selecionado</span>
-    <span>Fechado</span>
-  </div>
-</div>
+                        <div className="flex justify-between mt-2 text-[9px] font-black uppercase tracking-widest text-slate-500">
+                          <span>Selecionado</span>
+                          <span>Fechado</span>
+                        </div>
+                      </div>
 
                       <div className="flex flex-wrap gap-3 mt-6">
                         <button
