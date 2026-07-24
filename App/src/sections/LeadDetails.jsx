@@ -87,6 +87,11 @@ const LeadDetails = ({ leadId, onBack }) => {
   const [recommendationError, setRecommendationError] = useState("");
   const [serviceFeedback, setServiceFeedback] = useState("");
 
+  const [progressEvent, setProgressEvent] = useState("");
+  const [progressFeedback, setProgressFeedback] = useState("");
+  const [progressWarning, setProgressWarning] = useState("");
+  const [progressError, setProgressError] = useState("");
+
   const [showAllServices, setShowAllServices] = useState(false);
   const [selectingServiceId, setSelectingServiceId] = useState(null);
 
@@ -135,6 +140,10 @@ const LeadDetails = ({ leadId, onBack }) => {
 
     setShowAllServices(false);
     setServiceFeedback("");
+    setProgressEvent("");
+    setProgressFeedback("");
+    setProgressWarning("");
+    setProgressError("");
     setRecommendationError("");
     setShowNegotiationGuide(false);
     setGuideError("");
@@ -345,28 +354,39 @@ const LeadDetails = ({ leadId, onBack }) => {
       };
     }
 
-    if (lead.status === "responded" && !lead.preview_sent) {
+    const interestRegistered =
+      Number(currentOpportunity?.interest_score || 0) > 0;
+
+    const previewRegistered =
+      Number(currentOpportunity?.preview_score || 0) > 0;
+
+    const priceRegistered = Number(currentOpportunity?.price_score || 0) > 0;
+
+    const closedRegistered = Number(currentOpportunity?.closed_score || 0) > 0;
+
+    if (interestRegistered && !previewRegistered) {
       return {
-        title: "Enviar preview",
+        title: "Apresente uma demonstração ou exemplo",
         description:
-          "Esse é o melhor próximo passo para aumentar percepção de valor.",
-        classes: "bg-purple-50 text-purple-700 border-purple-200",
+          "O interesse foi confirmado. Mostre algo concreto para aumentar a percepção de valor.",
+        classes: "bg-blue-50 text-blue-700 border-blue-200",
       };
     }
 
-    if (lead.preview_sent && !lead.price_requested) {
+    if (previewRegistered && !priceRegistered) {
       return {
-        title: "Conduzir para orçamento",
+        title: "Valide interesse e conduza para investimento",
         description:
-          "O lead já viu valor. Tente levar a conversa para preço/escopo.",
+          "O lead já viu uma demonstração. Confirme a aderência e avance para preço e escopo.",
         classes: "bg-indigo-50 text-indigo-700 border-indigo-200",
       };
     }
 
-    if (lead.price_requested && lead.status !== "closed") {
+    if (priceRegistered && !closedRegistered) {
       return {
-        title: "Pronto para fechamento",
-        description: "Lead pediu preço. Momento de negociar e fechar.",
+        title: "Negocie condições e próximo passo",
+        description:
+          "O lead avançou para preço. Alinhe escopo, prazo, pagamento e fechamento.",
         classes: "bg-green-50 text-green-700 border-green-200",
       };
     }
@@ -804,6 +824,121 @@ const LeadDetails = ({ leadId, onBack }) => {
     }
   };
 
+  const handleProgressEvent = async (event, extraPayload = {}) => {
+    if (progressEvent) {
+      return null;
+    }
+
+    setProgressEvent(event);
+    setProgressFeedback("");
+    setProgressWarning("");
+    setProgressError("");
+
+    try {
+      const response = await api.patch(
+        `/service-opportunities/leads/${leadId}/progress`,
+        {
+          event,
+          ...extraPayload,
+        },
+      );
+
+      const responseData = response.data;
+
+      if (responseData?.lead) {
+        setLead(responseData.lead);
+      }
+
+      if (responseData?.opportunity) {
+        setCurrentOpportunity((current) => ({
+          ...current,
+          ...responseData.opportunity,
+        }));
+      }
+
+      setProgressFeedback(
+        responseData?.message || "Avanço comercial registrado com sucesso.",
+      );
+
+      setProgressWarning(responseData?.warning || "");
+
+      /*
+       * Atualiza:
+       * - lead;
+       * - histórico;
+       * - oportunidade;
+       * - ranking do nicho.
+       */
+      await Promise.all([fetchData(), fetchServiceOpportunityData()]);
+
+      return responseData;
+    } catch (error) {
+      console.error("Erro ao registrar progresso:", error);
+
+      setProgressError(
+        error.response?.data?.error ||
+          "Não foi possível registrar o avanço comercial.",
+      );
+
+      return null;
+    } finally {
+      setProgressEvent("");
+    }
+  };
+
+  const handlePipelineStatusClick = async (status) => {
+    if (status === "closed") {
+      setProgressError("");
+      setShowClosingModal(true);
+      return;
+    }
+
+    if (status === "qualified") {
+      await handleProgressEvent("interest");
+      return;
+    }
+
+    if (status === "preview_sent") {
+      await handleProgressEvent("preview");
+      return;
+    }
+
+    if (status === "negotiation") {
+      await handleProgressEvent("price");
+      return;
+    }
+
+    await handleUpdate({
+      status,
+      pipeline_stage: status,
+      lost_reason: status === "lost" ? "manual" : undefined,
+    });
+  };
+
+  const isPipelineStatusActive = (status) => {
+    if (status === "qualified") {
+      return (
+        lead.status === "qualified" || lead.pipeline_stage === "interested"
+      );
+    }
+
+    if (status === "preview_sent") {
+      return lead.pipeline_stage === "preview_sent";
+    }
+
+    if (status === "negotiation") {
+      return (
+        lead.status === "negotiation" || lead.pipeline_stage === "negotiation"
+      );
+    }
+
+    if (status === "closed") {
+      return lead.status === "closed" || lead.pipeline_stage === "closed";
+    }
+
+    return lead.status === status || lead.pipeline_stage === status;
+  };
+
   const handleApplyAI = () => {
     if (aiSuggestion) {
       setCustomMessage(aiSuggestion);
@@ -891,6 +1026,24 @@ const LeadDetails = ({ leadId, onBack }) => {
   };
 
   const handleFinalizeDeal = async () => {
+    if (!dealData.items?.length) {
+      setProgressError(
+        "Adicione pelo menos um serviço antes de confirmar o fechamento.",
+      );
+      return;
+    }
+
+    const hasInvalidItem = dealData.items.some(
+      (item) => parseMoney(item.amount) <= 0,
+    );
+
+    if (hasInvalidItem) {
+      setProgressError(
+        "Todos os serviços do contrato precisam possuir um valor maior que zero.",
+      );
+      return;
+    }
+
     const totals = calculateDealTotals();
 
     const finalDealDetails = {
@@ -901,20 +1054,14 @@ const LeadDetails = ({ leadId, onBack }) => {
       closedAt: new Date().toISOString(),
     };
 
-    console.log("FECHAMENTO DEBUG:", {
-      dealData,
-      totals,
-      sale_value: totals.initialTotal,
-    });
-
-    await handleUpdate({
-      status: "closed",
-      pipeline_stage: "closed",
+    const result = await handleProgressEvent("closed", {
       sale_value: totals.initialTotal,
       deal_details: finalDealDetails,
     });
 
-    setShowClosingModal(false);
+    if (result?.success) {
+      setShowClosingModal(false);
+    }
   };
 
   const handleUpdate = async (payload) => {
@@ -1001,6 +1148,35 @@ const LeadDetails = ({ leadId, onBack }) => {
   const temp = getTemperatureMeta(score, lead?.temperature_band || "cold");
   const followupStatus = getFollowupStatus();
   const suggestedAction = getSuggestedAction();
+
+  const hasLeadResponded = Boolean(
+    lead.responded_at ||
+    lead.last_reply_at ||
+    ["responded", "qualified", "negotiation", "closed"].includes(lead.status) ||
+    [
+      "responded",
+      "interested",
+      "preview_sent",
+      "negotiation",
+      "closed",
+    ].includes(lead.pipeline_stage),
+  );
+
+  const interestProgressRegistered =
+    Number(currentOpportunity?.interest_score || 0) > 0;
+
+  const previewProgressRegistered =
+    Number(currentOpportunity?.preview_score || 0) > 0;
+
+  const priceProgressRegistered =
+    Number(currentOpportunity?.price_score || 0) > 0;
+
+  const closedProgressRegistered =
+    Number(currentOpportunity?.closed_score || 0) > 0 ||
+    lead.status === "closed" ||
+    lead.pipeline_stage === "closed";
+
+  const opportunityScore = Number(currentOpportunity?.total_score || 0);
 
   const visibleRecommendedServices = showAllServices
     ? recommendations?.all_services || []
@@ -1618,9 +1794,20 @@ const LeadDetails = ({ leadId, onBack }) => {
 
               <button
                 onClick={handleFinalizeDeal}
-                className="bg-[#00b37e] text-white px-10 py-5 rounded-[2rem] font-black text-sm shadow-xl hover:scale-105 active:scale-95 transition-all"
+                disabled={progressEvent === "closed"}
+                className="bg-[#00b37e] text-white px-10 py-5 rounded-[2rem] font-black text-sm shadow-xl hover:scale-105 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:scale-100 flex items-center justify-center gap-2"
               >
-                Confirmar Fechamento
+                {progressEvent === "closed" ? (
+                  <>
+                    <Loader2 size={17} className="animate-spin" />
+                    Finalizando
+                  </>
+                ) : (
+                  <>
+                    <DollarSign size={17} />
+                    Confirmar Fechamento
+                  </>
+                )}
               </button>
             </div>
           </div>
@@ -1744,27 +1931,9 @@ const LeadDetails = ({ leadId, onBack }) => {
             ].map((st) => (
               <button
                 key={st}
-                onClick={() =>
-                  st === "closed"
-                    ? setShowClosingModal(true)
-                    : handleUpdate({
-                        status: st,
-                        pipeline_stage:
-                          st === "preview_sent"
-                            ? "preview_sent"
-                            : st === "qualified"
-                              ? "qualified"
-                              : st === "negotiation"
-                                ? "negotiation"
-                                : st === "lost"
-                                  ? "lost"
-                                  : st,
-                        preview_sent: st === "preview_sent" ? true : undefined,
-                        lost_reason: st === "lost" ? "manual" : undefined,
-                      })
-                }
+                onClick={() => handlePipelineStatusClick(st)}
                 className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
-                  lead.status === st
+                  isPipelineStatusActive(st)
                     ? "bg-white shadow-sm text-blue-600"
                     : "text-slate-400"
                 }`}
@@ -1805,15 +1974,16 @@ const LeadDetails = ({ leadId, onBack }) => {
                 </span>
                 {briefing && lead.pipeline_stage !== "qualified" && (
                   <button
-                    onClick={() =>
-                      handleUpdate({
-                        status: "responded",
-                        pipeline_stage: "qualified",
-                      })
+                    onClick={() => handleProgressEvent("interest")}
+                    disabled={
+                      Boolean(progressEvent) ||
+                      Number(currentOpportunity?.interest_score || 0) > 0
                     }
-                    className="px-4 py-2 rounded-xl bg-purple-50 text-purple-600 text-[10px] font-black uppercase tracking-widest border border-purple-100 hover:bg-purple-100 active:scale-95 transition-all"
+                    className="px-4 py-2 rounded-xl bg-purple-50 text-purple-600 text-[10px] font-black uppercase tracking-widest border border-purple-100 hover:bg-purple-100 active:scale-95 transition-all disabled:opacity-50"
                   >
-                    Marcar qualificado
+                    {progressEvent === "interest"
+                      ? "Salvando..."
+                      : "Marcar qualificado"}
                   </button>
                 )}
               </div>
@@ -2077,6 +2247,29 @@ const LeadDetails = ({ leadId, onBack }) => {
                           )}
                         </div>
                       </div>
+
+<div className="mt-5">
+  <div className="h-2 rounded-full bg-white/10 overflow-hidden">
+    <div
+      className="h-full rounded-full bg-gradient-to-r from-purple-500 to-green-400 transition-all duration-500"
+      style={{
+        width: `${Math.min(
+          100,
+          (Number(
+            currentOpportunity.total_score || 0,
+          ) /
+            8) *
+            100,
+        )}%`,
+      }}
+    />
+  </div>
+
+  <div className="flex justify-between mt-2 text-[9px] font-black uppercase tracking-widest text-slate-500">
+    <span>Selecionado</span>
+    <span>Fechado</span>
+  </div>
+</div>
 
                       <div className="flex flex-wrap gap-3 mt-6">
                         <button
@@ -2587,12 +2780,56 @@ const LeadDetails = ({ leadId, onBack }) => {
           </div>
 
           <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
-            <div className="flex items-center justify-between mb-8">
-              <h3 className="font-black text-xs uppercase tracking-[0.2em] text-slate-400 flex items-center gap-2">
-                <TrendingUp size={16} className="text-orange-500" /> Ações de
-                Conversão (Scoring)
-              </h3>
+            <div className="flex items-center justify-between mb-8 gap-4 flex-wrap">
+              <div>
+                <h3 className="font-black text-xs uppercase tracking-[0.2em] text-slate-400 flex items-center gap-2">
+                  <TrendingUp size={16} className="text-orange-500" />
+                  Progresso Comercial
+                </h3>
+
+                <p className="text-xs font-medium text-slate-400 mt-2">
+                  Cada avanço pontua uma única vez no serviço em negociação.
+                </p>
+              </div>
+
+              <div className="px-4 py-3 rounded-2xl bg-slate-900 text-white">
+                <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">
+                  Score da oportunidade
+                </p>
+
+                <p className="text-2xl font-black mt-1">
+                  {currentOpportunity ? `${opportunityScore}/8` : "Sem serviço"}
+                </p>
+              </div>
             </div>
+
+            {progressFeedback && (
+              <div className="mb-4 p-4 rounded-2xl bg-green-50 border border-green-100 text-green-700 flex items-start gap-3">
+                <CheckCircle2 size={18} className="shrink-0 mt-0.5" />
+
+                <p className="text-sm font-bold">{progressFeedback}</p>
+              </div>
+            )}
+
+            {progressWarning && (
+              <div className="mb-4 p-4 rounded-2xl bg-orange-50 border border-orange-200 text-orange-700 flex items-start gap-3">
+                <AlertTriangle size={18} className="shrink-0 mt-0.5" />
+
+                <div>
+                  <p className="text-sm font-black">Avanço sem atribuição</p>
+
+                  <p className="text-xs font-medium mt-1">{progressWarning}</p>
+                </div>
+              </div>
+            )}
+
+            {progressError && (
+              <div className="mb-4 p-4 rounded-2xl bg-red-50 border border-red-100 text-red-600 flex items-start gap-3">
+                <AlertCircle size={18} className="shrink-0 mt-0.5" />
+
+                <p className="text-sm font-bold">{progressError}</p>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <button
@@ -2602,76 +2839,122 @@ const LeadDetails = ({ leadId, onBack }) => {
                     pipeline_stage: "responded",
                   })
                 }
-                disabled={lead.status === "responded"}
+                disabled={
+                  hasLeadResponded || isSaving || Boolean(progressEvent)
+                }
                 className={`p-5 rounded-3xl font-black text-[11px] uppercase tracking-widest transition-all flex items-center justify-center gap-3 ${
-                  lead.status === "responded"
+                  hasLeadResponded
                     ? "bg-green-50 text-green-500 border border-green-100"
                     : "bg-slate-900 text-white hover:bg-black shadow-lg shadow-black/10"
-                }`}
+                } disabled:cursor-not-allowed`}
               >
-                {lead.status === "responded" ? (
+                {hasLeadResponded ? (
                   <CheckCircle2 size={16} />
                 ) : (
                   <MessageSquare size={16} />
                 )}
-                {lead.status === "responded"
-                  ? "Lead Respondeu"
-                  : "Marcar Resposta (+2)"}
+
+                {hasLeadResponded ? "Lead respondeu" : "Marcar resposta"}
               </button>
 
               <button
-                onClick={() =>
-                  handleUpdate({
-                    preview_sent: true,
-                    pipeline_stage: "preview_sent",
-                  })
-                }
-                disabled={lead.preview_sent}
+                onClick={() => handleProgressEvent("interest")}
+                disabled={interestProgressRegistered || Boolean(progressEvent)}
                 className={`p-5 rounded-3xl font-black text-[11px] uppercase tracking-widest transition-all flex items-center justify-center gap-3 ${
-                  lead.preview_sent
+                  interestProgressRegistered
+                    ? "bg-purple-50 text-purple-500 border border-purple-100"
+                    : "bg-purple-600 text-white hover:bg-purple-700 shadow-lg shadow-purple-600/20"
+                } disabled:cursor-not-allowed`}
+              >
+                {progressEvent === "interest" ? (
+                  <Loader2 size={16} className="animate-spin" />
+                ) : interestProgressRegistered ? (
+                  <CheckCircle2 size={16} />
+                ) : (
+                  <Target size={16} />
+                )}
+
+                {interestProgressRegistered
+                  ? "Interesse confirmado"
+                  : "Confirmar interesse (+1)"}
+              </button>
+
+              <button
+                onClick={() => handleProgressEvent("preview")}
+                disabled={previewProgressRegistered || Boolean(progressEvent)}
+                className={`p-5 rounded-3xl font-black text-[11px] uppercase tracking-widest transition-all flex items-center justify-center gap-3 ${
+                  previewProgressRegistered
                     ? "bg-blue-50 text-blue-500 border border-blue-100"
                     : "bg-blue-600 text-white hover:bg-blue-700 shadow-lg shadow-blue-600/20"
-                }`}
+                } disabled:cursor-not-allowed`}
               >
-                {lead.preview_sent ? (
+                {progressEvent === "preview" ? (
+                  <Loader2 size={16} className="animate-spin" />
+                ) : previewProgressRegistered ? (
                   <CheckCircle2 size={16} />
                 ) : (
                   <Sparkles size={16} />
                 )}
-                {lead.preview_sent ? "Preview Enviado" : "Enviar Preview (+2)"}
+
+                {previewProgressRegistered
+                  ? "Preview enviado"
+                  : "Marcar preview (+1)"}
               </button>
 
               <button
-                onClick={() =>
-                  handleUpdate({
-                    price_requested: true,
-                    pipeline_stage: "negotiation",
-                    status: "negotiation",
-                  })
-                }
-                disabled={lead.price_requested}
+                onClick={() => handleProgressEvent("price")}
+                disabled={priceProgressRegistered || Boolean(progressEvent)}
                 className={`p-5 rounded-3xl font-black text-[11px] uppercase tracking-widest transition-all flex items-center justify-center gap-3 ${
-                  lead.price_requested
-                    ? "bg-purple-50 text-purple-500 border border-purple-100"
-                    : "bg-purple-600 text-white hover:bg-purple-700 shadow-lg shadow-purple-600/20"
-                }`}
+                  priceProgressRegistered
+                    ? "bg-indigo-50 text-indigo-500 border border-indigo-100"
+                    : "bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg shadow-indigo-600/20"
+                } disabled:cursor-not-allowed`}
               >
-                {lead.price_requested ? (
+                {progressEvent === "price" ? (
+                  <Loader2 size={16} className="animate-spin" />
+                ) : priceProgressRegistered ? (
                   <CheckCircle2 size={16} />
                 ) : (
                   <Receipt size={16} />
                 )}
-                {lead.price_requested ? "Pediu Orçamento" : "Pediu Preço (+3)"}
+
+                {priceProgressRegistered
+                  ? "Preço solicitado"
+                  : "Marcar pedido de preço (+1)"}
               </button>
 
               <button
-                onClick={() => setShowClosingModal(true)}
-                className="p-5 rounded-3xl font-black text-[11px] uppercase tracking-widest transition-all flex items-center justify-center gap-3 bg-green-500 text-white hover:bg-green-600 shadow-lg shadow-green-500/20"
+                onClick={() => {
+                  setProgressError("");
+                  setShowClosingModal(true);
+                }}
+                disabled={closedProgressRegistered || Boolean(progressEvent)}
+                className={`md:col-span-2 p-5 rounded-3xl font-black text-[11px] uppercase tracking-widest transition-all flex items-center justify-center gap-3 ${
+                  closedProgressRegistered
+                    ? "bg-green-50 text-green-600 border border-green-100"
+                    : "bg-green-500 text-white hover:bg-green-600 shadow-lg shadow-green-500/20"
+                } disabled:cursor-not-allowed`}
               >
-                <DollarSign size={16} />
-                Fechar Negócio
+                {progressEvent === "closed" ? (
+                  <Loader2 size={16} className="animate-spin" />
+                ) : closedProgressRegistered ? (
+                  <CheckCircle2 size={16} />
+                ) : (
+                  <DollarSign size={16} />
+                )}
+
+                {closedProgressRegistered
+                  ? "Negócio fechado (+4)"
+                  : "Fechar negócio (+4)"}
               </button>
             </div>
+
+            {!currentOpportunity && (
+              <p className="mt-5 text-xs font-medium text-orange-600 bg-orange-50 border border-orange-100 rounded-2xl p-4">
+                Nenhum serviço está selecionado. O avanço continuará sendo salvo
+                no lead, mas não pontuará o ranking de serviços.
+              </p>
+            )}
           </div>
 
           <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
