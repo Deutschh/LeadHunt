@@ -138,12 +138,21 @@ async function runSingleHealthCheck(number) {
   }
 }
 
-// 1. Listar todos os leads
+// 1. Listar todos os leads do workspace atual
 router.get("/", async (req, res) => {
+  const workspaceId = req.workspaceId;
+
   try {
     const result = await db.query(
-      "SELECT * FROM leads ORDER BY created_at DESC, id DESC",
+      `
+      SELECT *
+      FROM leads
+      WHERE workspace_id = $1
+      ORDER BY created_at DESC, id DESC
+      `,
+      [workspaceId],
     );
+
     res.json(result.rows);
   } catch (err) {
     console.error("Erro ao carregar lista:", err);
@@ -875,48 +884,104 @@ router.get("/generate-ai-mass/last", async (req, res) => {
   }
 });
 
-// Buscar detalhes de um lead
+// Buscar detalhes de um lead do workspace atual
 router.get("/:id", async (req, res) => {
+  const workspaceId = req.workspaceId;
+  const { id } = req.params;
+
   try {
-    const { id } = req.params;
-    const result = await db.query("SELECT * FROM leads WHERE id = $1", [id]);
+    const result = await db.query(
+      `
+      SELECT *
+      FROM leads
+      WHERE id = $1
+        AND workspace_id = $2
+      `,
+      [id, workspaceId],
+    );
 
     if (result.rows.length === 0) {
+      // 404 evita revelar se o ID existe em outro workspace.
       return res.status(404).json({ message: "Lead não encontrado" });
     }
 
     res.json(result.rows[0]);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("Erro ao buscar lead:", err);
+    res.status(500).json({ error: "Erro ao buscar lead." });
   }
 });
 
-// Histórico do lead
+// Histórico do lead dentro do workspace atual
 router.get("/:id/activities", async (req, res) => {
+  const workspaceId = req.workspaceId;
+  const { id } = req.params;
+
   try {
-    const { id } = req.params;
-    const result = await db.query(
-      "SELECT * FROM lead_activities WHERE lead_id = $1 ORDER BY created_at DESC",
-      [id],
+    // Primeiro valida ownership sem revelar a existência de leads externos.
+    const leadRes = await db.query(
+      `
+      SELECT id
+      FROM leads
+      WHERE id = $1
+        AND workspace_id = $2
+      `,
+      [id, workspaceId],
     );
+
+    if (leadRes.rowCount === 0) {
+      return res.status(404).json({ error: "Lead não encontrado." });
+    }
+
+    const result = await db.query(
+      `
+      SELECT *
+      FROM lead_activities
+      WHERE lead_id = $1
+        AND workspace_id = $2
+      ORDER BY created_at DESC
+      `,
+      [id, workspaceId],
+    );
+
     res.json(result.rows);
   } catch (err) {
+    console.error("Erro ao carregar histórico:", err);
     res.status(500).json({ error: "Erro ao carregar histórico." });
   }
 });
 
-// Verificar/Aprovar lead para automação
+// Verificar/Aprovar lead para automação dentro do workspace atual
 router.patch("/:id/verify", async (req, res) => {
+  const workspaceId = req.workspaceId;
   const { id } = req.params;
   const { is_verified } = req.body;
 
+  if (typeof is_verified !== "boolean") {
+    return res.status(400).json({
+      error: "is_verified deve ser boolean.",
+    });
+  }
+
   try {
     const result = await db.query(
-      "UPDATE leads SET is_verified = $1 WHERE id = $2 RETURNING *",
-      [is_verified, id],
+      `
+      UPDATE leads
+      SET is_verified = $1
+      WHERE id = $2
+        AND workspace_id = $3
+      RETURNING *
+      `,
+      [is_verified, id, workspaceId],
     );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: "Lead não encontrado." });
+    }
+
     res.json(result.rows[0]);
   } catch (err) {
+    console.error("Erro ao verificar lead:", err);
     res.status(500).json({ error: "Erro ao verificar lead." });
   }
 });
