@@ -8,6 +8,7 @@ const leadsRoutes = require("./routes/leads");
 const previewRoutes = require("./routes/previewRoutes");
 const briefingRoutes = require("./routes/briefingRoutes");
 const serviceOpportunitiesRoutes = require("./routes/serviceOpportunities");
+const legacyWorkspaceContext = require("./middleware/legacyWorkspaceContext");
 
 // Nota: startScraping e startAutomation não são chamados aqui no modo Produção
 // mas mantemos o import se necessário para o modo Desenvolvimento local.
@@ -80,6 +81,12 @@ if (process.env.NODE_ENV === "production") {
   console.log("🛠️  LeadHunt API: Modo DESENVOLVIMENTO");
   // startAutomation(); // Descomente para rodar automação junto com a API localmente
 }
+
+// --- Contexto temporário de Workspace ---
+// Enquanto a autenticação ainda não existe, todas as rotas /api recebem
+// workspace_id exclusivamente do servidor (LEGACY_WORKSPACE_ID, padrão 1).
+// O frontend NÃO escolhe o workspace.
+app.use("/api", legacyWorkspaceContext);
 
 // --- Rotas API ---
 app.use("/api/leads", leadsRoutes);

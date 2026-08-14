@@ -197,37 +197,76 @@ router.delete("/niches/:id", async (req, res) => {
 
 // Buscar notas ativas
 router.get("/notes/active", async (req, res) => {
+  const workspaceId = req.workspaceId;
+
   try {
     const result = await db.query(
-      "SELECT * FROM home_notes WHERE expires_at >= CURRENT_DATE OR expires_at IS NULL ORDER BY created_at DESC",
+      `
+      SELECT *
+      FROM home_notes
+      WHERE workspace_id = $1
+        AND (expires_at >= CURRENT_DATE OR expires_at IS NULL)
+      ORDER BY created_at DESC
+      `,
+      [workspaceId],
     );
+
     res.json(result.rows);
   } catch (err) {
+    console.error("Erro ao buscar notas:", err);
     res.status(500).json({ error: "Erro ao buscar notas" });
   }
 });
 
 // Criar nota
 router.post("/notes", async (req, res) => {
+  const workspaceId = req.workspaceId;
   const { title, content, expires_at } = req.body;
 
   try {
     const result = await db.query(
-      "INSERT INTO home_notes (title, content, expires_at) VALUES ($1, $2, $3) RETURNING *",
-      [title, content, expires_at || null],
+      `
+      INSERT INTO home_notes (
+        workspace_id,
+        title,
+        content,
+        expires_at
+      )
+      VALUES ($1, $2, $3, $4)
+      RETURNING *
+      `,
+      [workspaceId, title, content, expires_at || null],
     );
+
     res.json(result.rows[0]);
   } catch (err) {
+    console.error("Erro ao criar nota:", err);
     res.status(500).json({ error: "Erro ao criar nota" });
   }
 });
 
 // Deletar nota
 router.delete("/notes/:id", async (req, res) => {
+  const workspaceId = req.workspaceId;
+
   try {
-    await db.query("DELETE FROM home_notes WHERE id = $1", [req.params.id]);
+    const result = await db.query(
+      `
+      DELETE FROM home_notes
+      WHERE id = $1
+        AND workspace_id = $2
+      RETURNING id
+      `,
+      [req.params.id, workspaceId],
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: "Nota não encontrada." });
+    }
+
     res.json({ message: "Nota removida" });
   } catch (err) {
+    console.error("Erro ao deletar nota:", err);
     res.status(500).json({ error: "Erro ao deletar nota" });
   }
 });
