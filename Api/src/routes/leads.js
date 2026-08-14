@@ -1160,9 +1160,11 @@ router.patch("/prompt-configs/:promptAngle/status", async (req, res) => {
   }
 });
 
-// Atualizar lead / scoring / pipeline
+// Atualizar lead / scoring / pipeline dentro do workspace atual
 router.patch("/:id", async (req, res) => {
+  const workspaceId = req.workspaceId;
   const { id } = req.params;
+
   const {
     status,
     market_observation,
@@ -1186,10 +1188,22 @@ router.patch("/:id", async (req, res) => {
     sale_value,
   } = req.body;
 
+  const client = await db.connect();
+
   try {
-    const oldRes = await db.query(
+    await client.query("BEGIN");
+
+    /*
+     * Trava somente o lead pertencente ao workspace atual.
+     *
+     * Isso garante duas coisas:
+     * 1) um ID de outro workspace resulta em 404;
+     * 2) duas atualizações simultâneas do mesmo lead não calculam
+     *    score/pipeline em cima do mesmo estado antigo.
+     */
+    const oldRes = await client.query(
       `
-      SELECT 
+      SELECT
         status,
         interest_level,
         lead_score,
@@ -1198,11 +1212,14 @@ router.patch("/:id", async (req, res) => {
         pipeline_stage
       FROM leads
       WHERE id = $1
+        AND workspace_id = $2
+      FOR UPDATE
       `,
-      [id],
+      [id, workspaceId],
     );
 
     if (oldRes.rowCount === 0) {
+      await client.query("ROLLBACK");
       return res.status(404).json({ error: "Lead não encontrado." });
     }
 
@@ -1277,11 +1294,28 @@ router.patch("/:id", async (req, res) => {
         price_requested = COALESCE($22, price_requested),
         preview_sent = COALESCE($23, preview_sent),
         sale_value = COALESCE($24, sale_value),
-        responded_at = CASE WHEN $1 = 'responded' AND status != 'responded' THEN NOW() ELSE responded_at END,
-        preview_sent_at = CASE WHEN $23 = true AND preview_sent = false THEN NOW() ELSE preview_sent_at END,
-        closed_at = CASE WHEN $1 = 'closed' AND closed_at IS NULL THEN NOW() ELSE closed_at END,
-        last_reply_at = CASE WHEN $1 = 'responded' AND status != 'responded' THEN NOW() ELSE last_reply_at END
+        responded_at = CASE
+          WHEN $1 = 'responded' AND status != 'responded'
+          THEN NOW()
+          ELSE responded_at
+        END,
+        preview_sent_at = CASE
+          WHEN $23 = true AND preview_sent = false
+          THEN NOW()
+          ELSE preview_sent_at
+        END,
+        closed_at = CASE
+          WHEN $1 = 'closed' AND closed_at IS NULL
+          THEN NOW()
+          ELSE closed_at
+        END,
+        last_reply_at = CASE
+          WHEN $1 = 'responded' AND status != 'responded'
+          THEN NOW()
+          ELSE last_reply_at
+        END
       WHERE id = $25
+        AND workspace_id = $26
       RETURNING *;
     `;
 
@@ -1311,21 +1345,53 @@ router.patch("/:id", async (req, res) => {
       preview_sent,
       sale_value,
       id,
+      workspaceId,
     ];
 
-    const result = await db.query(query, values);
+    const result = await client.query(query, values);
+
+    if (result.rowCount === 0) {
+      throw new Error("Lead deixou de pertencer ao workspace durante a atualização.");
+    }
+
     const updatedLead = result.rows[0];
 
+    /*
+     * createLeadEvent agora deriva workspace_id diretamente do próprio lead.
+     * Como estamos usando o mesmo client da transação, lead + eventos +
+     * atividade de score são confirmados juntos no COMMIT.
+     */
     if (status === "responded" && current.status !== "responded") {
-      await createLeadEvent(id, "lead_replied", null, "manual");
+      await createLeadEvent(
+        id,
+        "lead_replied",
+        null,
+        "manual",
+        {},
+        client,
+      );
     }
 
     if (preview_sent === true && current.preview_sent === false) {
-      await createLeadEvent(id, "preview_sent", null, "manual");
+      await createLeadEvent(
+        id,
+        "preview_sent",
+        null,
+        "manual",
+        {},
+        client,
+      );
     }
 
     if (price_requested === true && current.price_requested === false) {
-      await createLeadEvent(id, "price_requested", null, "manual");
+      await createLeadEvent(
+        id,
+        "price_requested",
+        null,
+        "manual",
+        {},
+        client,
+      );
     }
 
     if (status === "closed" && current.status !== "closed") {
@@ -1337,15 +1403,25 @@ router.patch("/:id", async (req, res) => {
         {
           sale_value: sale_value || null,
         },
+        client,
       );
     }
 
     const previousScore = current.lead_score ?? current.interest_level ?? 0;
 
     if (newScore !== previousScore) {
-      await db.query(
-        "INSERT INTO lead_activities (lead_id, description, type) VALUES ($1, $2, $3)",
+      await client.query(
+        `
+        INSERT INTO lead_activities (
+          workspace_id,
+          lead_id,
+          description,
+          type
+        )
+        VALUES ($1, $2, $3, $4)
+        `,
         [
+          workspaceId,
           id,
           `Score atualizado: lead atingiu ${newScore} pontos.`,
           "score_change",
@@ -1353,13 +1429,22 @@ router.patch("/:id", async (req, res) => {
       );
     }
 
+    await client.query("COMMIT");
+
     res.json({
       message: "Lead atualizado com sucesso.",
       lead: updatedLead,
     });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Erro ao processar atualização do lead." });
+    await client.query("ROLLBACK").catch(() => {});
+
+    console.error("Erro ao processar atualização do lead:", err);
+
+    res.status(500).json({
+      error: "Erro ao processar atualização do lead.",
+    });
+  } finally {
+    client.release();
   }
 });
 
