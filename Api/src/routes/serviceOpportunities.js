@@ -1300,7 +1300,6 @@ router.post("/leads/:leadId/select", async (req, res) => {
 
         negotiation_guide = NULL,
         guide_generated_at = NULL,
-        opportunity.analysis_updated_at,
 
         selected_score = 1,
         interest_score = 0,
