@@ -818,6 +818,8 @@ router.post("/sending-numbers/health-check-all", async (req, res) => {
 
 // Geração em massa de IA
 router.post("/generate-ai-mass", async (req, res) => {
+  const workspaceId = req.workspaceId;
+
   const {
     limit = 10,
     minRating = 0,
@@ -833,13 +835,14 @@ router.post("/generate-ai-mass", async (req, res) => {
     let query = `
       SELECT *
       FROM leads
-      WHERE status = $1
+      WHERE workspace_id = $1
+        AND status = $2
         AND is_ai_ready = false
         AND is_archived = false
-        AND rating >= $2
+        AND rating >= $3
     `;
 
-    const queryParams = [status, minRating];
+    const queryParams = [workspaceId, status, minRating];
 
     const selectedCategories = Array.isArray(categories)
       ? categories.filter(Boolean)
@@ -904,6 +907,7 @@ router.post("/generate-ai-mass", async (req, res) => {
     message_type = $6
 
   WHERE id = $7
+    AND workspace_id = $8
 
   RETURNING
     id,
@@ -935,8 +939,16 @@ router.post("/generate-ai-mass", async (req, res) => {
             batchId,
             generated.meta.message_type,
             lead.id,
+            workspaceId,
           ],
         );
+
+        if (updateRes.rowCount === 0) {
+          throw new Error(
+            "Lead deixou de pertencer ao workspace durante a geração.",
+          );
+        }
+
         generatedLeads.push(updateRes.rows[0]);
       } catch (aiErr) {
         console.error(`Erro no lead ${lead.id}:`, aiErr.message);
@@ -958,14 +970,20 @@ router.post("/generate-ai-mass", async (req, res) => {
 
 // Última geração de mensagens por IA
 router.get("/generate-ai-mass/last", async (req, res) => {
+  const workspaceId = req.workspaceId;
+
   try {
-    const batchRes = await db.query(`
-      SELECT ai_generation_batch_id
-      FROM leads
-      WHERE ai_generation_batch_id IS NOT NULL
-      ORDER BY ai_message_generated_at DESC
-      LIMIT 1
-    `);
+    const batchRes = await db.query(
+      `
+        SELECT ai_generation_batch_id
+        FROM leads
+        WHERE workspace_id = $1
+          AND ai_generation_batch_id IS NOT NULL
+        ORDER BY ai_message_generated_at DESC
+        LIMIT 1
+      `,
+      [workspaceId],
+    );
 
     const batchId = batchRes.rows[0]?.ai_generation_batch_id;
 
@@ -996,9 +1014,10 @@ router.get("/generate-ai-mass/last", async (req, res) => {
         custom_message
       FROM leads
       WHERE ai_generation_batch_id = $1
+        AND workspace_id = $2
       ORDER BY ai_message_generated_at DESC, id DESC
       `,
-      [batchId],
+      [batchId, workspaceId],
     );
 
     res.json({
@@ -1117,6 +1136,7 @@ router.patch("/:id/verify", async (req, res) => {
 
 // Dashboard
 router.get("/stats/dashboard", async (req, res) => {
+  const workspaceId = req.workspaceId;
   const { period = "30", includeArchived = "false" } = req.query;
 
   const showArchived = includeArchived === "true";
@@ -1135,9 +1155,10 @@ router.get("/stats/dashboard", async (req, res) => {
         COUNT(*) FILTER (WHERE pipeline_stage = 'closed') as closed,
         COALESCE(SUM(sale_value), 0) as total_revenue
       FROM leads
-      WHERE created_at >= CURRENT_DATE - ($1 || ' days')::interval
+      WHERE workspace_id = $1
+        AND created_at >= CURRENT_DATE - ($2 || ' days')::interval
       `,
-      [String(days)],
+      [workspaceId, String(days)],
     );
 
     const s = stats.rows[0];
@@ -1159,11 +1180,12 @@ router.get("/stats/dashboard", async (req, res) => {
         COUNT(*) FILTER (WHERE pipeline_stage IN ('responded','interested','preview_sent','negotiation','closed')) as respostas,
         COUNT(*) FILTER (WHERE pipeline_stage = 'closed') as vendas
       FROM leads
-      WHERE created_at >= CURRENT_DATE - ($1 || ' days')::interval
+      WHERE workspace_id = $1
+        AND created_at >= CURRENT_DATE - ($2 || ' days')::interval
       GROUP BY lead_category
       ORDER BY leads DESC
       `,
-      [String(days)],
+      [workspaceId, String(days)],
     );
 
     const promptStats = await db.query(
@@ -1194,10 +1216,11 @@ router.get("/stats/dashboard", async (req, res) => {
       FROM leads l
       LEFT JOIN ai_prompt_configs apc
         ON apc.prompt_angle = l.ai_prompt_angle
-      WHERE l.created_at >= CURRENT_DATE - ($1 || ' days')::interval
+      WHERE l.workspace_id = $1
+        AND l.created_at >= CURRENT_DATE - ($2 || ' days')::interval
         AND l.ai_prompt_angle IS NOT NULL
         AND (
-          $2::boolean = true
+          $3::boolean = true
           OR COALESCE(apc.status, 'active') != 'archived'
         )
       GROUP BY
@@ -1207,7 +1230,7 @@ router.get("/stats/dashboard", async (req, res) => {
         COALESCE(apc.status, 'active')
       ORDER BY respostas DESC, enviados DESC
       `,
-      [String(days), showArchived],
+      [workspaceId, String(days), showArchived],
     );
 
     res.json({
