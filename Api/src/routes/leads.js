@@ -39,6 +39,10 @@ function calculateChipAvailability(row) {
 }
 
 async function runSingleHealthCheck(number) {
+  if (!number.workspace_id) {
+    throw new Error("Número de envio sem workspace_id.");
+  }
+
   if (!number.chrome_port) {
     throw new Error("Chip não possui chrome_port configurado.");
   }
@@ -68,7 +72,7 @@ async function runSingleHealthCheck(number) {
       throw new Error("WhatsApp não carregou corretamente");
     }
 
-    await db.query(
+    const updateRes = await db.query(
       `
       UPDATE sending_numbers
       SET
@@ -78,9 +82,15 @@ async function runSingleHealthCheck(number) {
         consecutive_failures = 0,
         paused_until = NULL
       WHERE id = $1
+        AND workspace_id = $2
+      RETURNING id
       `,
-      [number.id],
+      [number.id, number.workspace_id],
     );
+
+    if (updateRes.rowCount === 0) {
+      throw new Error("Número de envio deixou de pertencer ao workspace.");
+    }
 
     return {
       label: number.label,
@@ -94,9 +104,14 @@ async function runSingleHealthCheck(number) {
       SELECT consecutive_failures
       FROM sending_numbers
       WHERE id = $1
+        AND workspace_id = $2
       `,
-      [number.id],
+      [number.id, number.workspace_id],
     );
+
+    if (failuresRes.rowCount === 0) {
+      throw new Error("Número de envio não encontrado no workspace.");
+    }
 
     const failures = Number(failuresRes.rows[0]?.consecutive_failures || 0) + 1;
 
@@ -112,14 +127,22 @@ async function runSingleHealthCheck(number) {
       `
       UPDATE sending_numbers
       SET
-        health_status = $2,
+        health_status = $3,
         last_health_check_at = NOW(),
-        last_error = $3,
-        consecutive_failures = $4,
-        paused_until = $5
+        last_error = $4,
+        consecutive_failures = $5,
+        paused_until = $6
       WHERE id = $1
+        AND workspace_id = $2
       `,
-      [number.id, healthStatus, err.message, failures, pausedUntil],
+      [
+        number.id,
+        number.workspace_id,
+        healthStatus,
+        err.message,
+        failures,
+        pausedUntil,
+      ],
     );
 
     return {
@@ -134,6 +157,7 @@ async function runSingleHealthCheck(number) {
     if (page) {
       await page.close().catch(() => {});
     }
+
     await browser.disconnect().catch(() => {});
   }
 }
@@ -160,46 +184,89 @@ router.get("/", async (req, res) => {
   }
 });
 
-// Listar nichos estratégicos
+// Listar nichos estratégicos do workspace atual
 router.get("/niches", async (req, res) => {
+  const workspaceId = req.workspaceId;
+
   try {
     const result = await db.query(
-      "SELECT * FROM niche_strategies ORDER BY niche_name ASC",
+      `
+      SELECT *
+      FROM niche_strategies
+      WHERE workspace_id = $1
+      ORDER BY niche_name ASC
+      `,
+      [workspaceId],
     );
+
     res.json(result.rows);
   } catch (err) {
+    console.error("Erro ao buscar nichos:", err);
     res.status(500).json({ error: "Erro ao buscar nichos." });
   }
 });
 
-// Adicionar ou atualizar nicho
+// Adicionar ou atualizar nicho dentro do workspace atual
 router.post("/niches", async (req, res) => {
+  const workspaceId = req.workspaceId;
   const { niche_name, hook, call_to_action } = req.body;
+
+  if (!niche_name || typeof niche_name !== "string" || !niche_name.trim()) {
+    return res.status(400).json({ error: "niche_name é obrigatório." });
+  }
 
   try {
     const query = `
-      INSERT INTO niche_strategies (niche_name, hook, call_to_action)
-      VALUES ($1, $2, $3)
-      ON CONFLICT (niche_name) 
-      DO UPDATE SET hook = $2, call_to_action = $3
+      INSERT INTO niche_strategies (
+        workspace_id,
+        niche_name,
+        hook,
+        call_to_action
+      )
+      VALUES ($1, $2, $3, $4)
+      ON CONFLICT (workspace_id, niche_name)
+      DO UPDATE SET
+        hook = EXCLUDED.hook,
+        call_to_action = EXCLUDED.call_to_action
       RETURNING *;
     `;
 
-    const result = await db.query(query, [niche_name, hook, call_to_action]);
+    const result = await db.query(query, [
+      workspaceId,
+      niche_name.trim(),
+      hook,
+      call_to_action,
+    ]);
+
     res.json(result.rows[0]);
   } catch (err) {
+    console.error("Erro ao salvar nicho:", err);
     res.status(500).json({ error: "Erro ao salvar nicho." });
   }
 });
 
-// Deletar nicho
+// Deletar nicho somente dentro do workspace atual
 router.delete("/niches/:id", async (req, res) => {
+  const workspaceId = req.workspaceId;
+
   try {
-    await db.query("DELETE FROM niche_strategies WHERE id = $1", [
-      req.params.id,
-    ]);
+    const result = await db.query(
+      `
+      DELETE FROM niche_strategies
+      WHERE id = $1
+        AND workspace_id = $2
+      RETURNING id
+      `,
+      [req.params.id, workspaceId],
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: "Nicho não encontrado." });
+    }
+
     res.json({ message: "Nicho removido com sucesso." });
   } catch (err) {
+    console.error("Erro ao deletar nicho:", err);
     res.status(500).json({ error: "Erro ao deletar nicho." });
   }
 });
@@ -280,14 +347,28 @@ router.delete("/notes/:id", async (req, res) => {
   }
 });
 
-// Buscar configurações de automação
+// Buscar configurações de automação do workspace atual
 router.get("/automation/settings", async (req, res) => {
+  const workspaceId = req.workspaceId;
+
   try {
-    const result = await db.query(`
+    const result = await db.query(
+      `
       SELECT *
       FROM automation_settings
-      WHERE id = 1
-    `);
+      WHERE workspace_id = $1
+      LIMIT 1
+      `,
+      [workspaceId],
+    );
+
+    // Para um workspace ainda não configurado, não vaza a configuração
+    // de outro usuário e não cria registro silenciosamente.
+    if (result.rowCount === 0) {
+      return res.status(404).json({
+        error: "Configurações de automação não encontradas para este workspace.",
+      });
+    }
 
     res.json(result.rows[0]);
   } catch (err) {
@@ -299,7 +380,10 @@ router.get("/automation/settings", async (req, res) => {
   }
 });
 
+// Atualizar configurações de automação do workspace atual
 router.patch("/automation/settings", async (req, res) => {
+  const workspaceId = req.workspaceId;
+
   const {
     is_active,
     min_interval_minutes,
@@ -338,7 +422,7 @@ router.patch("/automation/settings", async (req, res) => {
         followup_gap_seconds = COALESCE($13, followup_gap_seconds),
 
         updated_at = NOW()
-      WHERE id = 1
+      WHERE workspace_id = $14
       RETURNING *
       `,
       [
@@ -355,8 +439,15 @@ router.patch("/automation/settings", async (req, res) => {
         followup_delay_hours_2,
         followups_per_cycle,
         followup_gap_seconds,
+        workspaceId,
       ],
     );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({
+        error: "Configurações de automação não encontradas para este workspace.",
+      });
+    }
 
     res.json(result.rows[0]);
   } catch (err) {
@@ -365,12 +456,16 @@ router.patch("/automation/settings", async (req, res) => {
   }
 });
 
-// Listar números/chips de envio
+// Listar números/chips de envio do workspace atual
 router.get("/sending-numbers", async (req, res) => {
+  const workspaceId = req.workspaceId;
+
   try {
-    const result = await db.query(`
+    const result = await db.query(
+      `
       SELECT
         id,
+        workspace_id,
         label,
         phone_number,
         whatsapp_profile_name,
@@ -389,8 +484,11 @@ router.get("/sending-numbers", async (req, res) => {
         consecutive_failures,
         paused_until
       FROM sending_numbers
+      WHERE workspace_id = $1
       ORDER BY id ASC
-    `);
+      `,
+      [workspaceId],
+    );
 
     res.json(result.rows.map(calculateChipAvailability));
   } catch (err) {
@@ -399,10 +497,17 @@ router.get("/sending-numbers", async (req, res) => {
   }
 });
 
-// Pausar chip manualmente
+// Pausar chip manualmente dentro do workspace atual
 router.patch("/sending-numbers/:id/pause", async (req, res) => {
+  const workspaceId = req.workspaceId;
   const { id } = req.params;
   const { minutes = 30, reason = "Pausa manual" } = req.body;
+
+  const parsedMinutes = Number(minutes);
+
+  if (!Number.isFinite(parsedMinutes) || parsedMinutes <= 0) {
+    return res.status(400).json({ error: "minutes inválido." });
+  }
 
   try {
     const result = await db.query(
@@ -410,13 +515,14 @@ router.patch("/sending-numbers/:id/pause", async (req, res) => {
       UPDATE sending_numbers
       SET
         health_status = 'paused',
-        paused_until = NOW() + ($2 || ' minutes')::interval,
-        last_error = $3,
+        paused_until = NOW() + ($3 || ' minutes')::interval,
+        last_error = $4,
         last_health_check_at = NOW()
       WHERE id = $1
+        AND workspace_id = $2
       RETURNING *
       `,
-      [id, String(minutes), reason],
+      [id, workspaceId, String(parsedMinutes), reason],
     );
 
     if (result.rowCount === 0) {
@@ -425,7 +531,7 @@ router.patch("/sending-numbers/:id/pause", async (req, res) => {
 
     res.json({
       success: true,
-      message: `Chip pausado por ${minutes} minutos.`,
+      message: `Chip pausado por ${parsedMinutes} minutos.`,
       chip: result.rows[0],
     });
   } catch (err) {
@@ -434,8 +540,9 @@ router.patch("/sending-numbers/:id/pause", async (req, res) => {
   }
 });
 
-// Reativar chip manualmente
+// Reativar chip manualmente dentro do workspace atual
 router.patch("/sending-numbers/:id/resume", async (req, res) => {
+  const workspaceId = req.workspaceId;
   const { id } = req.params;
 
   try {
@@ -450,9 +557,10 @@ router.patch("/sending-numbers/:id/resume", async (req, res) => {
         last_health_check_at = NOW(),
         status = 'active'
       WHERE id = $1
+        AND workspace_id = $2
       RETURNING *
       `,
-      [id],
+      [id, workspaceId],
     );
 
     if (result.rowCount === 0) {
@@ -470,8 +578,9 @@ router.patch("/sending-numbers/:id/resume", async (req, res) => {
   }
 });
 
-// Resetar falhas do chip
+// Resetar falhas do chip dentro do workspace atual
 router.patch("/sending-numbers/:id/reset-failures", async (req, res) => {
+  const workspaceId = req.workspaceId;
   const { id } = req.params;
 
   try {
@@ -485,9 +594,10 @@ router.patch("/sending-numbers/:id/reset-failures", async (req, res) => {
         paused_until = NULL,
         last_health_check_at = NOW()
       WHERE id = $1
+        AND workspace_id = $2
       RETURNING *
       `,
-      [id],
+      [id, workspaceId],
     );
 
     if (result.rowCount === 0) {
@@ -505,8 +615,9 @@ router.patch("/sending-numbers/:id/reset-failures", async (req, res) => {
   }
 });
 
-// Alterar limite diário do chip
+// Alterar limite diário do chip dentro do workspace atual
 router.patch("/sending-numbers/:id/daily-limit", async (req, res) => {
+  const workspaceId = req.workspaceId;
   const { id } = req.params;
   const { daily_limit } = req.body;
 
@@ -523,11 +634,12 @@ router.patch("/sending-numbers/:id/daily-limit", async (req, res) => {
     const result = await db.query(
       `
       UPDATE sending_numbers
-      SET daily_limit = $2
+      SET daily_limit = $3
       WHERE id = $1
+        AND workspace_id = $2
       RETURNING *
       `,
-      [id, Number(daily_limit)],
+      [id, workspaceId, Number(daily_limit)],
     );
 
     if (result.rowCount === 0) {
@@ -545,8 +657,9 @@ router.patch("/sending-numbers/:id/daily-limit", async (req, res) => {
   }
 });
 
-// Ativar/Inativar chip
+// Ativar/Inativar chip dentro do workspace atual
 router.patch("/sending-numbers/:id/toggle-active", async (req, res) => {
+  const workspaceId = req.workspaceId;
   const { id } = req.params;
   const { is_active } = req.body;
 
@@ -558,11 +671,12 @@ router.patch("/sending-numbers/:id/toggle-active", async (req, res) => {
     const result = await db.query(
       `
       UPDATE sending_numbers
-      SET is_active = $2
+      SET is_active = $3
       WHERE id = $1
+        AND workspace_id = $2
       RETURNING *
       `,
-      [id, is_active],
+      [id, workspaceId, is_active],
     );
 
     if (result.rowCount === 0) {
@@ -582,8 +696,9 @@ router.patch("/sending-numbers/:id/toggle-active", async (req, res) => {
   }
 });
 
-// Atualizar status textual do chip
+// Atualizar status textual do chip dentro do workspace atual
 router.patch("/sending-numbers/:id/status", async (req, res) => {
+  const workspaceId = req.workspaceId;
   const { id } = req.params;
   const { status } = req.body;
 
@@ -599,11 +714,12 @@ router.patch("/sending-numbers/:id/status", async (req, res) => {
     const result = await db.query(
       `
       UPDATE sending_numbers
-      SET status = $2
+      SET status = $3
       WHERE id = $1
+        AND workspace_id = $2
       RETURNING *
       `,
-      [id, status],
+      [id, workspaceId, status],
     );
 
     if (result.rowCount === 0) {
@@ -621,8 +737,11 @@ router.patch("/sending-numbers/:id/status", async (req, res) => {
   }
 });
 
-// Health check individual
+// Health check individual.
+// OBS: continua executando localmente nesta fase de transição.
+// Na etapa do Agent, esta execução sairá da API cloud e virará job local.
 router.post("/sending-numbers/:id/health-check", async (req, res) => {
+  const workspaceId = req.workspaceId;
   const { id } = req.params;
 
   try {
@@ -631,9 +750,10 @@ router.post("/sending-numbers/:id/health-check", async (req, res) => {
       SELECT *
       FROM sending_numbers
       WHERE id = $1
+        AND workspace_id = $2
       LIMIT 1
       `,
-      [id],
+      [id, workspaceId],
     );
 
     if (!result.rows.length) {
@@ -649,21 +769,29 @@ router.post("/sending-numbers/:id/health-check", async (req, res) => {
     });
   } catch (err) {
     console.error("Erro no health check individual:", err);
+
     return res.status(500).json({
       error: err.message || "Erro ao executar health check individual.",
     });
   }
 });
 
-// Health check em lote
+// Health check em lote somente dos números do workspace atual.
+// OBS: será convertido em job do Agent em etapa posterior.
 router.post("/sending-numbers/health-check-all", async (req, res) => {
+  const workspaceId = req.workspaceId;
+
   try {
-    const result = await db.query(`
+    const result = await db.query(
+      `
       SELECT *
       FROM sending_numbers
-      WHERE is_active = true
+      WHERE workspace_id = $1
+        AND is_active = true
         AND chrome_port IS NOT NULL
-    `);
+      `,
+      [workspaceId],
+    );
 
     const numbers = result.rows;
 
@@ -681,6 +809,7 @@ router.post("/sending-numbers/health-check-all", async (req, res) => {
     });
   } catch (err) {
     console.error("Erro no health check em lote:", err);
+
     return res
       .status(500)
       .json({ error: "Erro ao executar health check em lote." });
