@@ -7,6 +7,7 @@ const db = require("./database/db");
 const leadsRoutes = require("./routes/leads");
 const previewRoutes = require("./routes/previewRoutes");
 const briefingRoutes = require("./routes/briefingRoutes");
+const publicBriefingRoutes = require("./routes/publicBriefingRoutes");
 const serviceOpportunitiesRoutes = require("./routes/serviceOpportunities");
 const legacyWorkspaceContext = require("./middleware/legacyWorkspaceContext");
 
@@ -81,6 +82,9 @@ if (process.env.NODE_ENV === "production") {
   console.log("🛠️  LeadHunt API: Modo DESENVOLVIMENTO");
   // startAutomation(); // Descomente para rodar automação junto com a API localmente
 }
+
+// --- Rotas públicas sem contexto de workspace ---
+app.use("/api/public/briefings", publicBriefingRoutes);
 
 // --- Contexto temporário de Workspace ---
 // Enquanto a autenticação ainda não existe, todas as rotas /api recebem
