@@ -1,0 +1,28 @@
+# Configuração específica do LeadHunt para Codex.
+# O projeto precisa estar marcado como trusted para este arquivo ser carregado.
+
+model = "gpt-5.6"
+model_reasoning_effort = "high"
+
+# Mantém o Codex produtivo dentro do projeto, mas pede autorização
+# quando precisar sair dos limites normais.
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+
+# Busca web via índice/cache, sem abrir acesso de rede aos comandos locais.
+web_search = "cached"
+
+# Evita encaminhar automaticamente variáveis com nomes como KEY/SECRET/TOKEN
+# para comandos gerados pelo agente.
+[shell_environment_policy]
+ignore_default_excludes = false
+
+# Em workspace-write, comandos locais não precisam de internet para as
+# tarefas normais do LeadHunt. Dependências novas devem exigir decisão manual.
+[sandbox_workspace_write]
+network_access = false
+
+# Configuração nativa recomendada para Windows.
+# Se a preparação elevated falhar por falta de permissão, use "unelevated".
+[windows]
+sandbox = "elevated"
