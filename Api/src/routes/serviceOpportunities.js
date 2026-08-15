@@ -258,9 +258,12 @@ const PROGRESS_EVENTS = {
  *
  * Retorna o catálogo ativo de serviços da Velaris.
  */
-router.get("/services", async (_req, res) => {
+router.get("/services", async (req, res) => {
+  const workspaceId = req.workspaceId;
+
   try {
-    const result = await db.query(`
+    const result = await db.query(
+      `
       SELECT
         id,
         service_key,
@@ -276,9 +279,12 @@ router.get("/services", async (_req, res) => {
         created_at,
         updated_at
       FROM velaris_services
-      WHERE is_active = TRUE
+      WHERE workspace_id = $1
+        AND is_active = TRUE
       ORDER BY display_order ASC, service_name ASC
-    `);
+      `,
+      [workspaceId],
+    );
 
     return res.json({
       success: true,
@@ -315,6 +321,8 @@ router.get("/services", async (_req, res) => {
  * foi selecionada: selected_at.
  */
 router.get("/stats", async (req, res) => {
+  const workspaceId = req.workspaceId;
+
   const periodDays = parseStatsPeriod(req.query.period);
 
   if (periodDays === undefined) {
@@ -352,9 +360,12 @@ router.get("/stats", async (req, res) => {
    * Os filtros são montados com parâmetros,
    * evitando interpolação de dados do usuário.
    */
-  const queryValues = [];
+  const queryValues = [workspaceId];
 
-  const conditions = ["1 = 1"];
+  const conditions = [
+    "opportunity.workspace_id = $1",
+    "service.workspace_id = $1",
+  ];
 
   if (periodDays !== null) {
     queryValues.push(periodDays);
@@ -461,6 +472,8 @@ router.get("/stats", async (req, res) => {
         service
         ON service.id =
           opportunity.service_id
+        AND service.workspace_id =
+          opportunity.workspace_id
 
       WHERE ${whereClause}
     `;
@@ -526,6 +539,8 @@ router.get("/stats", async (req, res) => {
         service
         ON service.id =
           opportunity.service_id
+        AND service.workspace_id =
+          opportunity.workspace_id
 
       WHERE ${whereClause}
 
@@ -616,6 +631,8 @@ router.get("/stats", async (req, res) => {
         service
         ON service.id =
           opportunity.service_id
+        AND service.workspace_id =
+          opportunity.workspace_id
 
       WHERE ${whereClause}
 
@@ -643,7 +660,8 @@ router.get("/stats", async (req, res) => {
         problem_category,
         display_order
       FROM velaris_services
-      WHERE is_active = TRUE
+      WHERE workspace_id = $1
+        AND is_active = TRUE
       ORDER BY
         display_order ASC,
         service_name ASC
@@ -669,7 +687,8 @@ router.get("/stats", async (req, res) => {
 
       FROM lead_service_opportunities
 
-      WHERE niche_key IS NOT NULL
+      WHERE workspace_id = $1
+        AND niche_key IS NOT NULL
         AND TRIM(niche_key) <> ''
 
       GROUP BY niche_key
@@ -690,9 +709,9 @@ router.get("/stats", async (req, res) => {
 
       db.query(nichesQuery, queryValues),
 
-      db.query(availableServicesQuery),
+      db.query(availableServicesQuery, [workspaceId]),
 
-      db.query(availableNichesQuery),
+      db.query(availableNichesQuery, [workspaceId]),
     ]);
 
     const rawSummary = summaryResult.rows[0] || {};
@@ -867,6 +886,8 @@ router.get("/stats", async (req, res) => {
  * retorna opportunity: null.
  */
 router.get("/leads/:leadId/current", async (req, res) => {
+  const workspaceId = req.workspaceId;
+
   const leadId = Number(req.params.leadId);
 
   if (!Number.isInteger(leadId) || leadId <= 0) {
@@ -891,9 +912,10 @@ router.get("/leads/:leadId/current", async (req, res) => {
         lead_city
       FROM leads
       WHERE id = $1
+        AND workspace_id = $2
       LIMIT 1
       `,
-      [leadId],
+      [leadId, workspaceId],
     );
 
     if (leadResult.rowCount === 0) {
@@ -950,13 +972,16 @@ router.get("/leads/:leadId/current", async (req, res) => {
 
       INNER JOIN velaris_services service
         ON service.id = opportunity.service_id
+        AND service.workspace_id = opportunity.workspace_id
 
       WHERE opportunity.lead_id = $1
+        AND opportunity.workspace_id = $2
+        AND service.workspace_id = $2
         AND opportunity.is_active = TRUE
 
       LIMIT 1
       `,
-      [leadId],
+      [leadId, workspaceId],
     );
 
     return res.json({
@@ -1004,6 +1029,8 @@ router.get("/leads/:leadId/current", async (req, res) => {
  * }
  */
 router.post("/leads/:leadId/select", async (req, res) => {
+  const workspaceId = req.workspaceId;
+
   const leadId = Number(req.params.leadId);
 
   const { service_id, service_key, confirm_reset = false } = req.body;
@@ -1057,9 +1084,10 @@ router.post("/leads/:leadId/select", async (req, res) => {
         lead_city
       FROM leads
       WHERE id = $1
+        AND workspace_id = $2
       LIMIT 1
       `,
-      [leadId],
+      [leadId, workspaceId],
     );
 
     if (leadResult.rowCount === 0) {
@@ -1093,10 +1121,11 @@ router.post("/leads/:leadId/select", async (req, res) => {
         SELECT *
         FROM velaris_services
         WHERE id = $1
+          AND workspace_id = $2
           AND is_active = TRUE
         LIMIT 1
         `,
-        [Number(service_id)],
+        [Number(service_id), workspaceId],
       );
     } else {
       serviceResult = await db.query(
@@ -1104,10 +1133,11 @@ router.post("/leads/:leadId/select", async (req, res) => {
         SELECT *
         FROM velaris_services
         WHERE service_key = $1
+          AND workspace_id = $2
           AND is_active = TRUE
         LIMIT 1
         `,
-        [service_key.trim()],
+        [service_key.trim(), workspaceId],
       );
     }
 
@@ -1128,10 +1158,11 @@ router.post("/leads/:leadId/select", async (req, res) => {
       SELECT *
       FROM lead_service_opportunities
       WHERE lead_id = $1
+        AND workspace_id = $2
         AND is_active = TRUE
       LIMIT 1
       `,
-      [leadId],
+      [leadId, workspaceId],
     );
 
     const leadCategory = lead.lead_category || lead.niche || "Geral";
@@ -1145,6 +1176,7 @@ router.post("/leads/:leadId/select", async (req, res) => {
       const insertResult = await db.query(
         `
         INSERT INTO lead_service_opportunities (
+          workspace_id,
           lead_id,
           service_id,
           lead_category,
@@ -1161,6 +1193,7 @@ router.post("/leads/:leadId/select", async (req, res) => {
           $2,
           $3,
           $4,
+          $5,
           1,
           0,
           0,
@@ -1170,7 +1203,7 @@ router.post("/leads/:leadId/select", async (req, res) => {
         )
         RETURNING *
         `,
-        [leadId, selectedService.id, leadCategory, nicheKey],
+        [workspaceId, leadId, selectedService.id, leadCategory, nicheKey],
       );
 
       return res.status(201).json({
@@ -1212,9 +1245,10 @@ router.post("/leads/:leadId/select", async (req, res) => {
           problem_category
         FROM velaris_services
         WHERE id = $1
+          AND workspace_id = $2
         LIMIT 1
         `,
-        [currentOpportunity.service_id],
+        [currentOpportunity.service_id, workspaceId],
       );
 
       return res.status(409).json({
@@ -1281,9 +1315,16 @@ router.post("/leads/:leadId/select", async (req, res) => {
         closed_marked_at = NULL
 
       WHERE id = $1
+        AND workspace_id = $5
       RETURNING *
       `,
-      [currentOpportunity.id, selectedService.id, leadCategory, nicheKey],
+      [
+        currentOpportunity.id,
+        selectedService.id,
+        leadCategory,
+        nicheKey,
+        workspaceId,
+      ],
     );
 
     return res.json({
@@ -1330,6 +1371,8 @@ router.post("/leads/:leadId/select", async (req, res) => {
  * - quando não há histórico, usa display_order.
  */
 router.get("/leads/:leadId/recommendations", async (req, res) => {
+  const workspaceId = req.workspaceId;
+
   const leadId = Number(req.params.leadId);
 
   if (!Number.isInteger(leadId) || leadId <= 0) {
@@ -1360,9 +1403,10 @@ router.get("/leads/:leadId/recommendations", async (req, res) => {
         reviews_count
       FROM leads
       WHERE id = $1
+        AND workspace_id = $2
       LIMIT 1
       `,
-      [leadId],
+      [leadId, workspaceId],
     );
 
     if (leadResult.rowCount === 0) {
@@ -1412,14 +1456,21 @@ router.get("/leads/:leadId/recommendations", async (req, res) => {
     const currentOpportunityResult = await db.query(
       `
       SELECT
-        id,
-        service_id
-      FROM lead_service_opportunities
-      WHERE lead_id = $1
-        AND is_active = TRUE
+        opportunity.id,
+        opportunity.service_id
+      FROM lead_service_opportunities opportunity
+
+      INNER JOIN velaris_services service
+        ON service.id = opportunity.service_id
+        AND service.workspace_id = opportunity.workspace_id
+
+      WHERE opportunity.lead_id = $1
+        AND opportunity.workspace_id = $2
+        AND service.workspace_id = $2
+        AND opportunity.is_active = TRUE
       LIMIT 1
       `,
-      [leadId],
+      [leadId, workspaceId],
     );
 
     const selectedServiceId =
@@ -1453,6 +1504,7 @@ router.get("/leads/:leadId/recommendations", async (req, res) => {
         FROM lead_service_opportunities
 
         WHERE niche_key = $1
+          AND workspace_id = $2
 
         GROUP BY service_id
       )
@@ -1489,7 +1541,8 @@ router.get("/leads/:leadId/recommendations", async (req, res) => {
       LEFT JOIN service_stats stats
         ON stats.service_id = service.id
 
-      WHERE service.is_active = TRUE
+      WHERE service.workspace_id = $2
+        AND service.is_active = TRUE
 
       ORDER BY
         CASE
@@ -1506,7 +1559,7 @@ router.get("/leads/:leadId/recommendations", async (req, res) => {
 
         service.service_name ASC
       `,
-      [nicheKey],
+      [nicheKey, workspaceId],
     );
 
     /*
@@ -1612,6 +1665,8 @@ router.get("/leads/:leadId/recommendations", async (req, res) => {
  * - pain_points
  */
 router.patch("/leads/:leadId/analysis", async (req, res) => {
+  const workspaceId = req.workspaceId;
+
   const leadId = Number(req.params.leadId);
 
   if (!Number.isInteger(leadId) || leadId <= 0) {
@@ -1712,7 +1767,14 @@ router.patch("/leads/:leadId/analysis", async (req, res) => {
     analysis_updated_at = NOW()
 
   WHERE lead_id = $1
+    AND workspace_id = $8
     AND is_active = TRUE
+    AND EXISTS (
+      SELECT 1
+      FROM velaris_services service
+      WHERE service.id = lead_service_opportunities.service_id
+        AND service.workspace_id = $8
+    )
 
   RETURNING *
   `,
@@ -1724,6 +1786,7 @@ router.patch("/leads/:leadId/analysis", async (req, res) => {
         perceivedGoal,
         hasPainPoints,
         JSON.stringify(painPoints),
+        workspaceId,
       ],
     );
 
@@ -1751,9 +1814,10 @@ router.patch("/leads/:leadId/analysis", async (req, res) => {
         target_niches
       FROM velaris_services
       WHERE id = $1
+        AND workspace_id = $2
       LIMIT 1
       `,
-      [opportunity.service_id],
+      [opportunity.service_id, workspaceId],
     );
 
     const service = serviceResult.rows[0] || null;
@@ -1805,6 +1869,8 @@ router.patch("/leads/:leadId/analysis", async (req, res) => {
  * da oportunidade ativa.
  */
 router.post("/leads/:leadId/guide", async (req, res) => {
+  const workspaceId = req.workspaceId;
+
   const leadId = Number(req.params.leadId);
 
   if (!Number.isInteger(leadId) || leadId <= 0) {
@@ -1870,17 +1936,23 @@ router.post("/leads/:leadId/guide", async (req, res) => {
             lead_service_opportunities
               opportunity
             ON opportunity.lead_id = l.id
+           AND opportunity.workspace_id = l.workspace_id
            AND opportunity.is_active = TRUE
 
           INNER JOIN
             velaris_services service
             ON service.id =
               opportunity.service_id
+           AND service.workspace_id =
+              opportunity.workspace_id
 
           WHERE l.id = $1
+            AND l.workspace_id = $2
+            AND opportunity.workspace_id = $2
+            AND service.workspace_id = $2
           LIMIT 1
           `,
-      [leadId],
+      [leadId, workspaceId],
     );
 
     if (contextResult.rowCount === 0) {
@@ -1919,10 +1991,11 @@ router.post("/leads/:leadId/guide", async (req, res) => {
             created_at
           FROM lead_activities
           WHERE lead_id = $1
+            AND workspace_id = $2
           ORDER BY created_at DESC
           LIMIT 20
           `,
-      [leadId],
+      [leadId, workspaceId],
     );
 
     const hadPreviousGuide = Boolean(row.negotiation_guide);
@@ -2043,11 +2116,18 @@ router.post("/leads/:leadId/guide", async (req, res) => {
           WHERE id = $2
             AND lead_id = $3
             AND service_id = $4
+            AND workspace_id = $5
             AND is_active = TRUE
 
           RETURNING *
           `,
-      [JSON.stringify(guide), row.opportunity_id, leadId, row.service_id],
+      [
+        JSON.stringify(guide),
+        row.opportunity_id,
+        leadId,
+        row.service_id,
+        workspaceId,
+      ],
     );
 
     if (saveResult.rowCount === 0) {
@@ -2114,6 +2194,8 @@ router.post("/leads/:leadId/guide", async (req, res) => {
  * }
  */
 router.patch("/leads/:leadId/progress", async (req, res) => {
+  const workspaceId = req.workspaceId;
+
   const leadId = Number(req.params.leadId);
 
   const { event, sale_value = null, deal_details = null } = req.body || {};
@@ -2173,9 +2255,10 @@ router.patch("/leads/:leadId/progress", async (req, res) => {
         deal_details
       FROM leads
       WHERE id = $1
+        AND workspace_id = $2
       FOR UPDATE
       `,
-      [leadId],
+      [leadId, workspaceId],
     );
 
     if (leadResult.rowCount === 0) {
@@ -2207,15 +2290,18 @@ router.patch("/leads/:leadId/progress", async (req, res) => {
 
       INNER JOIN velaris_services service
         ON service.id = opportunity.service_id
+        AND service.workspace_id = opportunity.workspace_id
 
       WHERE opportunity.lead_id = $1
+        AND opportunity.workspace_id = $2
+        AND service.workspace_id = $2
         AND opportunity.is_active = TRUE
 
       LIMIT 1
 
       FOR UPDATE OF opportunity
       `,
-      [leadId],
+      [leadId, workspaceId],
     );
 
     const currentOpportunity = opportunityResult.rows[0] || null;
@@ -2293,6 +2379,7 @@ router.patch("/leads/:leadId/progress", async (req, res) => {
       END
 
   WHERE id = $1
+    AND workspace_id = $7
 
   RETURNING *
   `,
@@ -2303,6 +2390,7 @@ router.patch("/leads/:leadId/progress", async (req, res) => {
           previewScore,
           priceScore,
           closedScore,
+          workspaceId,
         ],
       );
 
@@ -2421,6 +2509,7 @@ router.patch("/leads/:leadId/progress", async (req, res) => {
           END
 
       WHERE id = $1
+        AND workspace_id = $5
 
       RETURNING *
       `,
@@ -2429,6 +2518,7 @@ router.patch("/leads/:leadId/progress", async (req, res) => {
         event,
         normalizedSaleValue,
         deal_details ? JSON.stringify(deal_details) : null,
+        workspaceId,
       ],
     );
 
@@ -2446,9 +2536,10 @@ router.patch("/leads/:leadId/progress", async (req, res) => {
         FROM lead_events
         WHERE lead_id = $1
           AND event_type = $2
+          AND workspace_id = $3
         LIMIT 1
         `,
-      [leadId, config.leadEventType],
+      [leadId, config.leadEventType, workspaceId],
     );
 
     const eventAlreadyExists = existingEventResult.rowCount > 0;
@@ -2490,13 +2581,15 @@ router.patch("/leads/:leadId/progress", async (req, res) => {
       await client.query(
         `
         INSERT INTO lead_activities (
+          workspace_id,
           lead_id,
           description,
           type
         )
-        VALUES ($1, $2, $3)
+        VALUES ($1, $2, $3, $4)
         `,
         [
+          workspaceId,
           leadId,
           `${config.activityDescription}${serviceLabel}`,
           `service_${event}`,
