@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import {
   ArrowRight,
@@ -10,6 +10,9 @@ import {
   Target,
   TrendingUp,
   ShieldCheck,
+  Loader2,
+  AlertCircle,
+  AlertTriangle,
 } from "lucide-react";
 import api from "../services/api";
 
@@ -43,10 +46,53 @@ const GOALS = [
 ];
 
 export default function PublicBriefing() {
-  const { leadId } = useParams();
+  const { publicToken } = useParams();
   const [form, setForm] = useState(initialForm);
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
+  const [linkState, setLinkState] = useState("loading");
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let isCurrent = true;
+
+    setLinkState("loading");
+    setForm(initialForm);
+    setSent(false);
+    setLoading(false);
+
+    const validateLink = async () => {
+      try {
+        const response = await api.get(
+          `/public/briefings/${encodeURIComponent(publicToken || "")}`,
+          { signal: controller.signal },
+        );
+
+        if (!isCurrent || controller.signal.aborted) return;
+
+        setLinkState(response.status === 204 ? "valid" : "error");
+      } catch (error) {
+        if (
+          !isCurrent ||
+          controller.signal.aborted ||
+          error?.code === "ERR_CANCELED"
+        ) {
+          return;
+        }
+
+        setLinkState(
+          error.response?.status === 404 ? "unavailable" : "error",
+        );
+      }
+    };
+
+    validateLink();
+
+    return () => {
+      isCurrent = false;
+      controller.abort();
+    };
+  }, [publicToken]);
 
   const updateField = (field, value) => {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -64,6 +110,8 @@ export default function PublicBriefing() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
+    if (linkState !== "valid" || loading || sent) return;
+
     if (!form.business_name.trim()) {
       alert("Informe o nome da empresa.");
       return;
@@ -72,14 +120,27 @@ export default function PublicBriefing() {
     try {
       setLoading(true);
 
-      await api.post("/briefings", {
-        lead_id: leadId || null,
-        ...form,
-      });
+      const response = await api.post(
+        `/public/briefings/${encodeURIComponent(publicToken)}/submit`,
+        form,
+      );
+
+      if (response.status !== 201 || response.data?.success !== true) {
+        throw new Error("Resposta inesperada ao enviar briefing.");
+      }
 
       setSent(true);
-    } catch (err) {
-      console.error(err);
+    } catch (error) {
+      if (error.response?.status === 404) {
+        setLinkState("unavailable");
+        return;
+      }
+
+      if (error.response?.status === 400) {
+        alert("Revise os dados do briefing e tente novamente.");
+        return;
+      }
+
       alert("Não foi possível enviar o briefing. Tente novamente.");
     } finally {
       setLoading(false);
@@ -115,6 +176,39 @@ export default function PublicBriefing() {
     );
   }
 
+  if (linkState === "loading") {
+    return (
+      <BriefingStatusScreen
+        icon={<Loader2 size={38} className="animate-spin" />}
+        eyebrow="Validando link"
+        title="Preparando seu briefing."
+        description="Aguarde enquanto verificamos se este link ainda está disponível."
+      />
+    );
+  }
+
+  if (linkState === "unavailable") {
+    return (
+      <BriefingStatusScreen
+        icon={<AlertCircle size={38} />}
+        eyebrow="Link indisponível"
+        title="Este briefing não está mais disponível."
+        description="Solicite um novo link à pessoa que o enviou."
+      />
+    );
+  }
+
+  if (linkState === "error") {
+    return (
+      <BriefingStatusScreen
+        icon={<AlertTriangle size={38} />}
+        eyebrow="Não foi possível carregar"
+        title="Tivemos um problema de conexão."
+        description="Verifique sua conexão e recarregue a página para tentar novamente."
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#080B0D] text-[#F2F2F4] relative overflow-hidden">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_80%_10%,rgba(255,255,255,0.08),transparent_32%),radial-gradient(circle_at_10%_70%,rgba(255,255,255,0.045),transparent_30%)]" />
@@ -123,12 +217,12 @@ export default function PublicBriefing() {
       <header className="relative max-w-6xl mx-auto px-6 py-10 flex items-center justify-between border-b border-white/10">
         <div className="flex items-center gap-5">
           <div className="w-12 h-12 rounded-full border border-white/15 flex items-center justify-center text-white font-serif text-xl">
-            V
+            L
           </div>
 
           <div>
             <div className="font-serif text-3xl tracking-[0.55em] uppercase">
-              Velaris
+              LeadHunt
             </div>
             <p className="text-[9px] font-black uppercase tracking-[0.35em] text-white/35 mt-1">
               Presença digital premium
@@ -155,7 +249,7 @@ export default function PublicBriefing() {
             </h1>
 
             <p className="text-white/52 font-medium leading-relaxed mb-10 max-w-xl">
-              Esse briefing é rápido e ajuda a Velaris a criar uma análise,
+              Esse briefing é rápido e ajuda a LeadHunt a criar uma análise,
               preview ou proposta com mais clareza, sofisticação e direção
               estratégica.
             </p>
@@ -434,6 +528,33 @@ export default function PublicBriefing() {
           color: rgba(255,255,255,0.42);
         }
       `}</style>
+    </div>
+  );
+}
+
+function BriefingStatusScreen({ icon, eyebrow, title, description }) {
+  return (
+    <div className="min-h-screen bg-[#080B0D] text-[#F2F2F4] flex items-center justify-center p-6 relative overflow-hidden">
+      <div className="absolute w-[420px] h-[420px] bg-white/10 blur-[140px] rounded-full -top-32 right-10" />
+      <div className="absolute w-[320px] h-[320px] bg-white/5 blur-[120px] rounded-full bottom-0 left-0" />
+
+      <div className="relative bg-[#111315]/90 rounded-[3rem] p-10 max-w-xl w-full text-center border border-white/10 shadow-2xl">
+        <div className="w-20 h-20 rounded-[2rem] bg-white text-black flex items-center justify-center mx-auto mb-6 shadow-[0_0_45px_rgba(255,255,255,0.18)]">
+          {icon}
+        </div>
+
+        <p className="text-[10px] font-black uppercase tracking-[0.35em] text-white/45 mb-3">
+          {eyebrow}
+        </p>
+
+        <h1 className="font-serif text-4xl tracking-tight text-white mb-4">
+          {title}
+        </h1>
+
+        <p className="text-white/55 font-medium leading-relaxed">
+          {description}
+        </p>
+      </div>
     </div>
   );
 }

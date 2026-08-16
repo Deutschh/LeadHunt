@@ -80,7 +80,7 @@ function App() {
 
   return (
     <Routes>
-      <Route path="/briefing/:leadId" element={<PublicBriefing />} />
+      <Route path="/briefing/:publicToken" element={<PublicBriefing />} />
 
       <Route
         path="*"

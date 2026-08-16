@@ -74,6 +74,7 @@ const LeadDetails = ({ leadId, onBack }) => {
   const [showBriefingLinkModal, setShowBriefingLinkModal] = useState(false);
   const [briefingLink, setBriefingLink] = useState("");
   const [copiedBriefingLink, setCopiedBriefingLink] = useState(false);
+  const [generatingBriefingLink, setGeneratingBriefingLink] = useState(false);
 
   const [observation, setObservation] = useState("");
   const [internalNotes, setInternalNotes] = useState("");
@@ -1097,22 +1098,46 @@ const LeadDetails = ({ leadId, onBack }) => {
     }
   };
 
-  const handleCopyBriefingLink = () => {
-    const link = `${window.location.origin}/briefing/${leadId}`;
+  const handleCopyBriefingLink = async () => {
+    setGeneratingBriefingLink(true);
 
-    setBriefingLink(link);
-    setCopiedBriefingLink(false);
-    setShowBriefingLinkModal(true);
+    try {
+      const response = await api.post(
+        `/briefings/lead/${leadId}/public-link`,
+      );
+      const publicToken = response.data?.public_token;
+
+      if (
+        typeof publicToken !== "string" ||
+        publicToken.trim().length === 0
+      ) {
+        throw new Error("Resposta inesperada ao gerar link de briefing.");
+      }
+
+      const link = `${window.location.origin}/briefing/${encodeURIComponent(publicToken.trim())}`;
+      setBriefingLink(link);
+      setCopiedBriefingLink(false);
+      setShowBriefingLinkModal(true);
+    } catch {
+      alert("Não foi possível gerar o link do briefing. Tente novamente.");
+    } finally {
+      setGeneratingBriefingLink(false);
+    }
   };
 
   const copyBriefingLinkToClipboard = async () => {
     try {
       await navigator.clipboard.writeText(briefingLink);
       setCopiedBriefingLink(true);
-    } catch (err) {
-      console.error(err);
+    } catch {
       prompt("Copie o link do briefing:", briefingLink);
     }
+  };
+
+  const closeBriefingLinkModal = () => {
+    setShowBriefingLinkModal(false);
+    setBriefingLink("");
+    setCopiedBriefingLink(false);
   };
 
   const handleSendWhatsApp = async () => {
@@ -1521,7 +1546,7 @@ const LeadDetails = ({ leadId, onBack }) => {
               </div>
 
               <button
-                onClick={() => setShowBriefingLinkModal(false)}
+                onClick={closeBriefingLinkModal}
                 className="p-2 hover:bg-white/10 rounded-full transition-all"
               >
                 <X size={22} />
@@ -1962,10 +1987,20 @@ const LeadDetails = ({ leadId, onBack }) => {
               <div className="flex items-center gap-2">
                 <button
                   onClick={handleCopyBriefingLink}
-                  className="px-4 py-2 rounded-xl bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2 hover:bg-black active:scale-95 transition-all"
+                  disabled={generatingBriefingLink}
+                  className="px-4 py-2 rounded-xl bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2 hover:bg-black active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  <Link size={13} />
-                  Solicitar Briefing
+                  {generatingBriefingLink ? (
+                    <>
+                      <Loader2 size={13} className="animate-spin" />
+                      Gerando link...
+                    </>
+                  ) : (
+                    <>
+                      <Link size={13} />
+                      Solicitar Briefing
+                    </>
+                  )}
                 </button>
 
                 <span
