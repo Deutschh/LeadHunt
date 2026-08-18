@@ -9,6 +9,19 @@ const previewRoutes = require("./routes/previewRoutes");
 const briefingRoutes = require("./routes/briefingRoutes");
 const publicBriefingRoutes = require("./routes/publicBriefingRoutes");
 const serviceOpportunitiesRoutes = require("./routes/serviceOpportunities");
+const { createAuthRouter } = require("./routes/authRoutes");
+const { loadAuthConfig } = require("./config/authConfig");
+const { loadServerConfig } = require("./config/serverConfig");
+const { createAuthRateLimits } = require("./middleware/authRateLimits");
+const jsonParseErrorHandler = require("./middleware/jsonParseErrorHandler");
+const { createAuthCryptoService } = require("./services/authCryptoService");
+const { createAuthService } = require("./services/authService");
+const {
+  createResendEmailProvider,
+} = require("./services/email/resendEmailProvider");
+const {
+  createVerificationEmailService,
+} = require("./services/email/verificationEmailService");
 const legacyWorkspaceContext = require("./middleware/legacyWorkspaceContext");
 
 // Nota: startScraping e startAutomation não são chamados aqui no modo Produção
@@ -18,10 +31,36 @@ const { startAutomation } = require("./services/automationEngine");
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+const serverConfig = loadServerConfig(process.env);
+const authConfig = loadAuthConfig(process.env);
+
+app.set("trust proxy", serverConfig.trustProxyHops);
 
 // --- Middlewares ---
 app.use(cors());
 app.use(express.json());
+app.use(jsonParseErrorHandler);
+
+const emailProvider = authConfig.devEmailBypassEnabled
+  ? { sendEmail: async () => {} }
+  : createResendEmailProvider({
+      apiKey: authConfig.resendApiKey,
+      from: authConfig.emailFrom,
+    });
+const verificationEmailService = createVerificationEmailService({
+  provider: emailProvider,
+});
+const authService = createAuthService({
+  db,
+  cryptoService: createAuthCryptoService(authConfig),
+  emailService: verificationEmailService,
+  config: authConfig,
+});
+const authRouter = createAuthRouter({
+  service: authService,
+  config: authConfig,
+  rateLimits: createAuthRateLimits(),
+});
 
 const server = http.createServer(app);
 
@@ -85,6 +124,7 @@ if (process.env.NODE_ENV === "production") {
 
 // --- Rotas públicas sem contexto de workspace ---
 app.use("/api/public/briefings", publicBriefingRoutes);
+app.use("/api/auth", authRouter);
 
 // --- Contexto temporário de Workspace ---
 // Enquanto a autenticação ainda não existe, todas as rotas /api recebem
