@@ -26,6 +26,7 @@ Thumbs.db
 
 # Puppeteer / Navegador
 .cache/
+/Api/user_data/
 
 # Chrome profiles (WhatsApp sessions)
 chrome_profile*
