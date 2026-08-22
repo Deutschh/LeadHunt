@@ -41,9 +41,19 @@ test("OTP possui seis dígitos e HMAC separa user/challenge/purpose", () => {
 });
 
 test("Argon2id usa o perfil aprovado e produz hash verificável", async () => {
-  const hash = await createService().hashPassword("uma senha longa segura");
+  const service = createService();
+  const hash = await service.hashPassword("uma senha longa segura");
   assert.match(hash, /^\$argon2id\$v=19\$m=19456,p=1,t=2\$/);
   assert.equal(await argon2.verify(hash, "uma senha longa segura"), true);
+  assert.equal(await service.verifyPassword("uma senha longa segura", hash), true);
+  assert.match(service.dummyPasswordHash, /^\$argon2id\$v=19\$m=19456,p=1,t=2\$/);
+});
+
+test("refresh token possui 256 bits e somente seu SHA-256 é derivado", () => {
+  const service = createService();
+  const token = service.generateRefreshToken();
+  assert.match(token, /^[A-Za-z0-9_-]{43}$/);
+  assert.equal(service.createRefreshTokenDigest(token).length, 32);
 });
 
 test("bypass só reconhece o código quando habilitado", () => {

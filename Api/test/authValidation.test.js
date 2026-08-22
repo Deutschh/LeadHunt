@@ -1,6 +1,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const {
+  validateLogin,
   validateRegister,
   validateResend,
   validateVerify,
@@ -89,6 +90,21 @@ test("resend aceita somente e-mail válido", () => {
   });
   assert.equal(
     validateResend({ email: "user@example.com", extra: true }).error.code,
+    "VALIDATION_ERROR",
+  );
+});
+
+test("login normaliza e-mail e preserva senha exatamente", () => {
+  assert.deepEqual(
+    validateLogin({
+      email: " USER@example.com ",
+      password: "  senha exata  ",
+    }).value,
+    { email: "user@example.com", password: "  senha exata  " },
+  );
+  assert.equal(
+    validateLogin({ email: "user@example.com", password: "", extra: true })
+      .error.code,
     "VALIDATION_ERROR",
   );
 });

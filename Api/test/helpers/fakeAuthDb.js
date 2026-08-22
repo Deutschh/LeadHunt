@@ -21,6 +21,8 @@ function cloneValue(value) {
 }
 
 function createFakeAuthDb(initialState = {}) {
+  let transactionTail = Promise.resolve();
+  const queryLog = [];
   const state = {
     now: new Date("2026-08-18T12:00:00.000Z"),
     users: [],
@@ -31,21 +33,34 @@ function createFakeAuthDb(initialState = {}) {
         slug: "internal-main",
         name: "LeadHunt Internal",
         account_status: "active",
+        is_active: true,
       },
     ],
     memberships: [],
     commercialProfiles: [{ workspace_id: 1 }],
+    refreshTokens: [],
     nextUserId: 1,
     nextChallengeId: 1,
+    nextRefreshTokenId: 1,
     ...cloneValue(initialState),
   };
+
+  state.users = state.users.map((user) => ({
+    auth_version: 0,
+    last_login_at: null,
+    ...user,
+  }));
+  state.workspaces = state.workspaces.map((workspace) => ({
+    is_active: true,
+    ...workspace,
+  }));
 
   function result(rows = []) {
     return { rows, rowCount: rows.length };
   }
 
   function marker(sql) {
-    return /\/\* auth:([a-z-]+) \*\//.exec(sql)?.[1] || null;
+    return /\/\* auth(?:-session)?:([a-z-]+) \*\//.exec(sql)?.[1] || null;
   }
 
   function openChallengesForUser(userId) {
@@ -61,6 +76,10 @@ function createFakeAuthDb(initialState = {}) {
 
   function execute(sql, params = []) {
     const operation = marker(sql);
+
+    if (operation) {
+      queryLog.push(operation);
+    }
 
     if (operation && state.failOperation === operation) {
       throw new Error(`Falha injetada em ${operation}`);
@@ -87,6 +106,8 @@ function createFakeAuthDb(initialState = {}) {
           terms_version: termsVersion,
           privacy_policy_accepted_at: new Date(state.now),
           privacy_policy_version: privacyVersion,
+          auth_version: 0,
+          last_login_at: null,
         };
         state.users.push(user);
         return result([
@@ -359,6 +380,187 @@ function createFakeAuthDb(initialState = {}) {
         state.commercialProfiles.push({ workspace_id: params[0] });
         return result([{}]);
 
+      case "find-login-user": {
+        const user = state.users.find(
+          (item) => item.email.toLowerCase() === params[0].toLowerCase(),
+        );
+        return result(
+          user
+            ? [
+                {
+                  id: user.id,
+                  password_hash: user.password_hash,
+                  email_verified_at: user.email_verified_at,
+                },
+              ]
+            : [],
+        );
+      }
+
+      case "lock-login-user": {
+        const user = state.users.find((item) => item.id === params[0]);
+        return result(
+          user
+            ? [
+                {
+                  id: user.id,
+                  password_hash: user.password_hash,
+                  email_verified_at: user.email_verified_at,
+                  auth_version: user.auth_version,
+                },
+              ]
+            : [],
+        );
+      }
+
+      case "load-user-workspace": {
+        const memberships = state.memberships.filter(
+          (item) => item.user_id === params[0],
+        );
+        return result(
+          memberships
+            .filter((membership) =>
+              state.workspaces.some(
+                (workspace) => workspace.id === membership.workspace_id,
+              ),
+            )
+            .map((membership) => ({
+              workspace_id: membership.workspace_id,
+            })),
+        );
+      }
+
+      case "insert-refresh-token": {
+        const [userId, digest, familyId, expiresAt, authVersionAtIssue] = params;
+        const duplicateDigest = state.refreshTokens.some((token) =>
+          token.token_digest.equals(digest),
+        );
+        const activeFamily = state.refreshTokens.some(
+          (token) =>
+            token.family_id === familyId && token.revoked_at === null,
+        );
+        if (duplicateDigest || activeFamily) {
+          throw new Error("unique violation");
+        }
+        const token = {
+          id: state.nextRefreshTokenId++,
+          user_id: userId,
+          token_digest: Buffer.from(digest),
+          family_id: familyId,
+          replaced_by_token_id: null,
+          expires_at: new Date(expiresAt),
+          last_used_at: null,
+          revoked_at: null,
+          revocation_reason: null,
+          created_at: new Date(state.now),
+          auth_version_at_issue: authVersionAtIssue,
+        };
+        state.refreshTokens.push(token);
+        return result([{ id: token.id, expires_at: token.expires_at }]);
+      }
+
+      case "update-last-login": {
+        const user = state.users.find((item) => item.id === params[0]);
+        if (user) {
+          user.last_login_at = new Date(state.now);
+        }
+        return result(user ? [{ id: user.id }] : []);
+      }
+
+      case "lock-refresh-token": {
+        const token = state.refreshTokens.find((item) =>
+          item.token_digest.equals(params[0]) && item.user_id === params[1],
+        );
+        return result(
+          token
+            ? [
+                {
+                  id: token.id,
+                  user_id: token.user_id,
+                  family_id: token.family_id,
+                  expires_at: token.expires_at,
+                  revoked_at: token.revoked_at,
+                  revocation_reason: token.revocation_reason,
+                  replaced_by_token_id: token.replaced_by_token_id,
+                  auth_version_at_issue: token.auth_version_at_issue,
+                },
+              ]
+            : [],
+        );
+      }
+
+      case "find-refresh-owner":
+      case "find-logout-owner": {
+        const token = state.refreshTokens.find((item) =>
+          item.token_digest.equals(params[0]),
+        );
+        return result(token ? [{ user_id: token.user_id }] : []);
+      }
+
+      case "lock-refresh-user": {
+        const user = state.users.find((item) => item.id === params[0]);
+        return result(
+          user
+            ? [
+                {
+                  id: user.id,
+                  auth_version: user.auth_version,
+                  email_verified_at: user.email_verified_at,
+                },
+              ]
+            : [],
+        );
+      }
+
+      case "lock-logout-user": {
+        const user = state.users.find((item) => item.id === params[0]);
+        return result(user ? [{ id: user.id }] : []);
+      }
+
+      case "revoke-refresh-family": {
+        let count = 0;
+        for (const token of state.refreshTokens) {
+          if (token.family_id === params[0] && token.revoked_at === null) {
+            token.revoked_at = new Date(state.now);
+            token.revocation_reason = params[1];
+            count += 1;
+          }
+        }
+        return { rows: [], rowCount: count };
+      }
+
+      case "rotate-current-token": {
+        const token = state.refreshTokens.find(
+          (item) => item.id === params[0] && item.revoked_at === null,
+        );
+        if (token) {
+          token.last_used_at = new Date(state.now);
+          token.revoked_at = new Date(state.now);
+          token.revocation_reason = "rotated";
+        }
+        return result(token ? [{ id: token.id }] : []);
+      }
+
+      case "link-refresh-replacement": {
+        const token = state.refreshTokens.find(
+          (item) =>
+            item.id === params[0] && item.revocation_reason === "rotated",
+        );
+        if (token) {
+          token.replaced_by_token_id = params[1];
+        }
+        return result(token ? [{ id: token.id }] : []);
+      }
+
+      case "lock-logout-token": {
+        const token = state.refreshTokens.find((item) =>
+          item.token_digest.equals(params[0]) && item.user_id === params[1],
+        );
+        return result(
+          token ? [{ id: token.id, family_id: token.family_id }] : [],
+        );
+      }
+
       default:
         throw new Error(`Query não suportada pelo fake: ${sql}`);
     }
@@ -366,21 +568,30 @@ function createFakeAuthDb(initialState = {}) {
 
   return {
     state,
+    queryLog,
     query: async (sql, params) => execute(sql, params),
     connect: async () => {
       let snapshot = null;
+      let releaseTransaction = null;
 
       return {
         query: async (sql, params) => {
           const command = sql.trim().toUpperCase();
 
           if (command === "BEGIN") {
+            const previousTransaction = transactionTail;
+            transactionTail = new Promise((resolve) => {
+              releaseTransaction = resolve;
+            });
+            await previousTransaction;
             snapshot = cloneValue(state);
             return result();
           }
 
           if (command === "COMMIT") {
             snapshot = null;
+            releaseTransaction?.();
+            releaseTransaction = null;
             return result();
           }
 
@@ -392,6 +603,8 @@ function createFakeAuthDb(initialState = {}) {
               Object.assign(state, snapshot);
             }
             snapshot = null;
+            releaseTransaction?.();
+            releaseTransaction = null;
             return result();
           }
 

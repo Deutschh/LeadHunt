@@ -10,6 +10,9 @@ const ARGON2_OPTIONS = Object.freeze({
   version: 0x13,
 });
 
+const DUMMY_PASSWORD_HASH =
+  "$argon2id$v=19$m=19456,p=1,t=2$Rco1zhj8HB3aaV39YP5dDA$iFR/wM3jPWCcjIBSSZUNfVMXTgn0ICrfHwTAiqIEjWs";
+
 function createAuthCryptoService(config) {
   const hmacSecret = Buffer.from(config.otpHmacSecret, "utf8");
   const developmentBypassCode = Buffer.from(
@@ -47,6 +50,13 @@ function createAuthCryptoService(config) {
     generateOtp,
     generateWorkspaceSlug: () => `ws-${crypto.randomUUID()}`,
     hashPassword: (password) => argon2.hash(password, ARGON2_OPTIONS),
+    verifyPassword: (password, passwordHash) =>
+      argon2.verify(passwordHash, password, { type: argon2.argon2id }),
+    dummyPasswordHash: DUMMY_PASSWORD_HASH,
+    generateRefreshToken: () => crypto.randomBytes(32).toString("base64url"),
+    createRefreshTokenDigest: (token) =>
+      crypto.createHash("sha256").update(token, "utf8").digest(),
+    generateRefreshFamilyId: () => crypto.randomUUID(),
     isDevelopmentBypassCode: (code) => {
       if (!config.devEmailBypassEnabled || typeof code !== "string") {
         return false;
@@ -64,5 +74,6 @@ function createAuthCryptoService(config) {
 
 module.exports = {
   ARGON2_OPTIONS,
+  DUMMY_PASSWORD_HASH,
   createAuthCryptoService,
 };

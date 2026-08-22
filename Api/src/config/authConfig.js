@@ -1,4 +1,5 @@
 const OTP_CODE_PATTERN = /^\d{6}$/;
+const COOKIE_NAME_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
 
 function requireTrimmedString(env, name, maxLength) {
   const value = env[name];
@@ -44,6 +45,28 @@ function loadAuthConfig(env = process.env) {
     throw new Error("AUTH_OTP_HMAC_SECRET deve possuir ao menos 32 bytes.");
   }
 
+  const jwtSecret = requireTrimmedString(env, "AUTH_JWT_SECRET", 4096);
+
+  if (
+    jwtSecret === "CHANGE_ME" ||
+    Buffer.byteLength(jwtSecret, "utf8") < 32
+  ) {
+    throw new Error("AUTH_JWT_SECRET deve possuir ao menos 32 bytes.");
+  }
+
+  const jwtKeyId = requireTrimmedString(env, "AUTH_JWT_KEY_ID", 128);
+  const jwtIssuer = requireTrimmedString(env, "AUTH_JWT_ISSUER", 256);
+  const jwtAudience = requireTrimmedString(env, "AUTH_JWT_AUDIENCE", 256);
+  const refreshCookieName = requireTrimmedString(
+    env,
+    "AUTH_REFRESH_COOKIE_NAME",
+    128,
+  );
+
+  if (!COOKIE_NAME_PATTERN.test(refreshCookieName)) {
+    throw new Error("AUTH_REFRESH_COOKIE_NAME não é um nome de cookie válido.");
+  }
+
   const devEmailBypassEnabled = parseStrictBoolean(
     env.DEV_EMAIL_BYPASS_ENABLED,
     "DEV_EMAIL_BYPASS_ENABLED",
@@ -75,6 +98,16 @@ function loadAuthConfig(env = process.env) {
   const config = {
     nodeEnv,
     otpHmacSecret,
+    jwtSecret,
+    jwtKeyId,
+    jwtIssuer,
+    jwtAudience,
+    accessTokenTtlSeconds: 600,
+    refreshTokenTtlSeconds: 30 * 24 * 60 * 60,
+    refreshCookieName,
+    refreshCookieSecure: nodeEnv === "production",
+    refreshCookieSameSite: "lax",
+    refreshCookiePath: "/api/auth",
     termsVersion: requireTrimmedString(env, "AUTH_TERMS_VERSION", 64),
     privacyPolicyVersion: requireTrimmedString(
       env,

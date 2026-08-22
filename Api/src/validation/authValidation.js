@@ -13,6 +13,7 @@ const REGISTER_FIELDS = new Set([
 ]);
 const VERIFY_FIELDS = new Set(["email", "code"]);
 const RESEND_FIELDS = new Set(["email"]);
+const LOGIN_FIELDS = new Set(["email", "password"]);
 
 function error(status, code, message, fieldErrors) {
   return {
@@ -210,8 +211,42 @@ function validateResend(body) {
   return { value: { email } };
 }
 
+function validateLogin(body) {
+  if (!isPlainObject(body) || !hasOnlyFields(body, LOGIN_FIELDS)) {
+    return error(400, "VALIDATION_ERROR", "Payload de login inválido.");
+  }
+
+  const email = normalizeEmail(body.email);
+
+  if (email === null || typeof body.password !== "string") {
+    return error(
+      400,
+      "VALIDATION_ERROR",
+      "Informe um e-mail e uma senha válidos.",
+    );
+  }
+
+  const passwordLength = [...body.password].length;
+  const passwordByteLength = Buffer.byteLength(body.password, "utf8");
+
+  if (
+    passwordLength === 0 ||
+    passwordLength > 128 ||
+    passwordByteLength > 512
+  ) {
+    return error(
+      400,
+      "VALIDATION_ERROR",
+      "Informe um e-mail e uma senha válidos.",
+    );
+  }
+
+  return { value: { email, password: body.password } };
+}
+
 module.exports = {
   normalizeEmail,
+  validateLogin,
   validateRegister,
   validateResend,
   validateVerify,

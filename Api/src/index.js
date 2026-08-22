@@ -1,6 +1,5 @@
 require("dotenv").config();
 const express = require("express");
-const cors = require("cors");
 const http = require("http");
 const { Server } = require("socket.io");
 const db = require("./database/db");
@@ -13,9 +12,15 @@ const { createAuthRouter } = require("./routes/authRoutes");
 const { loadAuthConfig } = require("./config/authConfig");
 const { loadServerConfig } = require("./config/serverConfig");
 const { createAuthRateLimits } = require("./middleware/authRateLimits");
+const { createCorsPolicy } = require("./middleware/corsPolicy");
 const jsonParseErrorHandler = require("./middleware/jsonParseErrorHandler");
 const { createAuthCryptoService } = require("./services/authCryptoService");
 const { createAuthService } = require("./services/authService");
+const { createAccessTokenService } = require("./services/accessTokenService");
+const { createAuthSessionService } = require("./services/authSessionService");
+const {
+  createRefreshCookieService,
+} = require("./services/refreshCookieService");
 const {
   createResendEmailProvider,
 } = require("./services/email/resendEmailProvider");
@@ -37,7 +42,9 @@ const authConfig = loadAuthConfig(process.env);
 app.set("trust proxy", serverConfig.trustProxyHops);
 
 // --- Middlewares ---
-app.use(cors());
+const corsPolicy = createCorsPolicy(serverConfig.corsAllowedOrigins);
+app.use(corsPolicy.enforceOrigin);
+app.use(corsPolicy.middleware);
 app.use(express.json());
 app.use(jsonParseErrorHandler);
 
@@ -50,16 +57,27 @@ const emailProvider = authConfig.devEmailBypassEnabled
 const verificationEmailService = createVerificationEmailService({
   provider: emailProvider,
 });
+const authCryptoService = createAuthCryptoService(authConfig);
 const authService = createAuthService({
   db,
-  cryptoService: createAuthCryptoService(authConfig),
+  cryptoService: authCryptoService,
   emailService: verificationEmailService,
   config: authConfig,
 });
+const accessTokenService = createAccessTokenService(authConfig);
+const authSessionService = createAuthSessionService({
+  db,
+  cryptoService: authCryptoService,
+  accessTokenService,
+  config: authConfig,
+});
+const refreshCookieService = createRefreshCookieService(authConfig);
 const authRouter = createAuthRouter({
   service: authService,
+  sessionService: authSessionService,
+  cookieService: refreshCookieService,
   config: authConfig,
-  rateLimits: createAuthRateLimits(),
+  rateLimits: createAuthRateLimits(authConfig),
 });
 
 const server = http.createServer(app);

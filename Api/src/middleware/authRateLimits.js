@@ -16,6 +16,36 @@ function emailKeyGenerator(req) {
   return `email:${crypto.createHash("sha256").update(email).digest("hex")}`;
 }
 
+function hashOpaqueKey(value) {
+  return crypto.createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function refreshCookieKeyGenerator(cookieName) {
+  return (req) => {
+    const rawCookie = req.headers.cookie || "";
+    const matches = rawCookie
+      .split(";")
+      .map((part) => part.trim())
+      .filter((part) => part.startsWith(`${cookieName}=`));
+
+    if (matches.length !== 1) {
+      return `missing-refresh:${ipKeyGenerator(req.ip)}`;
+    }
+
+    try {
+      const token = decodeURIComponent(
+        matches[0].slice(cookieName.length + 1),
+      );
+      if (token.length === 0) {
+        return `missing-refresh:${ipKeyGenerator(req.ip)}`;
+      }
+      return `refresh:${hashOpaqueKey(token)}`;
+    } catch (_error) {
+      return `missing-refresh:${ipKeyGenerator(req.ip)}`;
+    }
+  };
+}
+
 function rateLimitHandler(_req, res) {
   return res.status(429).json({
     error: "Muitas tentativas. Tente novamente mais tarde.",
@@ -32,7 +62,11 @@ function createLimiter(options) {
   });
 }
 
-function createAuthRateLimits() {
+function createAuthRateLimits(config = {}) {
+  const refreshKeyGenerator = refreshCookieKeyGenerator(
+    config.refreshCookieName || "leadhunt_refresh",
+  );
+
   return Object.freeze({
     register: [
       createLimiter({ windowMs: 15 * 60 * 1000, limit: 10 }),
@@ -63,10 +97,28 @@ function createAuthRateLimits() {
         keyGenerator: emailKeyGenerator,
       }),
     ],
+    login: [
+      createLimiter({ windowMs: 15 * 60 * 1000, limit: 10 }),
+      createLimiter({
+        windowMs: 15 * 60 * 1000,
+        limit: 10,
+        keyGenerator: emailKeyGenerator,
+      }),
+    ],
+    refresh: [
+      createLimiter({ windowMs: 15 * 60 * 1000, limit: 120 }),
+      createLimiter({
+        windowMs: 15 * 60 * 1000,
+        limit: 20,
+        keyGenerator: refreshKeyGenerator,
+      }),
+    ],
+    logout: [createLimiter({ windowMs: 15 * 60 * 1000, limit: 60 })],
   });
 }
 
 module.exports = {
   createAuthRateLimits,
   emailKeyGenerator,
+  refreshCookieKeyGenerator,
 };

@@ -1,6 +1,8 @@
 const express = require("express");
 const { AuthServiceError } = require("../services/authService");
+const { AuthSessionError } = require("../services/authSessionService");
 const {
+  validateLogin,
   validateRegister,
   validateResend,
   validateVerify,
@@ -38,11 +40,16 @@ function sendServiceError(res, error) {
 
 function createAuthRouter({
   service,
+  sessionService,
+  cookieService,
   config,
   rateLimits,
   logger = console,
 }) {
   const router = express.Router();
+  const loginRateLimits = rateLimits.login || [];
+  const refreshRateLimits = rateLimits.refresh || [];
+  const logoutRateLimits = rateLimits.logout || [];
 
   router.post("/register", ...rateLimits.register, async (req, res) => {
     const validationResult = validateRegister(req.body, config);
@@ -101,6 +108,87 @@ function createAuthRouter({
       return res.status(202).json(RESEND_RESPONSE);
     } catch (_error) {
       logger.error("AUTH_EMAIL_RESEND_PROCESSING_FAILED");
+      return res.status(503).json({
+        error: "Autenticação temporariamente indisponível.",
+        code: "AUTH_TEMPORARILY_UNAVAILABLE",
+      });
+    }
+  });
+
+  router.post("/login", ...loginRateLimits, async (req, res) => {
+    const validationResult = validateLogin(req.body);
+
+    if (validationResult.error) {
+      return sendValidationError(res, validationResult);
+    }
+
+    try {
+      const result = await sessionService.login(validationResult.value);
+      cookieService.set(res, result.refreshToken, result.refreshExpiresAt);
+      return res.status(200).json({
+        accessToken: result.accessToken,
+        tokenType: "Bearer",
+        expiresIn: config.accessTokenTtlSeconds,
+      });
+    } catch (error) {
+      if (error instanceof AuthSessionError) {
+        return sendServiceError(res, error);
+      }
+
+      logger.error("AUTH_LOGIN_PROCESSING_FAILED");
+      return res.status(503).json({
+        error: "Autenticação temporariamente indisponível.",
+        code: "AUTH_TEMPORARILY_UNAVAILABLE",
+      });
+    }
+  });
+
+  router.post("/refresh", ...refreshRateLimits, async (req, res) => {
+    const cookie = cookieService.read(req);
+
+    if (cookie.status !== "present") {
+      cookieService.clear(res);
+      return res.status(401).json({
+        error: "Sessão inválida ou expirada.",
+        code: "INVALID_SESSION",
+      });
+    }
+
+    try {
+      const result = await sessionService.refresh(cookie.token);
+      cookieService.set(res, result.refreshToken, result.refreshExpiresAt);
+      return res.status(200).json({
+        accessToken: result.accessToken,
+        tokenType: "Bearer",
+        expiresIn: config.accessTokenTtlSeconds,
+      });
+    } catch (error) {
+      if (error instanceof AuthSessionError) {
+        if (error.clearRefreshCookie) {
+          cookieService.clear(res);
+        }
+        return sendServiceError(res, error);
+      }
+
+      logger.error("AUTH_REFRESH_PROCESSING_FAILED");
+      return res.status(503).json({
+        error: "Autenticação temporariamente indisponível.",
+        code: "AUTH_TEMPORARILY_UNAVAILABLE",
+      });
+    }
+  });
+
+  router.post("/logout", ...logoutRateLimits, async (req, res) => {
+    const cookie = cookieService.read(req);
+
+    try {
+      await sessionService.logout(
+        cookie.status === "present" ? cookie.token : null,
+      );
+      cookieService.clear(res);
+      return res.status(204).end();
+    } catch (_error) {
+      logger.error("AUTH_LOGOUT_PROCESSING_FAILED");
       return res.status(503).json({
         error: "Autenticação temporariamente indisponível.",
         code: "AUTH_TEMPORARILY_UNAVAILABLE",
