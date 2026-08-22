@@ -245,7 +245,7 @@ async function withServer(operation, options = {}) {
     identityService: {
       resolve: async () => {
         middlewareCalls += 1;
-        return context;
+        return options.context || context;
       },
     },
     logger: { error: () => {}, warn: () => {} },
@@ -375,4 +375,36 @@ test("GET /me retorna contrato mínimo e rotas públicas não exigem Bearer", as
     assert.notEqual(registration.status, 401);
     assert.equal(getMiddlewareCalls(), 1);
   });
+});
+
+test("GET /me permanece disponível para pending, suspended e isActive false", async () => {
+  const cases = [
+    { accountStatus: "pending", isActive: true },
+    { accountStatus: "suspended", isActive: true },
+    { accountStatus: "active", isActive: false },
+  ];
+
+  for (const item of cases) {
+    await withServer(
+      async (baseUrl) => {
+        const response = await fetch(`${baseUrl}/api/auth/me`, {
+          headers: { Authorization: "Bearer access-token" },
+        });
+        assert.equal(response.status, 200);
+        const body = await response.json();
+        assert.equal(body.workspace.accountStatus, item.accountStatus);
+        assert.equal(body.workspace.isActive, item.isActive);
+      },
+      {
+        context: {
+          ...context,
+          workspace: {
+            ...context.workspace,
+            accountStatus: item.accountStatus,
+            isActive: item.isActive,
+          },
+        },
+      },
+    );
+  }
 });
