@@ -19,6 +19,12 @@ const { createAuthService } = require("./services/authService");
 const { createAccessTokenService } = require("./services/accessTokenService");
 const { createAuthSessionService } = require("./services/authSessionService");
 const {
+  createAuthIdentityService,
+} = require("./services/authIdentityService");
+const {
+  createRequireAuthenticatedContext,
+} = require("./middleware/requireAuthenticatedContext");
+const {
   createRefreshCookieService,
 } = require("./services/refreshCookieService");
 const {
@@ -71,11 +77,17 @@ const authSessionService = createAuthSessionService({
   accessTokenService,
   config: authConfig,
 });
+const authIdentityService = createAuthIdentityService({ db });
+const requireAuthenticatedContext = createRequireAuthenticatedContext({
+  accessTokenService,
+  identityService: authIdentityService,
+});
 const refreshCookieService = createRefreshCookieService(authConfig);
 const authRouter = createAuthRouter({
   service: authService,
   sessionService: authSessionService,
   cookieService: refreshCookieService,
+  requireAuthenticatedContext,
   config: authConfig,
   rateLimits: createAuthRateLimits(authConfig),
 });

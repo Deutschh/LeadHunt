@@ -52,6 +52,10 @@ function createFakeAuthDb(initialState = {}) {
   }));
   state.workspaces = state.workspaces.map((workspace) => ({
     is_active: true,
+    timezone: "America/Sao_Paulo",
+    release_channel: "stable",
+    min_profiles: 2,
+    max_profiles: 2,
     ...workspace,
   }));
 
@@ -60,7 +64,10 @@ function createFakeAuthDb(initialState = {}) {
   }
 
   function marker(sql) {
-    return /\/\* auth(?:-session)?:([a-z-]+) \*\//.exec(sql)?.[1] || null;
+    return (
+      /\/\* auth(?:-(?:session|identity))?:([a-z-]+) \*\//.exec(sql)?.[1] ||
+      null
+    );
   }
 
   function openChallengesForUser(userId) {
@@ -361,6 +368,11 @@ function createFakeAuthDb(initialState = {}) {
           slug: params[0],
           name: params[1],
           account_status: "pending",
+          is_active: true,
+          timezone: "America/Sao_Paulo",
+          release_channel: "stable",
+          min_profiles: 2,
+          max_profiles: 2,
         };
         state.workspaces.push(workspace);
         return result([
@@ -427,6 +439,54 @@ function createFakeAuthDb(initialState = {}) {
             .map((membership) => ({
               workspace_id: membership.workspace_id,
             })),
+        );
+      }
+
+      case "resolve-context": {
+        const user = state.users.find(
+          (item) => String(item.id) === String(params[0]),
+        );
+
+        if (!user) {
+          return result();
+        }
+
+        const memberships = state.memberships.filter(
+          (item) => String(item.user_id) === String(user.id),
+        );
+        const selectedMemberships = memberships.length > 0 ? memberships : [null];
+        return result(
+          selectedMemberships.slice(0, 2).map((membership) => {
+            const workspace = membership
+              ? state.workspaces.find(
+                  (item) =>
+                    String(item.id) === String(membership.workspace_id),
+                )
+              : null;
+
+            return {
+              user_id: String(user.id),
+              user_name: user.name,
+              user_email: user.email,
+              auth_version: user.auth_version,
+              email_verified_at: user.email_verified_at,
+              membership_user_id: membership
+                ? String(membership.user_id)
+                : null,
+              membership_workspace_id: membership
+                ? String(membership.workspace_id)
+                : null,
+              membership_role: membership?.role ?? null,
+              workspace_id: workspace ? String(workspace.id) : null,
+              workspace_name: workspace?.name ?? null,
+              workspace_account_status: workspace?.account_status ?? null,
+              workspace_is_active: workspace?.is_active ?? null,
+              workspace_timezone: workspace?.timezone ?? null,
+              workspace_release_channel: workspace?.release_channel ?? null,
+              workspace_min_profiles: workspace?.min_profiles ?? null,
+              workspace_max_profiles: workspace?.max_profiles ?? null,
+            };
+          }),
         );
       }
 

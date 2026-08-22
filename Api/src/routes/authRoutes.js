@@ -42,6 +42,7 @@ function createAuthRouter({
   service,
   sessionService,
   cookieService,
+  requireAuthenticatedContext,
   config,
   rateLimits,
   logger = console,
@@ -50,6 +51,27 @@ function createAuthRouter({
   const loginRateLimits = rateLimits.login || [];
   const refreshRateLimits = rateLimits.refresh || [];
   const logoutRateLimits = rateLimits.logout || [];
+
+  router.get("/me", requireAuthenticatedContext, (req, res) => {
+    return res.status(200).json({
+      user: {
+        name: req.user.name,
+        email: req.user.email,
+      },
+      membership: {
+        role: req.membership.role,
+      },
+      workspace: {
+        name: req.workspace.name,
+        accountStatus: req.workspace.accountStatus,
+        isActive: req.workspace.isActive,
+        timezone: req.workspace.timezone,
+        releaseChannel: req.workspace.releaseChannel,
+        minProfiles: req.workspace.minProfiles,
+        maxProfiles: req.workspace.maxProfiles,
+      },
+    });
+  });
 
   router.post("/register", ...rateLimits.register, async (req, res) => {
     const validationResult = validateRegister(req.body, config);

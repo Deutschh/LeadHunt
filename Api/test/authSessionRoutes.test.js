@@ -31,6 +31,7 @@ const registrationService = {
   resend: async () => {},
   verify: async () => ({ accountStatus: "pending" }),
 };
+const passAuthenticatedContext = (_req, _res, next) => next();
 
 async function withServer({ sessionService, useCors = false }, operation) {
   const app = express();
@@ -49,6 +50,7 @@ async function withServer({ sessionService, useCors = false }, operation) {
       service: registrationService,
       sessionService,
       cookieService: createRefreshCookieService(config),
+      requireAuthenticatedContext: passAuthenticatedContext,
       config,
       rateLimits: noRateLimits,
       logger: { error: () => {} },

@@ -22,6 +22,7 @@ const config = {
   privacyPolicyVersion: "privacy-v1",
 };
 const noRateLimits = { register: [], verify: [], resend: [] };
+const passAuthenticatedContext = (_req, _res, next) => next();
 
 function validRegistration() {
   return {
@@ -44,6 +45,7 @@ async function withServer(service, rateLimits, operation) {
     "/api/auth",
     createAuthRouter({
       service,
+      requireAuthenticatedContext: passAuthenticatedContext,
       config,
       rateLimits,
       logger: { error: () => {} },
