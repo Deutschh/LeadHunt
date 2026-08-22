@@ -2,6 +2,12 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const { loadAuthConfig } = require("../src/config/authConfig");
 const { loadServerConfig } = require("../src/config/serverConfig");
+const {
+  createAuthCryptoService,
+} = require("../src/services/authCryptoService");
+const {
+  createConfiguredEmailProvider,
+} = require("../src/services/email/resendEmailProvider");
 
 function validEnv(overrides = {}) {
   return {
@@ -16,6 +22,7 @@ function validEnv(overrides = {}) {
     AUTH_REFRESH_COOKIE_NAME: "leadhunt_refresh",
     RESEND_API_KEY: "re_test",
     AUTH_EMAIL_FROM: "LeadHunt <no-reply@example.com>",
+    AUTH_PASSWORD_RESET_URL: "http://localhost:5173/reset-password",
     DEV_EMAIL_BYPASS_ENABLED: "false",
     ...overrides,
   };
@@ -40,13 +47,55 @@ test("auth config permite bypass válido apenas fora de produção", () => {
     validEnv({
       DEV_EMAIL_BYPASS_ENABLED: "true",
       DEV_EMAIL_BYPASS_CODE: "123456",
-      RESEND_API_KEY: undefined,
-      AUTH_EMAIL_FROM: undefined,
     }),
   );
 
   assert.equal(config.devEmailBypassEnabled, true);
+  assert.equal(config.resendApiKey, "re_test");
+});
+
+test("desenvolvimento compõe Auth sem provider real ou reset URL", async () => {
+  const config = loadAuthConfig(
+    validEnv({
+      RESEND_API_KEY: undefined,
+      AUTH_EMAIL_FROM: undefined,
+      AUTH_PASSWORD_RESET_URL: undefined,
+    }),
+  );
+  const provider = createConfiguredEmailProvider({
+    enabled: config.emailProviderConfigured,
+    apiKey: config.resendApiKey,
+    from: config.emailFrom,
+  });
+
+  assert.equal(config.emailProviderConfigured, false);
   assert.equal(config.resendApiKey, null);
+  assert.equal(config.emailFrom, null);
+  assert.equal(config.passwordResetUrl, null);
+  assert.equal(provider.available, false);
+  await assert.rejects(provider.sendEmail());
+});
+
+test("OTP bypass continua utilizável sem controlar o provider de reset", async () => {
+  const config = loadAuthConfig(
+    validEnv({
+      RESEND_API_KEY: undefined,
+      AUTH_EMAIL_FROM: undefined,
+      AUTH_PASSWORD_RESET_URL: undefined,
+      DEV_EMAIL_BYPASS_ENABLED: "true",
+      DEV_EMAIL_BYPASS_CODE: "123456",
+    }),
+  );
+  const cryptoService = createAuthCryptoService(config);
+  const passwordResetProvider = createConfiguredEmailProvider({
+    enabled: config.emailProviderConfigured,
+    apiKey: config.resendApiKey,
+    from: config.emailFrom,
+  });
+
+  assert.equal(cryptoService.isDevelopmentBypassCode("123456"), true);
+  assert.equal(passwordResetProvider.available, false);
+  await assert.rejects(passwordResetProvider.sendEmail());
 });
 
 test("auth config exige segredo HMAC com ao menos 32 bytes", () => {
@@ -75,8 +124,86 @@ test("auth config rejeita sentinel JWT e mantém parâmetros fixos de sessão", 
   assert.equal(config.refreshCookieSecure, false);
   assert.equal(config.refreshCookieSameSite, "lax");
   assert.equal(
-    loadAuthConfig(validEnv({ NODE_ENV: "production" })).refreshCookieSecure,
+    loadAuthConfig(
+      validEnv({
+        NODE_ENV: "production",
+        AUTH_PASSWORD_RESET_URL: "https://app.example.com/reset-password",
+      }),
+    ).refreshCookieSecure,
     true,
+  );
+});
+
+test("password reset URL é absoluta e exige HTTPS em produção", () => {
+  assert.equal(
+    loadAuthConfig(validEnv()).passwordResetUrl,
+    "http://localhost:5173/reset-password",
+  );
+  assert.equal(loadAuthConfig(validEnv()).passwordResetTtlMinutes, 30);
+
+  for (const value of [
+    "reset-password",
+    "ftp://example.com/reset-password",
+    "https://user:pass@example.com/reset-password",
+    "https://example.com/reset-password#token",
+    "https://example.com/reset-password?existing=true",
+    "http://example.com/reset-password",
+  ]) {
+    assert.throws(() =>
+      loadAuthConfig(validEnv({ AUTH_PASSWORD_RESET_URL: value })),
+    );
+  }
+
+  assert.throws(() =>
+    loadAuthConfig(
+      validEnv({
+        NODE_ENV: "production",
+        AUTH_PASSWORD_RESET_URL: "http://localhost:5173/reset-password",
+      }),
+    ),
+  );
+
+  assert.throws(
+    () =>
+      loadAuthConfig(
+        validEnv({
+          NODE_ENV: "production",
+          RESEND_API_KEY: undefined,
+          AUTH_PASSWORD_RESET_URL: "https://app.example.com/reset-password",
+        }),
+      ),
+    /RESEND_API_KEY é obrigatório em produção/,
+  );
+
+  assert.throws(
+    () =>
+      loadAuthConfig(
+        validEnv({
+          AUTH_PASSWORD_RESET_URL: undefined,
+        }),
+      ),
+    /AUTH_PASSWORD_RESET_URL é obrigatório quando o provider/,
+  );
+
+  assert.throws(
+    () =>
+      loadAuthConfig(
+        validEnv({
+          NODE_ENV: "production",
+          AUTH_PASSWORD_RESET_URL: undefined,
+        }),
+      ),
+    /AUTH_PASSWORD_RESET_URL é obrigatório quando o provider/,
+  );
+
+  assert.throws(() =>
+    loadAuthConfig(
+      validEnv({
+        RESEND_API_KEY: undefined,
+        AUTH_EMAIL_FROM: undefined,
+        AUTH_PASSWORD_RESET_URL: "javascript:alert(1)",
+      }),
+    ),
   );
 });
 

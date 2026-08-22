@@ -5,7 +5,9 @@ const express = require("express");
 const { createAuthRateLimits } = require("../src/middleware/authRateLimits");
 const jsonParseErrorHandler = require("../src/middleware/jsonParseErrorHandler");
 const {
+  FORGOT_PASSWORD_RESPONSE,
   RESEND_RESPONSE,
+  RESET_PASSWORD_RESPONSE,
   createAuthRouter,
 } = require("../src/routes/authRoutes");
 const {
@@ -16,6 +18,17 @@ const {
   createAuthService,
 } = require("../src/services/authService");
 const { createFakeAuthDb } = require("./helpers/fakeAuthDb");
+const {
+  PasswordRecoveryError,
+  PasswordRecoveryUnavailableError,
+  createPasswordRecoveryService,
+} = require("../src/services/passwordRecoveryService");
+const {
+  createConfiguredEmailProvider,
+} = require("../src/services/email/resendEmailProvider");
+const {
+  createPasswordResetEmailService,
+} = require("../src/services/email/passwordResetEmailService");
 
 const config = {
   termsVersion: "terms-v1",
@@ -36,7 +49,12 @@ function validRegistration() {
   };
 }
 
-async function withServer(service, rateLimits, operation) {
+async function withServer(
+  service,
+  rateLimits,
+  operation,
+  passwordRecoveryService = { forgot: async () => {}, reset: async () => {} },
+) {
   const app = express();
   app.set("trust proxy", 0);
   app.use(express.json());
@@ -45,6 +63,7 @@ async function withServer(service, rateLimits, operation) {
     "/api/auth",
     createAuthRouter({
       service,
+      passwordRecoveryService,
       requireAuthenticatedContext: passAuthenticatedContext,
       config,
       rateLimits,
@@ -298,4 +317,259 @@ test("rate limit por e-mail normalizado retorna contrato 429", async () => {
     assert.equal(limited.status, 429);
     assert.equal(limited.body.code, "RATE_LIMITED");
   });
+});
+
+test("forgot mantém 202 uniforme para todos os estados públicos", async () => {
+  const now = new Date("2026-08-18T12:00:00.000Z");
+  const scenarios = [
+    { name: "eligible", verified: true, present: true, providerFails: false },
+    { name: "missing", verified: false, present: false, providerFails: false },
+    { name: "unverified", verified: false, present: true, providerFails: false },
+    { name: "provider-failure", verified: true, present: true, providerFails: true },
+  ];
+  const responses = [];
+
+  for (const scenario of scenarios) {
+    const db = createFakeAuthDb({
+      now,
+      users: scenario.present
+        ? [
+            {
+              id: 7,
+              name: "Maria Silva",
+              email: "user@example.com",
+              password_hash: "hash",
+              email_verified_at: scenario.verified ? now : null,
+              auth_version: 0,
+            },
+          ]
+        : [],
+    });
+    const cryptoService = createAuthCryptoService({
+      otpHmacSecret: "h".repeat(32),
+      devEmailBypassEnabled: false,
+      devEmailBypassCode: "",
+    });
+    const sent = [];
+    const provider = {
+      sendEmail: async (message) => {
+        sent.push(message);
+        if (scenario.providerFails) {
+          throw new Error("controlled provider failure");
+        }
+      },
+    };
+    const passwordRecoveryService = createPasswordRecoveryService({
+      db,
+      cryptoService,
+      emailService: createPasswordResetEmailService({
+        provider,
+        passwordResetUrl: "https://app.example.com/reset-password",
+      }),
+      config: { passwordResetTtlMinutes: 30 },
+      logger: { error: () => {} },
+    });
+
+    await withServer(
+      { register: async () => {}, resend: async () => {}, verify: async () => ({}) },
+      noRateLimits,
+      async (baseUrl) => {
+        const response = await post(baseUrl, "/api/auth/password/forgot", {
+          email: " USER@example.com ",
+        });
+        responses.push(response);
+      },
+      passwordRecoveryService,
+    );
+
+    const openTokens = db.state.passwordResetTokens.filter(
+      (token) => token.consumed_at === null && token.invalidated_at === null,
+    );
+    assert.equal(openTokens.length, scenario.name === "eligible" ? 1 : 0);
+    assert.equal(sent.length, scenario.present && scenario.verified ? 1 : 0);
+  }
+
+  for (const response of responses) {
+    assert.deepEqual(response, {
+      status: 202,
+      body: FORGOT_PASSWORD_RESPONSE,
+    });
+  }
+});
+
+test("rate limits HTTP bloqueiam forgot e reset antes do serviço", async () => {
+  const service = {
+    register: async () => {},
+    resend: async () => {},
+    verify: async () => ({ accountStatus: "pending" }),
+  };
+  const calls = { forgot: 0, resetArgonBoundary: 0 };
+  const passwordRecoveryService = {
+    forgot: async () => {
+      calls.forgot += 1;
+    },
+    reset: async () => {
+      calls.resetArgonBoundary += 1;
+    },
+  };
+
+  await withServer(
+    service,
+    createAuthRateLimits(),
+    async (baseUrl) => {
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const forgot = await post(baseUrl, "/api/auth/password/forgot", {
+          email: "limited@example.com",
+        });
+        assert.equal(forgot.status, 202);
+
+        const reset = await post(baseUrl, "/api/auth/password/reset", {
+          token: "a".repeat(43),
+          password: "nova senha longa segura",
+        });
+        assert.equal(reset.status, 200);
+      }
+
+      const limitedForgot = await post(baseUrl, "/api/auth/password/forgot", {
+        email: " LIMITED@EXAMPLE.COM ",
+      });
+      const limitedReset = await post(baseUrl, "/api/auth/password/reset", {
+        token: "a".repeat(43),
+        password: "outra senha longa segura",
+      });
+
+      assert.equal(limitedForgot.status, 429);
+      assert.equal(limitedForgot.body.code, "RATE_LIMITED");
+      assert.equal(limitedReset.status, 429);
+      assert.equal(limitedReset.body.code, "RATE_LIMITED");
+      assert.deepEqual(calls, { forgot: 5, resetArgonBoundary: 5 });
+    },
+    passwordRecoveryService,
+  );
+});
+
+test("forgot sem provider mantém 202 e não deixa reset token aberto", async () => {
+  const now = new Date("2026-08-18T12:00:00.000Z");
+  const db = createFakeAuthDb({
+    now,
+    users: [
+      {
+        id: 7,
+        name: "Maria Silva",
+        email: "maria@example.com",
+        password_hash: "hash",
+        email_verified_at: now,
+        auth_version: 0,
+      },
+    ],
+  });
+  const cryptoService = createAuthCryptoService({
+    otpHmacSecret: "h".repeat(32),
+    devEmailBypassEnabled: true,
+    devEmailBypassCode: "123456",
+  });
+  const unavailableProvider = createConfiguredEmailProvider({ enabled: false });
+  const passwordRecoveryService = createPasswordRecoveryService({
+    db,
+    cryptoService,
+    emailService: createPasswordResetEmailService({
+      provider: unavailableProvider,
+      passwordResetUrl: null,
+    }),
+    config: { passwordResetTtlMinutes: 30 },
+    logger: { error: () => {} },
+  });
+
+  await withServer(
+    { register: async () => {}, resend: async () => {}, verify: async () => ({}) },
+    noRateLimits,
+    async (baseUrl) => {
+      const response = await post(baseUrl, "/api/auth/password/forgot", {
+        email: "maria@example.com",
+      });
+
+      assert.deepEqual(response, {
+        status: 202,
+        body: FORGOT_PASSWORD_RESPONSE,
+      });
+    },
+    passwordRecoveryService,
+  );
+
+  assert.equal(db.state.passwordResetTokens.length, 1);
+  assert.notEqual(db.state.passwordResetTokens[0].invalidated_at, null);
+  assert.equal(
+    db.state.passwordResetTokens.filter(
+      (token) => token.consumed_at === null && token.invalidated_at === null,
+    ).length,
+    0,
+  );
+});
+
+test("reset retorna sucesso sem sessão e erro de token uniforme", async () => {
+  let shouldFail = false;
+  await withServer(
+    { register: async () => {}, resend: async () => {}, verify: async () => ({}) },
+    noRateLimits,
+    async (baseUrl) => {
+      const success = await post(baseUrl, "/api/auth/password/reset", {
+        token: "a".repeat(43),
+        password: "nova senha longa segura",
+      });
+      assert.deepEqual(success, { status: 200, body: RESET_PASSWORD_RESPONSE });
+
+      shouldFail = true;
+      const failure = await post(baseUrl, "/api/auth/password/reset", {
+        token: "a".repeat(43),
+        password: "outra senha longa segura",
+      });
+      assert.deepEqual(failure, {
+        status: 400,
+        body: {
+          error: "Token de recuperação inválido ou expirado.",
+          code: "INVALID_RESET_TOKEN",
+        },
+      });
+      assert.equal(success.body.accessToken, undefined);
+    },
+    {
+      forgot: async () => {},
+      reset: async () => {
+        if (shouldFail) {
+          throw new PasswordRecoveryError(
+            400,
+            "INVALID_RESET_TOKEN",
+            "Token de recuperação inválido ou expirado.",
+          );
+        }
+      },
+    },
+  );
+});
+
+test("recovery separa indisponibilidade transitória de erro interno", async () => {
+  const cases = [
+    {
+      error: new PasswordRecoveryUnavailableError(),
+      status: 503,
+      code: "AUTH_TEMPORARILY_UNAVAILABLE",
+    },
+    { error: new TypeError("programming detail"), status: 500, code: "INTERNAL_ERROR" },
+  ];
+
+  for (const item of cases) {
+    await withServer(
+      { register: async () => {}, resend: async () => {}, verify: async () => ({}) },
+      noRateLimits,
+      async (baseUrl) => {
+        const response = await post(baseUrl, "/api/auth/password/forgot", {
+          email: "user@example.com",
+        });
+        assert.equal(response.status, item.status);
+        assert.equal(response.body.code, item.code);
+        assert.equal(JSON.stringify(response.body).includes("programming detail"), false);
+      },
+      { forgot: async () => Promise.reject(item.error), reset: async () => {} },
+    );
+  }
 });

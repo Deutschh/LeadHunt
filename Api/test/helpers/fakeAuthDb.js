@@ -39,9 +39,11 @@ function createFakeAuthDb(initialState = {}) {
     memberships: [],
     commercialProfiles: [{ workspace_id: 1 }],
     refreshTokens: [],
+    passwordResetTokens: [],
     nextUserId: 1,
     nextChallengeId: 1,
     nextRefreshTokenId: 1,
+    nextPasswordResetTokenId: 1,
     ...cloneValue(initialState),
   };
 
@@ -65,7 +67,9 @@ function createFakeAuthDb(initialState = {}) {
 
   function marker(sql) {
     return (
-      /\/\* auth(?:-(?:session|identity))?:([a-z-]+) \*\//.exec(sql)?.[1] ||
+      /\/\* auth(?:-(?:session|identity|password))?:([a-z-]+) \*\//.exec(
+        sql,
+      )?.[1] ||
       null
     );
   }
@@ -359,6 +363,185 @@ function createFakeAuthDb(initialState = {}) {
           challenge.consumed_at = new Date(state.now);
         }
         return result(challenge ? [{ id: challenge.id }] : []);
+      }
+
+      case "lock-forgot-user": {
+        const user = state.users.find(
+          (item) => item.email.toLowerCase() === params[0].toLowerCase(),
+        );
+        return result(
+          user
+            ? [
+                {
+                  id: user.id,
+                  email: user.email,
+                  email_verified_at: user.email_verified_at,
+                },
+              ]
+            : [],
+        );
+      }
+
+      case "lock-open-reset-token": {
+        const token = state.passwordResetTokens
+          .filter(
+            (item) =>
+              item.user_id === params[0] &&
+              item.consumed_at === null &&
+              item.invalidated_at === null,
+          )
+          .sort((left, right) => right.created_at - left.created_at)[0];
+        return result(token ? [{ id: token.id }] : []);
+      }
+
+      case "invalidate-previous-reset-token":
+      case "invalidate-failed-delivery-token": {
+        const token = state.passwordResetTokens.find(
+          (item) =>
+            item.id === params[0] &&
+            item.user_id === params[1] &&
+            item.consumed_at === null &&
+            item.invalidated_at === null,
+        );
+        if (token) {
+          token.invalidated_at = new Date(state.now);
+        }
+        return result(token ? [{ id: token.id }] : []);
+      }
+
+      case "insert-reset-token": {
+        const [userId, digest, expiresInMinutes] = params;
+        const duplicateDigest = state.passwordResetTokens.some((item) =>
+          item.token_digest.equals(digest),
+        );
+        const activeUser = state.passwordResetTokens.some(
+          (item) =>
+            item.user_id === userId &&
+            item.consumed_at === null &&
+            item.invalidated_at === null,
+        );
+        if (duplicateDigest || activeUser) {
+          throw new Error("unique violation");
+        }
+        const token = {
+          id: state.nextPasswordResetTokenId++,
+          user_id: userId,
+          token_digest: Buffer.from(digest),
+          expires_at: new Date(
+            state.now.getTime() + expiresInMinutes * 60 * 1000,
+          ),
+          consumed_at: null,
+          invalidated_at: null,
+          created_at: new Date(state.now),
+        };
+        state.passwordResetTokens.push(token);
+        return result([{ id: token.id, expires_at: token.expires_at }]);
+      }
+
+      case "lock-failed-delivery-user":
+      case "lock-reset-user": {
+        const user = state.users.find((item) => item.id === params[0]);
+        return result(
+          user
+            ? [{ id: user.id, email_verified_at: user.email_verified_at }]
+            : [],
+        );
+      }
+
+      case "lock-failed-delivery-token": {
+        const token = state.passwordResetTokens.find(
+          (item) => item.id === params[0] && item.user_id === params[1],
+        );
+        return result(
+          token
+            ? [
+                {
+                  id: token.id,
+                  consumed_at: token.consumed_at,
+                  invalidated_at: token.invalidated_at,
+                },
+              ]
+            : [],
+        );
+      }
+
+      case "find-reset-owner": {
+        const token = state.passwordResetTokens.find((item) =>
+          item.token_digest.equals(params[0]),
+        );
+        return result(token ? [{ user_id: token.user_id }] : []);
+      }
+
+      case "lock-reset-token": {
+        const token = state.passwordResetTokens.find(
+          (item) =>
+            item.token_digest.equals(params[0]) &&
+            item.user_id === params[1],
+        );
+        return result(
+          token
+            ? [
+                {
+                  id: token.id,
+                  user_id: token.user_id,
+                  consumed_at: token.consumed_at,
+                  invalidated_at: token.invalidated_at,
+                  expired: token.expires_at <= state.now,
+                },
+              ]
+            : [],
+        );
+      }
+
+      case "lock-user-refresh-tokens": {
+        return result(
+          state.refreshTokens
+            .filter(
+              (item) =>
+                item.user_id === params[0] && item.revoked_at === null,
+            )
+            .sort((left, right) => left.id - right.id)
+            .map((item) => ({ id: item.id })),
+        );
+      }
+
+      case "update-password-and-version": {
+        const user = state.users.find((item) => item.id === params[0]);
+        if (user) {
+          user.password_hash = params[1];
+          user.auth_version += 1;
+          user.updated_at = new Date(state.now);
+        }
+        return result(
+          user ? [{ id: user.id, auth_version: user.auth_version }] : [],
+        );
+      }
+
+      case "consume-reset-token": {
+        const token = state.passwordResetTokens.find(
+          (item) =>
+            item.id === params[0] &&
+            item.user_id === params[1] &&
+            item.consumed_at === null &&
+            item.invalidated_at === null &&
+            item.expires_at > state.now,
+        );
+        if (token) {
+          token.consumed_at = new Date(state.now);
+        }
+        return result(token ? [{ id: token.id }] : []);
+      }
+
+      case "revoke-user-refresh-tokens": {
+        const revoked = [];
+        for (const token of state.refreshTokens) {
+          if (token.user_id === params[0] && token.revoked_at === null) {
+            token.revoked_at = new Date(state.now);
+            token.revocation_reason = "password_reset";
+            revoked.push({ id: token.id });
+          }
+        }
+        return result(revoked);
       }
 
       case "create-workspace": {

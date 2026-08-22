@@ -19,6 +19,9 @@ const { createAuthService } = require("./services/authService");
 const { createAccessTokenService } = require("./services/accessTokenService");
 const { createAuthSessionService } = require("./services/authSessionService");
 const {
+  createPasswordRecoveryService,
+} = require("./services/passwordRecoveryService");
+const {
   createAuthIdentityService,
 } = require("./services/authIdentityService");
 const {
@@ -28,11 +31,14 @@ const {
   createRefreshCookieService,
 } = require("./services/refreshCookieService");
 const {
-  createResendEmailProvider,
+  createConfiguredEmailProvider,
 } = require("./services/email/resendEmailProvider");
 const {
   createVerificationEmailService,
 } = require("./services/email/verificationEmailService");
+const {
+  createPasswordResetEmailService,
+} = require("./services/email/passwordResetEmailService");
 const legacyWorkspaceContext = require("./middleware/legacyWorkspaceContext");
 
 // Nota: startScraping e startAutomation não são chamados aqui no modo Produção
@@ -54,14 +60,19 @@ app.use(corsPolicy.middleware);
 app.use(express.json());
 app.use(jsonParseErrorHandler);
 
-const emailProvider = authConfig.devEmailBypassEnabled
-  ? { sendEmail: async () => {} }
-  : createResendEmailProvider({
-      apiKey: authConfig.resendApiKey,
-      from: authConfig.emailFrom,
-    });
+const emailProvider = createConfiguredEmailProvider({
+  enabled: authConfig.emailProviderConfigured,
+  apiKey: authConfig.resendApiKey,
+  from: authConfig.emailFrom,
+});
 const verificationEmailService = createVerificationEmailService({
+  provider: authConfig.devEmailBypassEnabled
+    ? { sendEmail: async () => {} }
+    : emailProvider,
+});
+const passwordResetEmailService = createPasswordResetEmailService({
   provider: emailProvider,
+  passwordResetUrl: authConfig.passwordResetUrl,
 });
 const authCryptoService = createAuthCryptoService(authConfig);
 const authService = createAuthService({
@@ -77,6 +88,12 @@ const authSessionService = createAuthSessionService({
   accessTokenService,
   config: authConfig,
 });
+const passwordRecoveryService = createPasswordRecoveryService({
+  db,
+  cryptoService: authCryptoService,
+  emailService: passwordResetEmailService,
+  config: authConfig,
+});
 const authIdentityService = createAuthIdentityService({ db });
 const requireAuthenticatedContext = createRequireAuthenticatedContext({
   accessTokenService,
@@ -86,6 +103,7 @@ const refreshCookieService = createRefreshCookieService(authConfig);
 const authRouter = createAuthRouter({
   service: authService,
   sessionService: authSessionService,
+  passwordRecoveryService,
   cookieService: refreshCookieService,
   requireAuthenticatedContext,
   config: authConfig,

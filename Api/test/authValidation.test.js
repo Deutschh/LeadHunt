@@ -1,8 +1,10 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const {
+  validateForgotPassword,
   validateLogin,
   validateRegister,
+  validateResetPassword,
   validateResend,
   validateVerify,
 } = require("../src/validation/authValidation");
@@ -64,6 +66,27 @@ test("register rejeita e-mail inválido, senha fraca e aceites ausentes", () => 
   );
 });
 
+test("refactor da política de senha preserva contrato exato do register", () => {
+  assert.deepEqual(
+    validateRegister(validRegistration({ password: "curta" }), config).error,
+    {
+      status: 400,
+      code: "WEAK_PASSWORD",
+      message: "A senha informada não é válida.",
+      fieldErrors: { password: "Use entre 12 e 128 caracteres válidos." },
+    },
+  );
+  assert.deepEqual(
+    validateRegister(validRegistration({ password: null }), config).error,
+    {
+      status: 400,
+      code: "WEAK_PASSWORD",
+      message: "A senha informada não é válida.",
+      fieldErrors: { password: "Informe uma senha válida." },
+    },
+  );
+});
+
 test("register rejeita versões legais divergentes", () => {
   const result = validateRegister(
     validRegistration({ termsVersion: "terms-antigos" }),
@@ -106,5 +129,41 @@ test("login normaliza e-mail e preserva senha exatamente", () => {
     validateLogin({ email: "user@example.com", password: "", extra: true })
       .error.code,
     "VALIDATION_ERROR",
+  );
+});
+
+test("forgot normaliza e-mail e rejeita payload inválido", () => {
+  assert.deepEqual(
+    validateForgotPassword({ email: " USER@example.com " }).value,
+    { email: "user@example.com" },
+  );
+  assert.equal(
+    validateForgotPassword({ email: "user@example.com", extra: true }).error
+      .code,
+    "VALIDATION_ERROR",
+  );
+});
+
+test("reset exige token opaco exato e reutiliza política do register", () => {
+  const token = "a".repeat(43);
+  assert.deepEqual(
+    validateResetPassword({ token, password: "  senha longa segura  " })
+      .value,
+    { token, password: "  senha longa segura  " },
+  );
+
+  for (const invalidToken of ["", "a".repeat(42), "a".repeat(44), "a!b"] ) {
+    assert.equal(
+      validateResetPassword({
+        token: invalidToken,
+        password: "senha longa segura",
+      }).error.code,
+      "INVALID_RESET_TOKEN",
+    );
+  }
+
+  assert.deepEqual(
+    validateResetPassword({ token, password: "curta" }).error,
+    validateRegister(validRegistration({ password: "curta" }), config).error,
   );
 });

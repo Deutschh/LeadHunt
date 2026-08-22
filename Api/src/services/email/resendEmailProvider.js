@@ -46,10 +46,34 @@ function createResendEmailProvider({ apiKey, from, fetchImpl = global.fetch }) {
     }
   }
 
-  return Object.freeze({ sendEmail });
+  return Object.freeze({ available: true, sendEmail });
+}
+
+function createUnavailableEmailProvider() {
+  return Object.freeze({
+    available: false,
+    sendEmail: async () => {
+      throw new EmailProviderError();
+    },
+  });
+}
+
+function createConfiguredEmailProvider({
+  enabled,
+  apiKey,
+  from,
+  fetchImpl = global.fetch,
+}) {
+  if (!enabled) {
+    return createUnavailableEmailProvider();
+  }
+
+  return createResendEmailProvider({ apiKey, from, fetchImpl });
 }
 
 module.exports = {
   EmailProviderError,
+  createConfiguredEmailProvider,
   createResendEmailProvider,
+  createUnavailableEmailProvider,
 };

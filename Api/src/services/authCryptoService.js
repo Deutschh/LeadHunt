@@ -20,6 +20,14 @@ function createAuthCryptoService(config) {
     "utf8",
   );
 
+  function generateOpaqueToken() {
+    return crypto.randomBytes(32).toString("base64url");
+  }
+
+  function createOpaqueTokenDigest(token) {
+    return crypto.createHash("sha256").update(token, "utf8").digest();
+  }
+
   function generateOtp() {
     return crypto.randomInt(0, 1_000_000).toString().padStart(6, "0");
   }
@@ -53,9 +61,10 @@ function createAuthCryptoService(config) {
     verifyPassword: (password, passwordHash) =>
       argon2.verify(passwordHash, password, { type: argon2.argon2id }),
     dummyPasswordHash: DUMMY_PASSWORD_HASH,
-    generateRefreshToken: () => crypto.randomBytes(32).toString("base64url"),
-    createRefreshTokenDigest: (token) =>
-      crypto.createHash("sha256").update(token, "utf8").digest(),
+    generateRefreshToken: generateOpaqueToken,
+    createRefreshTokenDigest: createOpaqueTokenDigest,
+    generatePasswordResetToken: generateOpaqueToken,
+    createPasswordResetTokenDigest: createOpaqueTokenDigest,
     generateRefreshFamilyId: () => crypto.randomUUID(),
     isDevelopmentBypassCode: (code) => {
       if (!config.devEmailBypassEnabled || typeof code !== "string") {

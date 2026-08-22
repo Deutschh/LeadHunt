@@ -1,4 +1,5 @@
 const OTP_CODE_PATTERN = /^\d{6}$/;
+const PASSWORD_RESET_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const COOKIE_NAME_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
 
 function requireTrimmedString(env, name, maxLength) {
@@ -9,6 +10,29 @@ function requireTrimmedString(env, name, maxLength) {
   }
 
   const trimmedValue = value.trim();
+
+  if (trimmedValue.length > maxLength) {
+    throw new Error(`${name} excede o tamanho máximo permitido.`);
+  }
+
+  return trimmedValue;
+}
+
+function optionalTrimmedString(env, name, maxLength) {
+  const value = env[name];
+
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+
+  if (typeof value !== "string") {
+    throw new Error(`${name} deve ser uma string.`);
+  }
+
+  const trimmedValue = value.trim();
+  if (trimmedValue.length === 0) {
+    return null;
+  }
 
   if (trimmedValue.length > maxLength) {
     throw new Error(`${name} excede o tamanho máximo permitido.`);
@@ -31,6 +55,47 @@ function parseStrictBoolean(rawValue, name, defaultValue = false) {
   }
 
   throw new Error(`${name} deve ser "true" ou "false".`);
+}
+
+function parsePasswordResetUrl(rawValue, nodeEnv) {
+  const value = requireTrimmedString(
+    { AUTH_PASSWORD_RESET_URL: rawValue },
+    "AUTH_PASSWORD_RESET_URL",
+    2048,
+  );
+
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch (_error) {
+    throw new Error("AUTH_PASSWORD_RESET_URL deve ser uma URL absoluta.");
+  }
+
+  if (
+    !["http:", "https:"].includes(parsed.protocol) ||
+    parsed.username ||
+    parsed.password ||
+    parsed.hash ||
+    parsed.search
+  ) {
+    throw new Error("AUTH_PASSWORD_RESET_URL possui formato inseguro.");
+  }
+
+  if (nodeEnv === "production" && parsed.protocol !== "https:") {
+    throw new Error("AUTH_PASSWORD_RESET_URL deve usar HTTPS em produção.");
+  }
+
+  const localHosts = new Set(["localhost", "127.0.0.1", "[::1]"]);
+  if (
+    parsed.protocol === "http:" &&
+    (nodeEnv === "production" || !localHosts.has(parsed.hostname))
+  ) {
+    throw new Error(
+      "AUTH_PASSWORD_RESET_URL só pode usar HTTP em localhost fora de produção.",
+    );
+  }
+
+  return parsed.toString();
 }
 
 function loadAuthConfig(env = process.env) {
@@ -95,6 +160,33 @@ function loadAuthConfig(env = process.env) {
     );
   }
 
+  const resendApiKey = optionalTrimmedString(env, "RESEND_API_KEY", 2048);
+  const emailProviderConfigured = resendApiKey !== null;
+
+  if (nodeEnv === "production" && !emailProviderConfigured) {
+    throw new Error("RESEND_API_KEY é obrigatório em produção.");
+  }
+
+  const emailFrom = emailProviderConfigured
+    ? requireTrimmedString(env, "AUTH_EMAIL_FROM", 320)
+    : null;
+  const configuredPasswordResetUrl = optionalTrimmedString(
+    env,
+    "AUTH_PASSWORD_RESET_URL",
+    2048,
+  );
+
+  if (emailProviderConfigured && configuredPasswordResetUrl === null) {
+    throw new Error(
+      "AUTH_PASSWORD_RESET_URL é obrigatório quando o provider de e-mail está configurado.",
+    );
+  }
+
+  const passwordResetUrl =
+    configuredPasswordResetUrl === null
+      ? null
+      : parsePasswordResetUrl(configuredPasswordResetUrl, nodeEnv);
+
   const config = {
     nodeEnv,
     otpHmacSecret,
@@ -121,21 +213,20 @@ function loadAuthConfig(env = process.env) {
     resendCooldownSeconds: 60,
     maxChallengesPerHour: 5,
     verificationRetryWindowMinutes: 5,
+    passwordResetTtlMinutes: 30,
+    passwordResetUrl,
+    emailProviderConfigured,
+    resendApiKey,
+    emailFrom,
   };
-
-  if (!devEmailBypassEnabled) {
-    config.resendApiKey = requireTrimmedString(env, "RESEND_API_KEY", 2048);
-    config.emailFrom = requireTrimmedString(env, "AUTH_EMAIL_FROM", 320);
-  } else {
-    config.resendApiKey = null;
-    config.emailFrom = null;
-  }
 
   return Object.freeze(config);
 }
 
 module.exports = {
   OTP_CODE_PATTERN,
+  PASSWORD_RESET_TOKEN_PATTERN,
   loadAuthConfig,
+  parsePasswordResetUrl,
   parseStrictBoolean,
 };

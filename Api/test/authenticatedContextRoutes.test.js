@@ -10,12 +10,14 @@ const {
 const {
   AuthIdentityError,
   AuthIdentityUnavailableError,
+  createAuthIdentityService,
 } = require("../src/services/authIdentityService");
 const {
   createRequireAuthenticatedContext,
   extractBearerToken,
 } = require("../src/middleware/requireAuthenticatedContext");
 const { createAuthRouter } = require("../src/routes/authRoutes");
+const { createFakeAuthDb } = require("./helpers/fakeAuthDb");
 
 const context = {
   user: { id: "7", name: "Maria Silva", email: "maria@example.com" },
@@ -238,14 +240,17 @@ test("bug inesperado em verify retorna 500 em vez de falso 401/503", async () =>
 async function withServer(operation, options = {}) {
   const app = express();
   let middlewareCalls = 0;
+  const identityService = options.identityService || {
+    resolve: async () => options.context || context,
+  };
   const requireAuthenticatedContext = createRequireAuthenticatedContext({
     accessTokenService: options.accessTokenService || {
       verify: () => ({ sub: "7", ver: 2 }),
     },
     identityService: {
-      resolve: async () => {
+      resolve: async (input) => {
         middlewareCalls += 1;
-        return options.context || context;
+        return identityService.resolve(input);
       },
     },
     logger: { error: () => {}, warn: () => {} },
@@ -325,6 +330,66 @@ test("JWT realmente expirado retorna 401 INVALID_ACCESS_TOKEN via HTTP", async (
       assert.equal(getMiddlewareCalls(), 0);
     },
     { accessTokenService: createAccessTokenService(jwtConfig) },
+  );
+});
+
+test("JWT real anterior ao reset é rejeitado via HTTP após auth_version incrementar", async () => {
+  const jwtConfig = {
+    jwtSecret: "j".repeat(32),
+    jwtKeyId: "test-key-v1",
+    jwtIssuer: "leadhunt-api-test",
+    jwtAudience: "leadhunt-web-test",
+    accessTokenTtlSeconds: 600,
+  };
+  const accessTokenService = createAccessTokenService(jwtConfig);
+  const oldAccessToken = accessTokenService.issue({
+    userId: "7",
+    authVersion: 4,
+  });
+  const now = new Date("2026-08-18T12:00:00.000Z");
+  const db = createFakeAuthDb({
+    now,
+    users: [
+      {
+        id: 7,
+        name: "Maria Silva",
+        email: "maria@example.com",
+        password_hash: "hash",
+        email_verified_at: now,
+        auth_version: 4,
+      },
+    ],
+    workspaces: [
+      {
+        id: 11,
+        slug: "ws-test",
+        name: "Maria Silva",
+        account_status: "pending",
+        is_active: true,
+      },
+    ],
+    memberships: [{ user_id: 7, workspace_id: 11, role: "owner" }],
+  });
+
+  db.state.users[0].auth_version += 1;
+
+  await withServer(
+    async (baseUrl, getMiddlewareCalls) => {
+      const response = await fetch(`${baseUrl}/api/auth/me`, {
+        headers: { Authorization: `Bearer ${oldAccessToken}` },
+      });
+
+      assert.equal(response.status, 401);
+      assert.deepEqual(await response.json(), {
+        error: "Token de acesso inválido ou expirado.",
+        code: "INVALID_ACCESS_TOKEN",
+      });
+      assert.equal(getMiddlewareCalls(), 1);
+    },
+    {
+      accessTokenService,
+      identityService: createAuthIdentityService({ db }),
+    },
   );
 });
 

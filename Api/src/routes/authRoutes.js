@@ -2,8 +2,14 @@ const express = require("express");
 const { AuthServiceError } = require("../services/authService");
 const { AuthSessionError } = require("../services/authSessionService");
 const {
+  PasswordRecoveryError,
+  PasswordRecoveryUnavailableError,
+} = require("../services/passwordRecoveryService");
+const {
+  validateForgotPassword,
   validateLogin,
   validateRegister,
+  validateResetPassword,
   validateResend,
   validateVerify,
 } = require("../validation/authValidation");
@@ -19,6 +25,15 @@ const RESEND_RESPONSE = Object.freeze({
     "Se houver um cadastro pendente, um novo código será enviado quando permitido.",
   nextStep: "verify_email",
   retryAfterSeconds: 60,
+});
+
+const FORGOT_PASSWORD_RESPONSE = Object.freeze({
+  message:
+    "Se houver uma conta elegível, enviaremos instruções para redefinir a senha.",
+});
+
+const RESET_PASSWORD_RESPONSE = Object.freeze({
+  message: "Senha redefinida com sucesso. Faça login novamente.",
 });
 
 function sendValidationError(res, validationResult) {
@@ -41,6 +56,7 @@ function sendServiceError(res, error) {
 function createAuthRouter({
   service,
   sessionService,
+  passwordRecoveryService,
   cookieService,
   requireAuthenticatedContext,
   config,
@@ -51,6 +67,8 @@ function createAuthRouter({
   const loginRateLimits = rateLimits.login || [];
   const refreshRateLimits = rateLimits.refresh || [];
   const logoutRateLimits = rateLimits.logout || [];
+  const forgotPasswordRateLimits = rateLimits.forgotPassword || [];
+  const resetPasswordRateLimits = rateLimits.resetPassword || [];
 
   router.get("/me", requireAuthenticatedContext, (req, res) => {
     return res.status(200).json({
@@ -137,6 +155,72 @@ function createAuthRouter({
     }
   });
 
+  router.post(
+    "/password/forgot",
+    ...forgotPasswordRateLimits,
+    async (req, res) => {
+      const validationResult = validateForgotPassword(req.body);
+
+      if (validationResult.error) {
+        return sendValidationError(res, validationResult);
+      }
+
+      try {
+        await passwordRecoveryService.forgot(validationResult.value);
+        return res.status(202).json(FORGOT_PASSWORD_RESPONSE);
+      } catch (error) {
+        if (error instanceof PasswordRecoveryUnavailableError) {
+          logger.error("AUTH_PASSWORD_RECOVERY_DATABASE_UNAVAILABLE");
+          return res.status(503).json({
+            error: "Autenticação temporariamente indisponível.",
+            code: "AUTH_TEMPORARILY_UNAVAILABLE",
+          });
+        }
+
+        logger.error("AUTH_PASSWORD_FORGOT_PROCESSING_FAILED");
+        return res.status(500).json({
+          error: "Erro interno de autenticação.",
+          code: "INTERNAL_ERROR",
+        });
+      }
+    },
+  );
+
+  router.post(
+    "/password/reset",
+    ...resetPasswordRateLimits,
+    async (req, res) => {
+      const validationResult = validateResetPassword(req.body);
+
+      if (validationResult.error) {
+        return sendValidationError(res, validationResult);
+      }
+
+      try {
+        await passwordRecoveryService.reset(validationResult.value);
+        return res.status(200).json(RESET_PASSWORD_RESPONSE);
+      } catch (error) {
+        if (error instanceof PasswordRecoveryError) {
+          return sendServiceError(res, error);
+        }
+
+        if (error instanceof PasswordRecoveryUnavailableError) {
+          logger.error("AUTH_PASSWORD_RECOVERY_DATABASE_UNAVAILABLE");
+          return res.status(503).json({
+            error: "Autenticação temporariamente indisponível.",
+            code: "AUTH_TEMPORARILY_UNAVAILABLE",
+          });
+        }
+
+        logger.error("AUTH_PASSWORD_RESET_PROCESSING_FAILED");
+        return res.status(500).json({
+          error: "Erro interno de autenticação.",
+          code: "INTERNAL_ERROR",
+        });
+      }
+    },
+  );
+
   router.post("/login", ...loginRateLimits, async (req, res) => {
     const validationResult = validateLogin(req.body);
 
@@ -222,7 +306,9 @@ function createAuthRouter({
 }
 
 module.exports = {
+  FORGOT_PASSWORD_RESPONSE,
   REGISTER_RESPONSE,
   RESEND_RESPONSE,
+  RESET_PASSWORD_RESPONSE,
   createAuthRouter,
 };

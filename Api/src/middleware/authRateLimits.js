@@ -1,6 +1,9 @@
 const crypto = require("crypto");
 const rateLimit = require("express-rate-limit");
 const { ipKeyGenerator } = require("express-rate-limit");
+const {
+  PASSWORD_RESET_TOKEN_PATTERN,
+} = require("../config/authConfig");
 
 function normalizeEmailForKey(value) {
   return typeof value === "string" ? value.trim().toLowerCase() : "";
@@ -9,11 +12,24 @@ function normalizeEmailForKey(value) {
 function emailKeyGenerator(req) {
   const email = normalizeEmailForKey(req.body?.email);
 
-  if (email.length === 0) {
+  if (email.length === 0 || email.length > 254) {
     return `missing-email:${ipKeyGenerator(req.ip)}`;
   }
 
   return `email:${crypto.createHash("sha256").update(email).digest("hex")}`;
+}
+
+function resetTokenKeyGenerator(req) {
+  const token = req.body?.token;
+
+  if (
+    typeof token !== "string" ||
+    !PASSWORD_RESET_TOKEN_PATTERN.test(token)
+  ) {
+    return `missing-reset:${ipKeyGenerator(req.ip)}`;
+  }
+
+  return `password-reset:${hashOpaqueKey(token)}`;
 }
 
 function hashOpaqueKey(value) {
@@ -114,6 +130,22 @@ function createAuthRateLimits(config = {}) {
       }),
     ],
     logout: [createLimiter({ windowMs: 15 * 60 * 1000, limit: 60 })],
+    forgotPassword: [
+      createLimiter({ windowMs: 15 * 60 * 1000, limit: 10 }),
+      createLimiter({
+        windowMs: 60 * 60 * 1000,
+        limit: 5,
+        keyGenerator: emailKeyGenerator,
+      }),
+    ],
+    resetPassword: [
+      createLimiter({ windowMs: 15 * 60 * 1000, limit: 10 }),
+      createLimiter({
+        windowMs: 15 * 60 * 1000,
+        limit: 5,
+        keyGenerator: resetTokenKeyGenerator,
+      }),
+    ],
   });
 }
 
@@ -121,4 +153,5 @@ module.exports = {
   createAuthRateLimits,
   emailKeyGenerator,
   refreshCookieKeyGenerator,
+  resetTokenKeyGenerator,
 };

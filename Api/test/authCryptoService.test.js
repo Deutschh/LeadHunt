@@ -56,6 +56,17 @@ test("refresh token possui 256 bits e somente seu SHA-256 é derivado", () => {
   assert.equal(service.createRefreshTokenDigest(token).length, 32);
 });
 
+test("password reset token possui 256 bits e digest SHA-256 separado", () => {
+  const service = createService();
+  const token = service.generatePasswordResetToken();
+  const digest = service.createPasswordResetTokenDigest(token);
+
+  assert.match(token, /^[A-Za-z0-9_-]{43}$/);
+  assert.equal(Buffer.from(token, "base64url").length, 32);
+  assert.equal(digest.length, 32);
+  assert.equal(digest.equals(Buffer.from(token)), false);
+});
+
 test("bypass só reconhece o código quando habilitado", () => {
   assert.equal(createService().isDevelopmentBypassCode("123456"), false);
   assert.equal(
