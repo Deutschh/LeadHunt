@@ -70,9 +70,6 @@ async function sendBubble(page, selector, text, isMultiline = false) {
 const log = (message, type = "info") => {
   if (global.remoteLog) {
     global.remoteLog(message, type);
-  } else if (global.io) {
-    const time = new Date().toLocaleTimeString();
-    global.io.emit("automation-log", { time, message, type });
   }
 
   console.log(`[Automação] ${message}`);

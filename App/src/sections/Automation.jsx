@@ -19,7 +19,6 @@ import {
   MessageCircle,
   Repeat,
 } from "lucide-react";
-import { io } from "socket.io-client";
 
 const Automation = () => {
   const [settings, setSettings] = useState({
@@ -41,36 +40,12 @@ const Automation = () => {
   });
 
   const [queue, setQueue] = useState([]);
-  const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [isWorkerOnline, setIsWorkerOnline] = useState(false);
   const [sendingNumbers, setSendingNumbers] = useState([]);
   const [actionLoading, setActionLoading] = useState({});
-  const [isHealthCheckAllLoading, setIsHealthCheckAllLoading] = useState(false);
 
   useEffect(() => {
-    const savedLogs = localStorage.getItem("leadhunt_logs");
-    if (savedLogs) {
-      setLogs(JSON.parse(savedLogs));
-    }
-
     fetchData(true);
-
-    const socket = io("https://leadhunt-api.onrender.com");
-
-    socket.on("worker-status-update", (status) => {
-      setIsWorkerOnline(status);
-    });
-
-    socket.on("automation-log", (newLog) => {
-      setLogs((prev) => {
-        const updatedLogs = [newLog, ...prev].slice(0, 50);
-        localStorage.setItem("leadhunt_logs", JSON.stringify(updatedLogs));
-        return updatedLogs;
-      });
-    });
-
-    return () => socket.disconnect();
   }, []);
 
   const fetchData = async (showGlobalLoading = false) => {
@@ -102,42 +77,6 @@ const Automation = () => {
     setActionLoading((prev) => ({ ...prev, [chipId]: state }));
   };
 
-  const handleHealthCheck = async (chipId) => {
-    try {
-      setChipLoading(chipId, true);
-      const { data } = await api.post(
-        `/leads/sending-numbers/${chipId}/health-check`,
-      );
-      alert(data.message || "Health check concluído.");
-      await fetchData();
-    } catch (err) {
-      console.error(err);
-      alert(err?.response?.data?.error || "Erro ao testar sessão do chip.");
-    } finally {
-      setChipLoading(chipId, false);
-    }
-  };
-
-  const handleHealthCheckAll = async () => {
-    try {
-      setIsHealthCheckAllLoading(true);
-
-      const { data } = await api.post(
-        "/leads/sending-numbers/health-check-all",
-      );
-
-      alert(data.message || "Health check concluído.");
-      await fetchData();
-    } catch (err) {
-      console.error(err);
-      alert(
-        err?.response?.data?.error || "Erro ao executar health check em lote.",
-      );
-    } finally {
-      setIsHealthCheckAllLoading(false);
-    }
-  };
-
   const handleToggleAutomation = async () => {
     const newState = !settings.is_active;
 
@@ -146,7 +85,7 @@ const Automation = () => {
         is_active: newState,
       });
       setSettings(data);
-    } catch (err) {
+    } catch {
       alert("Erro ao mudar estado da automação");
     }
   };
@@ -160,11 +99,6 @@ const Automation = () => {
     } catch (err) {
       console.error(err);
     }
-  };
-
-  const clearLogs = () => {
-    setLogs([]);
-    localStorage.removeItem("leadhunt_logs");
   };
 
   const handlePauseChip = async (chipId) => {
@@ -305,51 +239,7 @@ const Automation = () => {
           </h1>
         </div>
 
-        <div
-          className={`flex items-center gap-4 px-6 py-3 rounded-2xl border transition-all ${
-            isWorkerOnline
-              ? "bg-green-50 border-green-100"
-              : "bg-red-50 border-red-100"
-          }`}
-        >
-          <div className="relative flex h-3 w-3">
-            {isWorkerOnline && (
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-            )}
-            <span
-              className={`relative inline-flex rounded-full h-3 w-3 ${
-                isWorkerOnline ? "bg-green-500" : "bg-red-500"
-              }`}
-            ></span>
-          </div>
-          <div>
-            <p className="text-[10px] font-black uppercase text-slate-400">
-              Conexão com PC Local
-            </p>
-            <p
-              className={`text-xs font-bold ${
-                isWorkerOnline ? "text-green-700" : "text-red-700"
-              }`}
-            >
-              {isWorkerOnline ? "MOTOR ONLINE" : "MOTOR OFFLINE"}
-            </p>
-          </div>
-        </div>
-
         <div className="flex items-center gap-3 flex-wrap">
-          <button
-            onClick={handleHealthCheckAll}
-            disabled={isHealthCheckAllLoading}
-            className={`flex items-center gap-2 px-5 py-4 rounded-2xl font-black text-sm text-white transition-all ${
-              isHealthCheckAllLoading
-                ? "bg-blue-300 cursor-not-allowed"
-                : "bg-blue-500 hover:bg-blue-600"
-            }`}
-          >
-            <Activity size={18} />
-            {isHealthCheckAllLoading ? "Testando..." : "Testar todos os chips"}
-          </button>
-
           <button
             onClick={() => fetchData()}
             className="flex items-center gap-2 px-5 py-4 rounded-2xl font-black text-sm bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 transition-all"
@@ -565,12 +455,6 @@ ${settings.followup_delay_hours_2 || 0}h.
             <p className="text-2xl font-black mb-4">
               {settings.is_active ? "Automação Ativa" : "Motor em Repouso"}
             </p>
-            <div className="flex items-center gap-2 text-xs text-slate-400 font-bold bg-white/5 p-4 rounded-2xl">
-              <AlertCircle size={14} />
-              {isWorkerOnline
-                ? "Comunicação com o PC estabelecida."
-                : "Ligue o Worker no seu computador."}
-            </div>
           </div>
         </div>
 
@@ -734,13 +618,6 @@ ${settings.followup_delay_hours_2 || 0}h.
                           tone="blue"
                         />
 
-                        <ActionButton
-                          label="Testar sessão"
-                          icon={Activity}
-                          onClick={() => handleHealthCheck(chip.id)}
-                          disabled={!!actionLoading[chip.id]}
-                          tone="blue"
-                        />
                       </div>
                     </div>
                   );
@@ -796,51 +673,6 @@ ${settings.followup_delay_hours_2 || 0}h.
             </div>
           </div>
 
-          <div className="bg-white p-8 rounded-[3rem] border border-slate-100 shadow-sm">
-            <div className="flex items-center justify-between mb-8">
-              <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 flex items-center gap-2">
-                <Send size={16} /> Log em Tempo Real (Worker Remote)
-              </h3>
-              {logs.length > 0 && (
-                <button
-                  onClick={clearLogs}
-                  className="text-[9px] font-black uppercase text-red-400 hover:text-red-600 transition-colors"
-                >
-                  Limpar Terminal
-                </button>
-              )}
-            </div>
-
-            <div className="space-y-2 font-mono text-[11px] max-h-[300px] overflow-y-auto pr-4">
-              {logs.length === 0 ? (
-                <p className="text-slate-300 italic">
-                  Aguardando atividade do motor...
-                </p>
-              ) : (
-                logs.map((log, i) => (
-                  <div
-                    key={i}
-                    className={`flex gap-4 p-3 rounded-xl items-center ${
-                      log.type === "error" ? "bg-red-50" : "bg-slate-50"
-                    }`}
-                  >
-                    <span className="text-slate-300">[{log.time}]</span>
-                    <span
-                      className={
-                        log.type === "success"
-                          ? "text-green-600 font-bold"
-                          : log.type === "error"
-                            ? "text-red-600"
-                            : "text-slate-600"
-                      }
-                    >
-                      {log.message}
-                    </span>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
         </div>
       </div>
     </div>
@@ -874,7 +706,7 @@ const SummaryCard = ({ icon: Icon, title, value, tone = "slate" }) => {
     <div className={`p-6 rounded-[2rem] border shadow-sm ${tones[tone]}`}>
       <div className="flex items-center gap-3 mb-3">
         <div className="p-2 rounded-xl bg-slate-50">
-          <Icon size={18} />
+          {React.createElement(Icon, { size: 18 })}
         </div>
         <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
           {title}
@@ -917,7 +749,7 @@ const ActionButton = ({
         tones[tone]
       } ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
     >
-      <Icon size={14} />
+      {React.createElement(Icon, { size: 14 })}
       {label}
     </button>
   );

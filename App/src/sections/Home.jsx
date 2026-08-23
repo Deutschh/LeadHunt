@@ -1,9 +1,6 @@
-import React, { useState, useEffect, useRef } from "react";
-import { io } from "socket.io-client";
+import React, { useState, useEffect } from "react";
 import api from "../services/api";
 import {
-  Terminal,
-  Zap,
   Target,
   TrendingUp,
   Clock,
@@ -21,7 +18,6 @@ import {
 } from "lucide-react";
 
 const Home = () => {
-  const [logs, setLogs] = useState([]);
   const [leads, setLeads] = useState([]);
   const [notes, setNotes] = useState([]);
   const [showNoteModal, setShowNoteModal] = useState(false);
@@ -39,37 +35,7 @@ const Home = () => {
     topNeighborhood: "Analisando...",
   });
 
-  const terminalEndRef = useRef(null);
   const MONTHLY_GOAL = 10000;
-
-  useEffect(() => {
-    fetchDashboardData();
-    fetchNotes();
-
-    const savedLogs = localStorage.getItem("scraper_logs");
-    if (savedLogs) setLogs(JSON.parse(savedLogs));
-
-    const socket = io("https://leadhunt-api.onrender.com");
-
-    socket.on("scraper-log", (newLog) => {
-      setLogs((prev) => {
-        // Garante que o log tenha um ID único ou use o timestamp para evitar problemas de key no React
-        const logWithTime = {
-          ...newLog,
-          timestamp: new Date().toLocaleTimeString(),
-        };
-        const updated = [...prev, logWithTime].slice(-50);
-        localStorage.setItem("scraper_logs", JSON.stringify(updated));
-        return updated;
-      });
-    });
-
-    return () => socket.disconnect();
-  }, []);
-
-  useEffect(() => {
-    terminalEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [logs]);
 
   const fetchNotes = async () => {
     try {
@@ -87,7 +53,7 @@ const Home = () => {
       setNewNote({ title: "", content: "", expires_at: "" });
       setShowNoteModal(false);
       fetchNotes();
-    } catch (err) {
+    } catch {
       alert("Erro ao salvar nota.");
     }
   };
@@ -136,6 +102,15 @@ const Home = () => {
       console.error(err);
     }
   };
+
+  useEffect(() => {
+    const initialFetch = window.setTimeout(() => {
+      fetchDashboardData();
+      fetchNotes();
+    }, 0);
+
+    return () => window.clearTimeout(initialFetch);
+  }, []);
 
   return (
     <div className="p-10 max-w-[1600px] mx-auto animate-in fade-in duration-700 pb-20 relative text-slate-900">
@@ -311,56 +286,7 @@ const Home = () => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* 4. TERMINAL (ESQUERDA - LG:8) */}
-        <div className="lg:col-span-8">
-          <div className="bg-[#0B0F17] rounded-[2.5rem] shadow-2xl border border-white/5 overflow-hidden flex flex-col h-[480px]">
-            <div className="bg-[#161B26] px-6 py-4 flex items-center justify-between border-b border-white/5">
-              <div className="flex items-center gap-2">
-                <div className="flex gap-1.5 mr-4">
-                  <div className="w-3 h-3 bg-[#FF5F56] rounded-full"></div>
-                  <div className="w-3 h-3 bg-[#FFBD2E] rounded-full"></div>
-                  <div className="w-3 h-3 bg-[#27C93F] rounded-full"></div>
-                </div>
-                <div className="flex items-center gap-2 text-slate-500 font-mono text-[10px] font-bold uppercase tracking-widest">
-                  <Terminal size={12} /> <span>Hunter_Shell_v3.0</span>
-                </div>
-              </div>
-
-              <span className="text-[9px] font-black text-[#27C93F] uppercase flex mr-2">
-                <div className="w-2.5 h-2.5 bg-[#27C93F] rounded-full mr-1.5 my-auto animate-pulse shadow-[0_0_8px_#27C93F]"></div>
-                Socket Online
-              </span>
-            </div>
-            <div className="flex-1 p-8 overflow-y-auto font-mono text-[11px] leading-relaxed scrollbar-thin scrollbar-thumb-white/10">
-              {logs.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-full text-slate-700 opacity-50 space-y-4">
-                  <Zap size={40} className="animate-pulse" />
-                  <p className="uppercase tracking-[0.3em]">
-                    Aguardando conexão...
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {logs.map((log, i) => (
-                    <div
-                      key={i}
-                      className={`flex gap-4 p-2 rounded transition-colors ${log.type === "success" ? "text-emerald-400 bg-emerald-500/5" : "text-slate-400"}`}
-                    >
-                      <span className="opacity-30">
-                        [{new Date().toLocaleTimeString()}]
-                      </span>
-                      <span className="font-bold">{log.message}</span>
-                    </div>
-                  ))}
-                  <div ref={terminalEndRef} />
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* 5. COLUNA LATERAL (TAREFAS, WINS E NOTAS - LG:4) */}
-        <div className="lg:col-span-4 space-y-6">
+        <div className="lg:col-span-12 space-y-6">
           {/* LISTA DE WINS (TROFÉU) - REESTABELECIDA */}
           <div className="bg-white p-8 rounded-[3rem] shadow-sm border border-slate-100">
             <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-6 flex items-center gap-2">

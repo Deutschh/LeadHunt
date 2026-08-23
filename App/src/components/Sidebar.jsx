@@ -2,21 +2,17 @@ import React from "react";
 import {
   LayoutDashboard,
   Users,
-  Search,
   Zap,
   BarChart3,
   Settings,
-  FlaskConical,
 } from "lucide-react";
 
 const Sidebar = ({ activeTab, setActiveTab }) => {
   const menuItems = [
     { id: "home", label: "Início", icon: <LayoutDashboard size={22} /> },
     { id: "leads", label: "Meus Leads", icon: <Users size={22} /> },
-    { id: "search", label: "Busca Inteligente", icon: <Search size={22} /> },
     { id: "automation", label: "Automação", icon: <Zap size={22} /> },
     { id: "analysis", label: "Análise", icon: <BarChart3 size={22} /> },
-    { id: "laboratory", label: "Laboratório", icon: <FlaskConical size={22} /> },
   ];
 
   return (

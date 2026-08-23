@@ -5,20 +5,18 @@ import { AuthProvider } from "./auth/AuthProvider.jsx";
 import AuthRoutes from "./auth/AuthRoutes.jsx";
 import Sidebar from "./components/Sidebar";
 import MyLeads from "./sections/MyLeads";
-import SearchSection from "./sections/Search";
 import Configs from "./sections/config";
 import LeadDetails from "./sections/LeadDetails";
 import Home from "./sections/Home";
 import Automation from "./sections/Automation";
 import Analysis from "./sections/Analisy";
-import Laboratory from "./sections/Laboratory";
 import PublicBriefing from "./sections/PublicBriefing";
 import { API_ORIGIN } from "./config/apiConfig.js";
 
 function LegacyAppShell() {
   const [activeTab, setActiveTab] = useState("home");
   const [leads, setLeads] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const loading = false;
   const [selectedLeadId, setSelectedLeadId] = useState(null);
 
   const handleOpenLead = (id) => {
@@ -32,19 +30,6 @@ function LegacyAppShell() {
       setLeads(data);
     } catch (error) {
       console.error("Erro ao buscar leads:", error);
-    }
-  };
-
-  const handleStartSearch = async (config) => {
-    setLoading(true);
-    try {
-      await axios.post(`${API_ORIGIN}/run-scraper`, config);
-      setActiveTab("home");
-    } catch (error) {
-      console.error("Erro ao iniciar busca:", error);
-      alert("Erro ao iniciar a busca.");
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -74,9 +59,12 @@ function LegacyAppShell() {
   };
 
   useEffect(() => {
-    fetchLeads();
+    const initialFetch = window.setTimeout(fetchLeads, 0);
     const interval = setInterval(fetchLeads, 15000);
-    return () => clearInterval(interval);
+    return () => {
+      window.clearTimeout(initialFetch);
+      clearInterval(interval);
+    };
   }, []);
 
   return (
@@ -96,13 +84,6 @@ function LegacyAppShell() {
           />
         )}
 
-        {activeTab === "search" && (
-          <SearchSection
-            onStartSearch={handleStartSearch}
-            loading={loading}
-          />
-        )}
-
         {activeTab === "lead-details" && (
           <LeadDetails
             leadId={selectedLeadId}
@@ -113,7 +94,6 @@ function LegacyAppShell() {
         {activeTab === "automation" && <Automation />}
         {activeTab === "analysis" && <Analysis />}
         {activeTab === "settings" && <Configs />}
-        {activeTab === "laboratory" && <Laboratory />}
       </main>
     </div>
   );
