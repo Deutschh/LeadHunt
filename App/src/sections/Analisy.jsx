@@ -8,8 +8,7 @@ import InfoRow from "../components/Analisy/InfoRow";
 import useAnalysisMetrics from "../hooks/useAnalysisMetrics";
 import PromptPerformanceTable from "../components/Analisy/PromptPerformanceTable";
 import ServiceOpportunityMetrics from "../components/Analisy/ServiceOpportunityMetrics";
-
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
+import { API_ORIGIN } from "../config/apiConfig.js";
 
 const Analysis = () => {
   const [data, setData] = useState(null);
@@ -37,10 +36,10 @@ const Analysis = () => {
       const [statsResponse, leadsResponse, numbersResponse] = await Promise.all(
         [
           axios.get(
-            `${API_URL}/api/leads/stats/dashboard?period=${period}&includeArchived=${showAllPrompts}`,
+            `${API_ORIGIN}/api/leads/stats/dashboard?period=${period}&includeArchived=${showAllPrompts}`,
           ),
-          axios.get(`${API_URL}/api/leads`),
-          axios.get(`${API_URL}/api/leads/sending-numbers`),
+          axios.get(`${API_ORIGIN}/api/leads`),
+          axios.get(`${API_ORIGIN}/api/leads/sending-numbers`),
         ],
       );
 
@@ -75,7 +74,7 @@ const Analysis = () => {
       }
 
       const response = await axios.get(
-        `${API_URL}/api/service-opportunities/stats?${params.toString()}`,
+        `${API_ORIGIN}/api/service-opportunities/stats?${params.toString()}`,
       );
 
       setServiceOpportunityStats(response.data);

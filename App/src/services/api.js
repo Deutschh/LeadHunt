@@ -1,12 +1,8 @@
 import axios from "axios";
-
-// Pega a URL da Vercel (Render) ou usa o localhost se estiver em casa
-const baseURL = import.meta.env.VITE_API_URL 
-  ? `${import.meta.env.VITE_API_URL}/api` 
-  : "http://localhost:3001/api";
+import { API_BASE_URL } from "../config/apiConfig.js";
 
 const api = axios.create({
-  baseURL: baseURL,
+  baseURL: API_BASE_URL,
 });
 
 export default api;
