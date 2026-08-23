@@ -33,6 +33,12 @@ const {
 const config = {
   termsVersion: "terms-v1",
   privacyPolicyVersion: "privacy-v1",
+  termsUrl: "https://app.example.com/terms",
+  privacyPolicyUrl: "https://app.example.com/privacy",
+  accessRequestUrl: "https://app.example.com/access",
+  supportUrl: "https://app.example.com/support",
+  registrationAvailable: true,
+  resendCooldownSeconds: 60,
 };
 const noRateLimits = { register: [], verify: [], resend: [] };
 const passAuthenticatedContext = (_req, _res, next) => next();
@@ -91,6 +97,75 @@ async function post(baseUrl, path, body) {
 
   return { status: response.status, body: await response.json() };
 }
+
+test("public-config é público, não exige sessão e não define cookie", async () => {
+  await withServer(
+    { register: async () => {}, resend: async () => {}, verify: async () => ({}) },
+    noRateLimits,
+    async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/auth/public-config`);
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("set-cookie"), null);
+      assert.equal(response.headers.get("cache-control"), "no-store");
+      assert.deepEqual(await response.json(), {
+        registration: {
+          available: true,
+          terms: { version: "terms-v1", url: "https://app.example.com/terms" },
+          privacyPolicy: {
+            version: "privacy-v1",
+            url: "https://app.example.com/privacy",
+          },
+        },
+        contact: {
+          accessRequestUrl: "https://app.example.com/access",
+          supportUrl: "https://app.example.com/support",
+        },
+        emailVerification: { resendCooldownSeconds: 60 },
+      });
+    },
+  );
+});
+
+test("cadastro falha fechado sem config legal e outras rotas permanecem públicas", async () => {
+  const unavailableConfig = {
+    ...config,
+    termsVersion: null,
+    termsUrl: null,
+    registrationAvailable: false,
+  };
+  const app = express();
+  app.use(express.json());
+  app.use(
+    "/api/auth",
+    createAuthRouter({
+      service: { register: async () => assert.fail(), resend: async () => {}, verify: async () => ({}) },
+      passwordRecoveryService: { forgot: async () => {}, reset: async () => {} },
+      requireAuthenticatedContext: passAuthenticatedContext,
+      config: unavailableConfig,
+      rateLimits: noRateLimits,
+      logger: { error: () => {} },
+    }),
+  );
+  const server = http.createServer(app);
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const address = server.address();
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+    const registration = await post(baseUrl, "/api/auth/register", validRegistration());
+    assert.deepEqual(registration, {
+      status: 503,
+      body: {
+        error: "Autenticação temporariamente indisponível.",
+        code: "AUTH_TEMPORARILY_UNAVAILABLE",
+      },
+    });
+    const publicConfig = await fetch(`${baseUrl}/api/auth/public-config`);
+    assert.equal(publicConfig.status, 200);
+    assert.equal((await publicConfig.json()).registration.available, false);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
 
 test("register preserva resposta uniforme para todos os no-ops do serviço", async () => {
   const expected = {

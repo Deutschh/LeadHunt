@@ -40,6 +40,22 @@ test("register normaliza nome/e-mail sem alterar a senha", () => {
   });
 });
 
+test("register conta caracteres fora do BMP por code point", () => {
+  const accepted = validateRegister(
+    validRegistration({ name: "😀".repeat(120) }),
+    config,
+  );
+  const rejected = validateRegister(
+    validRegistration({ name: "😀".repeat(121) }),
+    config,
+  );
+
+  assert.equal(accepted.error, undefined);
+  assert.equal([...accepted.value.name].length, 120);
+  assert.equal(rejected.error.code, "VALIDATION_ERROR");
+  assert.equal(rejected.error.fieldErrors.name, "Informe um nome válido entre 2 e 120 caracteres.");
+});
+
 test("register rejeita campo desconhecido e confirmação de senha", () => {
   const result = validateRegister(
     validRegistration({ passwordConfirmation: "senha longa segura" }),

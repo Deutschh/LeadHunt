@@ -1,10 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { Routes, Route } from "react-router-dom";
 import axios from "axios";
-import {
-  AuthBootstrapBoundary,
-  AuthProvider,
-} from "./auth/AuthProvider.jsx";
+import { AuthProvider } from "./auth/AuthProvider.jsx";
+import AuthRoutes from "./auth/AuthRoutes.jsx";
 import Sidebar from "./components/Sidebar";
 import MyLeads from "./sections/MyLeads";
 import SearchSection from "./sections/Search";
@@ -129,9 +127,7 @@ function App() {
         path="*"
         element={
           <AuthProvider>
-            <AuthBootstrapBoundary>
-              <LegacyAppShell />
-            </AuthBootstrapBoundary>
+            <AuthRoutes operationalElement={<LegacyAppShell />} />
           </AuthProvider>
         }
       />

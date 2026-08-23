@@ -69,6 +69,37 @@ test("endpoints Auth exigem métodos dedicados e não entram no cliente autentic
   assert.equal(axiosInstance.calls.length, 0);
 });
 
+test("public-config usa transporte dedicado sem credenciais e métodos Auth preservam contratos", async () => {
+  const authenticated = fakeAxios(async () => ({ data: { ok: true } }));
+  const publicTransport = fakeAxios(async () => ({ data: { registration: {} } }));
+  const client = createAuthHttpClient({
+    axiosInstance: authenticated,
+    publicAxiosInstance: publicTransport,
+  });
+
+  await client.getPublicConfig();
+  await client.register({ email: "user@example.com" });
+  await client.verifyEmail({ email: "user@example.com", code: "123456" });
+  await client.resendVerification({ email: "user@example.com" });
+  await client.forgotPassword({ email: "user@example.com" });
+  await client.resetPassword({ token: "opaque", password: "new-password" });
+
+  assert.equal(publicTransport.calls.length, 1);
+  assert.equal(publicTransport.calls[0].url, "/auth/public-config");
+  assert.equal(publicTransport.calls[0].headers.Authorization, undefined);
+  assert.equal(authenticated.calls.length, 5);
+  assert.deepEqual(
+    authenticated.calls.map((call) => call.url),
+    [
+      "/auth/register",
+      "/auth/email/verify",
+      "/auth/email/resend",
+      "/auth/password/forgot",
+      "/auth/password/reset",
+    ],
+  );
+});
+
 test("erro Axios é reduzido ao contrato sanitizado", async () => {
   const axiosInstance = fakeAxios(async () => {
     throw {
@@ -79,6 +110,7 @@ test("erro Axios é reduzido ao contrato sanitizado", async () => {
       },
       response: {
         status: 403,
+        headers: { "retry-after": "60" },
         data: {
           error: "Esta conta está suspensa.",
           code: "ACCOUNT_SUSPENDED",
@@ -97,6 +129,7 @@ test("erro Axios é reduzido ao contrato sanitizado", async () => {
       assert.equal(error.status, 403);
       assert.equal(error.code, "ACCOUNT_SUSPENDED");
       assert.deepEqual(error.fieldErrors, { email: "Inválido" });
+      assert.equal(error.retryAfterSeconds, 60);
       const serialized = JSON.stringify(error);
       assert.equal(serialized.includes("secret-password"), false);
       assert.equal(serialized.includes("Bearer secret"), false);

@@ -5,13 +5,21 @@ const AUTH_PATH_PREFIX = "/auth/";
 const SAFE_FIELD_ERRORS_LIMIT = 50;
 
 export class AuthHttpError extends Error {
-  constructor({ status = 0, code, message, fieldErrors, retryable = false }) {
+  constructor({
+    status = 0,
+    code,
+    message,
+    fieldErrors,
+    retryable = false,
+    retryAfterSeconds,
+  }) {
     super(message);
     this.name = "AuthHttpError";
     this.status = status;
     this.code = code;
     this.fieldErrors = fieldErrors;
     this.retryable = retryable;
+    this.retryAfterSeconds = retryAfterSeconds;
   }
 }
 
@@ -47,6 +55,17 @@ function sanitizeFieldErrors(value) {
   }
 
   return Object.keys(sanitized).length > 0 ? sanitized : undefined;
+}
+
+function readRetryAfterSeconds(headers) {
+  const rawValue =
+    typeof headers?.get === "function"
+      ? headers.get("retry-after")
+      : headers?.["retry-after"];
+  const parsed = Number.parseInt(rawValue, 10);
+  return Number.isInteger(parsed) && parsed > 0 && parsed <= 86_400
+    ? parsed
+    : undefined;
 }
 
 function toSafeHttpError(error) {
@@ -95,6 +114,7 @@ function toSafeHttpError(error) {
           : "Não foi possível concluir a operação.",
     fieldErrors: sanitizeFieldErrors(safeBody.fieldErrors),
     retryable: status === 503 || status === 0,
+    retryAfterSeconds: readRetryAfterSeconds(error.response.headers),
   });
 }
 
@@ -122,6 +142,7 @@ export function validateRelativeApiPath(path) {
 export function createAuthHttpClient({
   baseURL = API_BASE_URL,
   axiosInstance,
+  publicAxiosInstance,
 } = {}) {
   const transport =
     axiosInstance ||
@@ -131,8 +152,23 @@ export function createAuthHttpClient({
       timeout: 10_000,
       allowAbsoluteUrls: false,
     });
+  const publicTransport =
+    publicAxiosInstance ||
+    axios.create({
+      baseURL,
+      withCredentials: false,
+      timeout: 10_000,
+      allowAbsoluteUrls: false,
+    });
 
-  async function send({ path, method = "GET", data, accessToken, signal }) {
+  async function send({
+    path,
+    method = "GET",
+    data,
+    accessToken,
+    signal,
+    selectedTransport = transport,
+  }) {
     validateRelativeApiPath(path);
 
     const headers = {};
@@ -144,7 +180,7 @@ export function createAuthHttpClient({
     }
 
     try {
-      const response = await transport.request({
+      const response = await selectedTransport.request({
         url: path,
         method,
         data,
@@ -162,6 +198,59 @@ export function createAuthHttpClient({
       path: "/auth/login",
       method: "POST",
       data: credentials,
+      signal: options.signal,
+    });
+  }
+
+  function getPublicConfig(options = {}) {
+    return send({
+      path: "/auth/public-config",
+      signal: options.signal,
+      selectedTransport: publicTransport,
+    });
+  }
+
+  function register(payload, options = {}) {
+    return send({
+      path: "/auth/register",
+      method: "POST",
+      data: payload,
+      signal: options.signal,
+    });
+  }
+
+  function verifyEmail(payload, options = {}) {
+    return send({
+      path: "/auth/email/verify",
+      method: "POST",
+      data: payload,
+      signal: options.signal,
+    });
+  }
+
+  function resendVerification(payload, options = {}) {
+    return send({
+      path: "/auth/email/resend",
+      method: "POST",
+      data: payload,
+      signal: options.signal,
+    });
+  }
+
+  function forgotPassword(payload, options = {}) {
+    return send({
+      path: "/auth/password/forgot",
+      method: "POST",
+      data: payload,
+      signal: options.signal,
+    });
+  }
+
+  function resetPassword(payload, options = {}) {
+    return send({
+      path: "/auth/password/reset",
+      method: "POST",
+      data: payload,
       signal: options.signal,
     });
   }
@@ -205,5 +294,17 @@ export function createAuthHttpClient({
     });
   }
 
-  return Object.freeze({ login, logout, me, refresh, request });
+  return Object.freeze({
+    forgotPassword,
+    getPublicConfig,
+    login,
+    logout,
+    me,
+    refresh,
+    register,
+    request,
+    resendVerification,
+    resetPassword,
+    verifyEmail,
+  });
 }

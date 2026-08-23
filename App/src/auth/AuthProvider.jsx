@@ -50,28 +50,3 @@ export function useAuth() {
   }
   return context;
 }
-
-export function AuthBootstrapBoundary({ children }) {
-  const auth = useAuth();
-
-  if (auth.status === "bootstrapping") {
-    return (
-      <div role="status" aria-live="polite">
-        Carregando sessão...
-      </div>
-    );
-  }
-
-  if (auth.status === "unavailable") {
-    return (
-      <div role="alert">
-        <p>Não foi possível carregar a sessão.</p>
-        <button type="button" onClick={() => void auth.retryBootstrap()}>
-          Tentar novamente
-        </button>
-      </div>
-    );
-  }
-
-  return children;
-}

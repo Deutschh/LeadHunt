@@ -41,6 +41,40 @@ function optionalTrimmedString(env, name, maxLength) {
   return trimmedValue;
 }
 
+function readOptionalPublicString(env, name, maxLength) {
+  const value = env[name];
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmedValue = value.trim();
+  return trimmedValue.length > 0 && trimmedValue.length <= maxLength
+    ? trimmedValue
+    : null;
+}
+
+function parseOptionalPublicUrl(env, name, nodeEnv) {
+  const value = readOptionalPublicString(env, name, 2048);
+  if (value === null) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(value);
+    if (
+      !["http:", "https:"].includes(parsed.protocol) ||
+      parsed.username ||
+      parsed.password ||
+      (nodeEnv === "production" && parsed.protocol !== "https:")
+    ) {
+      return null;
+    }
+    return parsed.toString();
+  } catch (_error) {
+    return null;
+  }
+}
+
 function parseStrictBoolean(rawValue, name, defaultValue = false) {
   if (rawValue === undefined || rawValue === null || rawValue === "") {
     return defaultValue;
@@ -186,6 +220,35 @@ function loadAuthConfig(env = process.env) {
     configuredPasswordResetUrl === null
       ? null
       : parsePasswordResetUrl(configuredPasswordResetUrl, nodeEnv);
+  const termsVersion = readOptionalPublicString(
+    env,
+    "AUTH_TERMS_VERSION",
+    64,
+  );
+  const privacyPolicyVersion = readOptionalPublicString(
+    env,
+    "AUTH_PRIVACY_POLICY_VERSION",
+    64,
+  );
+  const termsUrl = parseOptionalPublicUrl(env, "AUTH_TERMS_URL", nodeEnv);
+  const privacyPolicyUrl = parseOptionalPublicUrl(
+    env,
+    "AUTH_PRIVACY_POLICY_URL",
+    nodeEnv,
+  );
+  const accessRequestUrl = parseOptionalPublicUrl(
+    env,
+    "AUTH_ACCESS_REQUEST_URL",
+    nodeEnv,
+  );
+  const supportUrl = parseOptionalPublicUrl(
+    env,
+    "AUTH_SUPPORT_URL",
+    nodeEnv,
+  );
+  const registrationAvailable = Boolean(
+    termsVersion && privacyPolicyVersion && termsUrl && privacyPolicyUrl,
+  );
 
   const config = {
     nodeEnv,
@@ -200,12 +263,13 @@ function loadAuthConfig(env = process.env) {
     refreshCookieSecure: nodeEnv === "production",
     refreshCookieSameSite: "lax",
     refreshCookiePath: "/api/auth",
-    termsVersion: requireTrimmedString(env, "AUTH_TERMS_VERSION", 64),
-    privacyPolicyVersion: requireTrimmedString(
-      env,
-      "AUTH_PRIVACY_POLICY_VERSION",
-      64,
-    ),
+    termsVersion,
+    privacyPolicyVersion,
+    termsUrl,
+    privacyPolicyUrl,
+    accessRequestUrl,
+    supportUrl,
+    registrationAvailable,
     devEmailBypassEnabled,
     devEmailBypassCode,
     otpExpiresInMinutes: 10,

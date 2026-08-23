@@ -36,6 +36,32 @@ const RESET_PASSWORD_RESPONSE = Object.freeze({
   message: "Senha redefinida com sucesso. Faça login novamente.",
 });
 
+function buildPublicConfig(config) {
+  return {
+    registration: {
+      available: config.registrationAvailable === true,
+      terms:
+        config.registrationAvailable === true
+          ? { version: config.termsVersion, url: config.termsUrl }
+          : null,
+      privacyPolicy:
+        config.registrationAvailable === true
+          ? {
+              version: config.privacyPolicyVersion,
+              url: config.privacyPolicyUrl,
+            }
+          : null,
+    },
+    contact: {
+      accessRequestUrl: config.accessRequestUrl || null,
+      supportUrl: config.supportUrl || null,
+    },
+    emailVerification: {
+      resendCooldownSeconds: config.resendCooldownSeconds,
+    },
+  };
+}
+
 function sendValidationError(res, validationResult) {
   const { status, code, message, fieldErrors } = validationResult.error;
 
@@ -70,6 +96,11 @@ function createAuthRouter({
   const forgotPasswordRateLimits = rateLimits.forgotPassword || [];
   const resetPasswordRateLimits = rateLimits.resetPassword || [];
 
+  router.get("/public-config", (_req, res) => {
+    res.set("Cache-Control", "no-store");
+    return res.status(200).json(buildPublicConfig(config));
+  });
+
   router.get("/me", requireAuthenticatedContext, (req, res) => {
     return res.status(200).json({
       user: {
@@ -92,6 +123,13 @@ function createAuthRouter({
   });
 
   router.post("/register", ...rateLimits.register, async (req, res) => {
+    if (config.registrationAvailable !== true) {
+      return res.status(503).json({
+        error: "Autenticação temporariamente indisponível.",
+        code: "AUTH_TEMPORARILY_UNAVAILABLE",
+      });
+    }
+
     const validationResult = validateRegister(req.body, config);
 
     if (validationResult.error) {
@@ -310,5 +348,6 @@ module.exports = {
   REGISTER_RESPONSE,
   RESEND_RESPONSE,
   RESET_PASSWORD_RESPONSE,
+  buildPublicConfig,
   createAuthRouter,
 };

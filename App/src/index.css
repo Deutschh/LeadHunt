@@ -11,6 +11,12 @@ body {
   @apply w-full bg-slate-100/50 rounded-2xl px-6 py-4 font-bold outline-none border border-transparent focus:border-black/10 focus:bg-white transition-all text-sm;
 }
 
+.input-premium:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgb(37 99 235 / 0.12);
+  outline: none;
+}
+
 .custom-scrollbar::-webkit-scrollbar {
   width: 4px;
 }

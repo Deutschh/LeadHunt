@@ -15,6 +15,10 @@ function validEnv(overrides = {}) {
     AUTH_OTP_HMAC_SECRET: "a".repeat(32),
     AUTH_TERMS_VERSION: "terms-v1",
     AUTH_PRIVACY_POLICY_VERSION: "privacy-v1",
+    AUTH_TERMS_URL: "https://app.example.com/terms",
+    AUTH_PRIVACY_POLICY_URL: "https://app.example.com/privacy",
+    AUTH_ACCESS_REQUEST_URL: "https://app.example.com/access",
+    AUTH_SUPPORT_URL: "https://app.example.com/support",
     AUTH_JWT_SECRET: "j".repeat(32),
     AUTH_JWT_KEY_ID: "v1",
     AUTH_JWT_ISSUER: "leadhunt-api",
@@ -52,6 +56,48 @@ test("auth config permite bypass válido apenas fora de produção", () => {
 
   assert.equal(config.devEmailBypassEnabled, true);
   assert.equal(config.resendApiKey, "re_test");
+});
+
+test("config pública legal falha fechada sem impedir a composição Auth", () => {
+  const unavailable = loadAuthConfig(
+    validEnv({
+      AUTH_TERMS_VERSION: undefined,
+      AUTH_PRIVACY_POLICY_URL: "javascript:alert(1)",
+      AUTH_ACCESS_REQUEST_URL: undefined,
+      AUTH_SUPPORT_URL: "ftp://example.com/support",
+    }),
+  );
+
+  assert.equal(unavailable.registrationAvailable, false);
+  assert.equal(unavailable.termsVersion, null);
+  assert.equal(unavailable.privacyPolicyUrl, null);
+  assert.equal(unavailable.accessRequestUrl, null);
+  assert.equal(unavailable.supportUrl, null);
+  assert.equal(unavailable.accessTokenTtlSeconds, 600);
+});
+
+test("config pública aceita somente HTTPS em produção sem exigir contatos", () => {
+  const config = loadAuthConfig(
+    validEnv({
+      NODE_ENV: "production",
+      AUTH_PASSWORD_RESET_URL: "https://app.example.com/reset-password",
+      AUTH_ACCESS_REQUEST_URL: undefined,
+      AUTH_SUPPORT_URL: undefined,
+    }),
+  );
+
+  assert.equal(config.registrationAvailable, true);
+  assert.equal(config.accessRequestUrl, null);
+  assert.equal(config.supportUrl, null);
+
+  const invalidLegal = loadAuthConfig(
+    validEnv({
+      NODE_ENV: "production",
+      AUTH_PASSWORD_RESET_URL: "https://app.example.com/reset-password",
+      AUTH_TERMS_URL: "http://app.example.com/terms",
+    }),
+  );
+  assert.equal(invalidLegal.registrationAvailable, false);
 });
 
 test("desenvolvimento compõe Auth sem provider real ou reset URL", async () => {
