@@ -251,6 +251,203 @@ test("retry 401 encerra sessão sem loop e 403 não provoca logout", async () =>
   assert.equal(controller.getSnapshot().status, "anonymous");
 });
 
+test("403 comercial reconcilia /me single-flight sem repetir operações", async () => {
+  let meCalls = 0;
+  let refreshCalls = 0;
+  let operationCalls = 0;
+  const reconciliationGate = deferred();
+  const reconciliationStarted = deferred();
+  const controller = createAuthSessionController({
+    client: createClient({
+      refresh: async () => session(`token-${++refreshCalls}`),
+      me: async () => {
+        meCalls += 1;
+        if (meCalls === 1) {
+          return identity({ accountStatus: "active" });
+        }
+        reconciliationStarted.resolve();
+        return reconciliationGate.promise;
+      },
+      request: async () => {
+        operationCalls += 1;
+        throw httpError(403, "ACCOUNT_SUSPENDED");
+      },
+    }),
+  });
+  await controller.start();
+
+  const requests = Array.from({ length: 3 }, () =>
+    controller.apiRequest("/leads"),
+  );
+  await reconciliationStarted.promise;
+  reconciliationGate.resolve(identity({ accountStatus: "suspended" }));
+  const results = await Promise.allSettled(requests);
+
+  assert.equal(results.every((item) => item.status === "rejected"), true);
+  assert.equal(results.every((item) => item.reason.code === "ACCOUNT_SUSPENDED"), true);
+  assert.equal(operationCalls, 3);
+  assert.equal(meCalls, 2);
+  assert.equal(refreshCalls, 1);
+  assert.equal(controller.getSnapshot().status, "authenticated");
+  assert.equal(
+    controller.getSnapshot().workspace.accountStatus,
+    "suspended",
+  );
+});
+
+test("reconciliação comercial aplica precedência inactive sem logout", async () => {
+  let meCalls = 0;
+  const controller = createAuthSessionController({
+    client: createClient({
+      me: async () => {
+        meCalls += 1;
+        return identity(
+          meCalls === 1
+            ? { accountStatus: "active", isActive: true }
+            : { accountStatus: "active", isActive: false },
+        );
+      },
+      request: async () => {
+        throw httpError(403, "ACCOUNT_INACTIVE");
+      },
+    }),
+  });
+  await controller.start();
+
+  await assert.rejects(controller.apiRequest("/leads"), (error) => {
+    assert.equal(error.code, "ACCOUNT_INACTIVE");
+    return true;
+  });
+  assert.equal(controller.getSnapshot().status, "authenticated");
+  assert.equal(controller.getSnapshot().workspace.isActive, false);
+});
+
+test("403 comercial no retry após refresh também reconcilia sem novo retry", async () => {
+  let refreshCalls = 0;
+  let operationCalls = 0;
+  let meCalls = 0;
+  const controller = createAuthSessionController({
+    client: createClient({
+      refresh: async () => session(`token-${++refreshCalls}`),
+      me: async () => {
+        meCalls += 1;
+        return identity({
+          accountStatus: meCalls === 1 ? "active" : "suspended",
+        });
+      },
+      request: async (_path, options) => {
+        operationCalls += 1;
+        if (options.accessToken === "token-1") {
+          throw httpError(401, "INVALID_ACCESS_TOKEN");
+        }
+        throw httpError(403, "ACCOUNT_SUSPENDED");
+      },
+    }),
+  });
+  await controller.start();
+
+  await assert.rejects(controller.apiRequest("/leads"), (error) => {
+    assert.equal(error.code, "ACCOUNT_SUSPENDED");
+    return true;
+  });
+
+  assert.equal(refreshCalls, 2);
+  assert.equal(operationCalls, 2);
+  assert.equal(meCalls, 2);
+  assert.equal(controller.getSnapshot().status, "authenticated");
+  assert.equal(
+    controller.getSnapshot().workspace.accountStatus,
+    "suspended",
+  );
+});
+
+test("feature 500/503 preserva sessão e /me 503 na reconciliação gera unavailable", async () => {
+  let featureStatus = 500;
+  const featureController = createAuthSessionController({
+    client: createClient({
+      me: async () => identity({ accountStatus: "active" }),
+      request: async () => {
+        throw httpError(
+          featureStatus,
+          featureStatus === 503
+            ? "FEATURE_TEMPORARILY_UNAVAILABLE"
+            : "INTERNAL_ERROR",
+        );
+      },
+    }),
+  });
+  await featureController.start();
+  await assert.rejects(featureController.apiRequest("/leads"));
+  assert.equal(featureController.getSnapshot().status, "authenticated");
+  featureStatus = 503;
+  await assert.rejects(featureController.apiRequest("/leads"));
+  assert.equal(featureController.getSnapshot().status, "authenticated");
+
+  let meCalls = 0;
+  const authController = createAuthSessionController({
+    client: createClient({
+      me: async () => {
+        meCalls += 1;
+        if (meCalls === 1) {
+          return identity({ accountStatus: "active" });
+        }
+        throw httpError(503, "AUTH_TEMPORARILY_UNAVAILABLE");
+      },
+      request: async () => {
+        throw httpError(403, "ACCOUNT_PENDING");
+      },
+    }),
+  });
+  await authController.start();
+  await assert.rejects(authController.apiRequest("/leads"));
+  assert.equal(authController.getSnapshot().status, "unavailable");
+});
+
+test("reconciliação ignora /me de token antigo e relê com a revisão atual", async () => {
+  let refreshCalls = 0;
+  let meCalls = 0;
+  const oldMeGate = deferred();
+  const oldMeStarted = deferred();
+  const controller = createAuthSessionController({
+    client: createClient({
+      refresh: async () => session(`token-${++refreshCalls}`),
+      me: async (token) => {
+        meCalls += 1;
+        if (meCalls === 2) {
+          oldMeStarted.resolve();
+          return oldMeGate.promise;
+        }
+        return identity({
+          accountStatus: token === "token-2" ? "suspended" : "active",
+        });
+      },
+      request: async (path, options) => {
+        if (path === "/blocked") {
+          throw httpError(403, "ACCOUNT_SUSPENDED");
+        }
+        if (options.accessToken === "token-1") {
+          throw httpError(401, "INVALID_ACCESS_TOKEN");
+        }
+        return { ok: true };
+      },
+    }),
+  });
+  await controller.start();
+
+  const blocked = controller.apiRequest("/blocked");
+  await oldMeStarted.promise;
+  await controller.apiRequest("/rotate");
+  oldMeGate.resolve(identity({ accountStatus: "pending" }));
+  await assert.rejects(blocked);
+
+  assert.equal(refreshCalls, 2);
+  assert.equal(meCalls, 3);
+  assert.equal(
+    controller.getSnapshot().workspace.accountStatus,
+    "suspended",
+  );
+});
+
 test("refresh 503 preserva contexto anterior como unavailable", async () => {
   let refreshCalls = 0;
   const controller = createAuthSessionController({

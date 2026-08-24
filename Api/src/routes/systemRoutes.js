@@ -7,7 +7,7 @@ function createSystemRouter() {
     return res.json({ status: "ok" });
   });
 
-  router.post("/run-scraper", (_req, res) => {
+  router.use("/run-scraper", (_req, res) => {
     return res.status(404).json({
       error: "Recurso não encontrado.",
       code: "NOT_FOUND",

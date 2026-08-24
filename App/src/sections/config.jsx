@@ -2,7 +2,6 @@ import React, { useState, useEffect } from "react";
 import {
   ShieldCheck,
   Save,
-  Code,
   Sparkles,
   Target,
   Plus,
@@ -10,10 +9,10 @@ import {
   Pencil,
   X,
 } from "lucide-react";
-import api from "../services/api";
+import useOperationalApi from "../hooks/useOperationalApi.js";
 
 const Configs = () => {
-  const [tags, setTags] = useState("h1.DUwDvf.lfPIob, h1.DUwDve, .lfPiob");
+  const api = useOperationalApi();
   const [isAiEnabled, setIsAiEnabled] = useState(false);
   const [loading, setLoading] = useState(false);
   const [niches, setNiches] = useState([]);
@@ -29,7 +28,6 @@ const Configs = () => {
   useEffect(() => {
     const fetchSettings = async () => {
       try {
-        // CORREÇÃO: Usando 'api' em vez de axios puro com localhost
         const res = await api.get("/leads/automation/settings");
         setIsAiEnabled(res.data.is_ai_enabled);
       } catch (err) {
@@ -45,8 +43,8 @@ const Configs = () => {
     try {
       const res = await api.get("/leads/niches");
       setNiches(res.data);
-    } catch (err) {
-      console.error("Erro ao carregar nichos", err);
+    } catch (error) {
+      console.error("Erro ao carregar nichos", error);
     }
   };
 
@@ -78,7 +76,7 @@ const Configs = () => {
         editingId ? "✅ Estratégia atualizada!" : "🎯 Novo nicho cadastrado!",
       );
       loadNiches();
-    } catch (err) {
+    } catch {
       alert("Erro ao salvar nicho.");
     }
   };
@@ -90,7 +88,7 @@ const Configs = () => {
         await api.delete(`/leads/niches/${id}`);
         if (editingId === id) cancelEdit();
         loadNiches();
-      } catch (err) {
+      } catch {
         alert("Erro ao deletar nicho.");
       }
     }
@@ -99,12 +97,11 @@ const Configs = () => {
   const handleSaveGlobal = async () => {
     setLoading(true);
     try {
-      await api.post("/settings/selectors", { tags });
       await api.patch("/leads/automation/settings", {
         is_ai_enabled: isAiEnabled,
       });
       alert("🔥 Configurações globais atualizadas!");
-    } catch (error) {
+    } catch {
       alert("Erro ao salvar configurações.");
     } finally {
       setLoading(false);
@@ -244,7 +241,7 @@ const Configs = () => {
           </div>
         </div>
 
-        {/* MASTER SWITCH IA E SELETORES */}
+        {/* MASTER SWITCH IA */}
         <div className="bg-white p-8 rounded-[2.5rem] border border-blue-100 shadow-sm flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="p-3 bg-blue-50 rounded-2xl text-blue-500">
@@ -269,40 +266,18 @@ const Configs = () => {
           </button>
         </div>
 
-        <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="p-3 bg-orange-50 rounded-2xl text-orange-500">
-              <Code size={24} />
-            </div>
-            <div>
-              <h2 className="font-black text-lg text-slate-800">
-                Treinamento de Campo
-              </h2>
-              <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">
-                Ajuste de Seletores Google Maps
-              </p>
-            </div>
-          </div>
-          <div className="space-y-4">
-            <textarea
-              className="w-full h-24 p-4 bg-slate-50 border-none rounded-2xl font-mono text-xs focus:ring-2 focus:ring-orange-500 outline-none resize-none"
-              value={tags}
-              onChange={(e) => setTags(e.target.value)}
-            />
-            <button
-              onClick={handleSaveGlobal}
-              disabled={loading}
-              className="flex items-center justify-center gap-2 w-full bg-black text-white p-5 rounded-2xl font-black hover:bg-slate-800 transition-all shadow-xl shadow-black/10 disabled:opacity-50"
-            >
-              {loading ? (
-                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-              ) : (
-                <Save size={20} />
-              )}
-              {loading ? "SALVANDO..." : "SALVAR DIRETRIZES GLOBAIS"}
-            </button>
-          </div>
-        </div>
+        <button
+          onClick={handleSaveGlobal}
+          disabled={loading}
+          className="flex items-center justify-center gap-2 w-full bg-black text-white p-5 rounded-2xl font-black hover:bg-slate-800 transition-all shadow-xl shadow-black/10 disabled:opacity-50"
+        >
+          {loading ? (
+            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+          ) : (
+            <Save size={20} />
+          )}
+          {loading ? "SALVANDO..." : "SALVAR CONFIGURAÇÕES"}
+        </button>
       </div>
     </div>
   );

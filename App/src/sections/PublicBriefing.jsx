@@ -14,7 +14,10 @@ import {
   AlertCircle,
   AlertTriangle,
 } from "lucide-react";
-import api from "../services/api";
+import {
+  getPublicBriefing,
+  submitPublicBriefing,
+} from "../services/publicBriefingApi.js";
 
 const initialForm = {
   business_name: "",
@@ -63,10 +66,9 @@ export default function PublicBriefing() {
 
     const validateLink = async () => {
       try {
-        const response = await api.get(
-          `/public/briefings/${encodeURIComponent(publicToken || "")}`,
-          { signal: controller.signal },
-        );
+        const response = await getPublicBriefing(publicToken, {
+          signal: controller.signal,
+        });
 
         if (!isCurrent || controller.signal.aborted) return;
 
@@ -120,10 +122,7 @@ export default function PublicBriefing() {
     try {
       setLoading(true);
 
-      const response = await api.post(
-        `/public/briefings/${encodeURIComponent(publicToken)}/submit`,
-        form,
-      );
+      const response = await submitPublicBriefing(publicToken, form);
 
       if (response.status !== 201 || response.data?.success !== true) {
         throw new Error("Resposta inesperada ao enviar briefing.");

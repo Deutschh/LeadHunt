@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import api from "../services/api";
+import useOperationalApi from "../hooks/useOperationalApi.js";
 import {
   Play,
   Pause,
@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 
 const Automation = () => {
+  const api = useOperationalApi();
   const [settings, setSettings] = useState({
     is_active: false,
     min_interval_minutes: 10,

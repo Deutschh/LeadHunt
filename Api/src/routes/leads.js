@@ -1,12 +1,8 @@
 const express = require("express");
 const router = express.Router();
 const db = require("../database/db");
-const puppeteer = require("puppeteer-extra");
-const StealthPlugin = require("puppeteer-extra-plugin-stealth");
 const { generateLeadMessage } = require("../services/aiService");
 const { createLeadEvent } = require("../services/eventService");
-
-puppeteer.use(StealthPlugin());
 
 function calculateChipAvailability(row) {
   const usage_percent =
@@ -36,130 +32,6 @@ function calculateChipAvailability(row) {
       row.health_status !== "paused" &&
       Number(row.sent_today || 0) < Number(row.daily_limit || 0),
   };
-}
-
-async function runSingleHealthCheck(number) {
-  if (!number.workspace_id) {
-    throw new Error("Número de envio sem workspace_id.");
-  }
-
-  if (!number.chrome_port) {
-    throw new Error("Chip não possui chrome_port configurado.");
-  }
-
-  const browser = await puppeteer.connect({
-    browserURL: `http://127.0.0.1:${number.chrome_port}`,
-    defaultViewport: null,
-  });
-
-  let page = null;
-
-  try {
-    page = await browser.newPage();
-
-    await page.goto("https://web.whatsapp.com", {
-      waitUntil: "networkidle2",
-    });
-
-    const isLogged = await page
-      .waitForSelector('div[contenteditable="true"]', {
-        timeout: 10000,
-      })
-      .then(() => true)
-      .catch(() => false);
-
-    if (!isLogged) {
-      throw new Error("WhatsApp não carregou corretamente");
-    }
-
-    const updateRes = await db.query(
-      `
-      UPDATE sending_numbers
-      SET
-        health_status = 'healthy',
-        last_health_check_at = NOW(),
-        last_error = NULL,
-        consecutive_failures = 0,
-        paused_until = NULL
-      WHERE id = $1
-        AND workspace_id = $2
-      RETURNING id
-      `,
-      [number.id, number.workspace_id],
-    );
-
-    if (updateRes.rowCount === 0) {
-      throw new Error("Número de envio deixou de pertencer ao workspace.");
-    }
-
-    return {
-      label: number.label,
-      id: number.id,
-      status: "healthy",
-      chrome_port: number.chrome_port,
-    };
-  } catch (err) {
-    const failuresRes = await db.query(
-      `
-      SELECT consecutive_failures
-      FROM sending_numbers
-      WHERE id = $1
-        AND workspace_id = $2
-      `,
-      [number.id, number.workspace_id],
-    );
-
-    if (failuresRes.rowCount === 0) {
-      throw new Error("Número de envio não encontrado no workspace.");
-    }
-
-    const failures = Number(failuresRes.rows[0]?.consecutive_failures || 0) + 1;
-
-    let healthStatus = "warning";
-    let pausedUntil = null;
-
-    if (failures >= 3) {
-      healthStatus = "paused";
-      pausedUntil = new Date(Date.now() + 30 * 60 * 1000);
-    }
-
-    await db.query(
-      `
-      UPDATE sending_numbers
-      SET
-        health_status = $3,
-        last_health_check_at = NOW(),
-        last_error = $4,
-        consecutive_failures = $5,
-        paused_until = $6
-      WHERE id = $1
-        AND workspace_id = $2
-      `,
-      [
-        number.id,
-        number.workspace_id,
-        healthStatus,
-        err.message,
-        failures,
-        pausedUntil,
-      ],
-    );
-
-    return {
-      label: number.label,
-      id: number.id,
-      status: "error",
-      chrome_port: number.chrome_port,
-      error: err.message,
-      paused: healthStatus === "paused",
-    };
-  } finally {
-    if (page) {
-      await page.close().catch(() => {});
-    }
-
-    await browser.disconnect().catch(() => {});
-  }
 }
 
 // 1. Listar todos os leads do workspace atual
@@ -737,85 +609,6 @@ router.patch("/sending-numbers/:id/status", async (req, res) => {
   }
 });
 
-// Health check individual.
-// OBS: continua executando localmente nesta fase de transição.
-// Na etapa do Agent, esta execução sairá da API cloud e virará job local.
-router.post("/sending-numbers/:id/health-check", async (req, res) => {
-  const workspaceId = req.workspaceId;
-  const { id } = req.params;
-
-  try {
-    const result = await db.query(
-      `
-      SELECT *
-      FROM sending_numbers
-      WHERE id = $1
-        AND workspace_id = $2
-      LIMIT 1
-      `,
-      [id, workspaceId],
-    );
-
-    if (!result.rows.length) {
-      return res.status(404).json({ error: "Chip não encontrado." });
-    }
-
-    const number = result.rows[0];
-    const checkResult = await runSingleHealthCheck(number);
-
-    return res.json({
-      message: "Health check concluído.",
-      result: checkResult,
-    });
-  } catch (err) {
-    console.error("Erro no health check individual:", err);
-
-    return res.status(500).json({
-      error: err.message || "Erro ao executar health check individual.",
-    });
-  }
-});
-
-// Health check em lote somente dos números do workspace atual.
-// OBS: será convertido em job do Agent em etapa posterior.
-router.post("/sending-numbers/health-check-all", async (req, res) => {
-  const workspaceId = req.workspaceId;
-
-  try {
-    const result = await db.query(
-      `
-      SELECT *
-      FROM sending_numbers
-      WHERE workspace_id = $1
-        AND is_active = true
-        AND chrome_port IS NOT NULL
-      `,
-      [workspaceId],
-    );
-
-    const numbers = result.rows;
-
-    if (!numbers.length) {
-      return res.json({ message: "Nenhum chip ativo para testar." });
-    }
-
-    const results = await Promise.all(
-      numbers.map(async (number) => runSingleHealthCheck(number)),
-    );
-
-    return res.json({
-      message: "Health check concluído.",
-      results,
-    });
-  } catch (err) {
-    console.error("Erro no health check em lote:", err);
-
-    return res
-      .status(500)
-      .json({ error: "Erro ao executar health check em lote." });
-  }
-});
-
 // Geração em massa de IA
 router.post("/generate-ai-mass", async (req, res) => {
   const workspaceId = req.workspaceId;
@@ -1265,50 +1058,6 @@ router.get("/stats/dashboard", async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
-  }
-});
-
-// Atualizar status de uma abordagem/copy
-router.patch("/prompt-configs/:promptAngle/status", async (req, res) => {
-  const { promptAngle } = req.params;
-  const { status } = req.body;
-
-  const allowedStatuses = ["active", "testing", "archived"];
-
-  if (!allowedStatuses.includes(status)) {
-    return res.status(400).json({
-      error: `Status inválido. Permitidos: ${allowedStatuses.join(", ")}`,
-    });
-  }
-
-  try {
-    const result = await db.query(
-      `
-      UPDATE ai_prompt_configs
-      SET status = $1,
-          updated_at = NOW()
-      WHERE prompt_angle = $2
-      RETURNING *
-      `,
-      [status, decodeURIComponent(promptAngle)],
-    );
-
-    if (result.rowCount === 0) {
-      return res.status(404).json({
-        error: "Abordagem não encontrada.",
-      });
-    }
-
-    res.json({
-      success: true,
-      message: "Status da abordagem atualizado com sucesso.",
-      prompt: result.rows[0],
-    });
-  } catch (err) {
-    console.error("Erro ao atualizar status da abordagem:", err);
-    res.status(500).json({
-      error: "Erro ao atualizar status da abordagem.",
-    });
   }
 });
 

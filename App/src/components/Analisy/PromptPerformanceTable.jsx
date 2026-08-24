@@ -1,44 +1,10 @@
-import { useState } from "react";
 import MiniCard from "./MiniCard";
-import { updatePromptStatus } from "../../services/promptService";
 
 export default function PromptPerformanceTable({
   promptMetrics = [],
-  onStatusUpdated,
   showAllPrompts = false,
   onToggleShowAll,
 }) {
-  const [updatingAngle, setUpdatingAngle] = useState(null);
-
-  const handleStatusChange = async (promptAngle, status) => {
-    const actionLabel =
-      status === "archived"
-        ? "desativar"
-        : status === "testing"
-          ? "colocar em teste"
-          : "reativar";
-
-    const confirmed = window.confirm(
-      `Tem certeza que deseja ${actionLabel} esta abordagem?`,
-    );
-
-    if (!confirmed) return;
-
-    try {
-      setUpdatingAngle(promptAngle);
-      await updatePromptStatus(promptAngle, status);
-
-      if (onStatusUpdated) {
-        await onStatusUpdated();
-      }
-    } catch (error) {
-      console.error(error);
-      alert("Erro ao atualizar status da abordagem.");
-    } finally {
-      setUpdatingAngle(null);
-    }
-  };
-
   const getStatusClass = (status) => {
     if (status === "active") return "bg-green-50 text-green-600";
     if (status === "testing") return "bg-yellow-50 text-yellow-700";
@@ -97,13 +63,11 @@ export default function PromptPerformanceTable({
                 <th className="pb-4">Fechados</th>
                 <th className="pb-4">Tx. Resposta</th>
                 <th className="pb-4">Tx. Preview</th>
-                <th className="pb-4">Ações</th>
               </tr>
             </thead>
 
             <tbody>
               {promptMetrics.map((item, index) => {
-                const isUpdating = updatingAngle === item.ai_prompt_angle;
                 const lowSample = Number(item.enviados || 0) < 10;
                 const rankingBadge =
                   index === 0
@@ -184,51 +148,6 @@ export default function PromptPerformanceTable({
                       </span>
                     </td>
 
-                    <td className="py-4">
-                      <div className="flex gap-2 flex-wrap">
-                        {item.status !== "archived" && (
-                          <button
-                            disabled={isUpdating}
-                            onClick={() =>
-                              handleStatusChange(
-                                item.ai_prompt_angle,
-                                "archived",
-                              )
-                            }
-                            className="px-3 py-2 rounded-xl bg-red-50 text-red-600 text-[10px] font-black uppercase disabled:opacity-50"
-                          >
-                            Desativar
-                          </button>
-                        )}
-
-                        {item.status !== "testing" && (
-                          <button
-                            disabled={isUpdating}
-                            onClick={() =>
-                              handleStatusChange(
-                                item.ai_prompt_angle,
-                                "testing",
-                              )
-                            }
-                            className="px-3 py-2 rounded-xl bg-yellow-50 text-yellow-700 text-[10px] font-black uppercase disabled:opacity-50"
-                          >
-                            Teste
-                          </button>
-                        )}
-
-                        {item.status !== "active" && (
-                          <button
-                            disabled={isUpdating}
-                            onClick={() =>
-                              handleStatusChange(item.ai_prompt_angle, "active")
-                            }
-                            className="px-3 py-2 rounded-xl bg-green-50 text-green-600 text-[10px] font-black uppercase disabled:opacity-50"
-                          >
-                            Ativar
-                          </button>
-                        )}
-                      </div>
-                    </td>
                   </tr>
                 );
               })}

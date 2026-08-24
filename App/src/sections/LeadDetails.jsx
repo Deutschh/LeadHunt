@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import api from "../services/api";
+import useOperationalApi from "../hooks/useOperationalApi.js";
 import {
   ArrowLeft,
   Send,
@@ -66,6 +66,7 @@ const INITIAL_GUIDE_SECTIONS = {
 };
 
 const LeadDetails = ({ leadId, onBack }) => {
+  const api = useOperationalApi();
   const [lead, setLead] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activities, setActivities] = useState([]);

@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useState } from "react";
-import axios from "axios";
 import MetricCard from "../components/Analisy/MetricCard";
 import RateCard from "../components/Analisy/RateCard";
 import MiniCard from "../components/Analisy/MiniCard";
@@ -8,9 +7,10 @@ import InfoRow from "../components/Analisy/InfoRow";
 import useAnalysisMetrics from "../hooks/useAnalysisMetrics";
 import PromptPerformanceTable from "../components/Analisy/PromptPerformanceTable";
 import ServiceOpportunityMetrics from "../components/Analisy/ServiceOpportunityMetrics";
-import { API_ORIGIN } from "../config/apiConfig.js";
+import useOperationalApi from "../hooks/useOperationalApi.js";
 
 const Analysis = () => {
+  const api = useOperationalApi();
   const [data, setData] = useState(null);
   const [leads, setLeads] = useState([]);
   const [sendingNumbers, setSendingNumbers] = useState([]);
@@ -35,11 +35,11 @@ const Analysis = () => {
 
       const [statsResponse, leadsResponse, numbersResponse] = await Promise.all(
         [
-          axios.get(
-            `${API_ORIGIN}/api/leads/stats/dashboard?period=${period}&includeArchived=${showAllPrompts}`,
+          api.get(
+            `/leads/stats/dashboard?period=${period}&includeArchived=${showAllPrompts}`,
           ),
-          axios.get(`${API_ORIGIN}/api/leads`),
-          axios.get(`${API_ORIGIN}/api/leads/sending-numbers`),
+          api.get("/leads"),
+          api.get("/leads/sending-numbers"),
         ],
       );
 
@@ -73,8 +73,8 @@ const Analysis = () => {
         params.set("service", serviceFilter);
       }
 
-      const response = await axios.get(
-        `${API_ORIGIN}/api/service-opportunities/stats?${params.toString()}`,
+      const response = await api.get(
+        `/service-opportunities/stats?${params.toString()}`,
       );
 
       setServiceOpportunityStats(response.data);
@@ -605,7 +605,6 @@ const Analysis = () => {
 
       <PromptPerformanceTable
         promptMetrics={promptMetrics}
-        onStatusUpdated={loadStats}
         showAllPrompts={showAllPrompts}
         onToggleShowAll={() => setShowAllPrompts((prev) => !prev)}
       />

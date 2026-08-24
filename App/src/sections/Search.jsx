@@ -7,9 +7,10 @@ import {
   Rocket,
   Globe,
 } from "lucide-react";
-import api from "../services/api";
+import useOperationalApi from "../hooks/useOperationalApi.js";
 
 const SearchSection = ({ onStartSearch, loading }) => {
+  const api = useOperationalApi();
   const [niches, setNiches] = useState([]);
 
   const [config, setConfig] = useState({

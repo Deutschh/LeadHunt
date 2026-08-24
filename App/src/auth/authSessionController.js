@@ -15,6 +15,11 @@ const VALID_RELEASE_CHANNELS = new Set([
   "beta",
   "stable",
 ]);
+const OPERATIONAL_ACCOUNT_STATE_CODES = new Set([
+  "ACCOUNT_PENDING",
+  "ACCOUNT_SUSPENDED",
+  "ACCOUNT_INACTIVE",
+]);
 
 const INITIAL_STATE = Object.freeze({
   status: "bootstrapping",
@@ -140,6 +145,7 @@ export function createAuthSessionController({ client }) {
   let state = INITIAL_STATE;
   let refreshFlight = null;
   let bootstrapFlight = null;
+  let accountStateFlight = null;
   let cookieMutationTail = Promise.resolve();
   const listeners = new Set();
   const ownedAbortControllers = new Set();
@@ -363,12 +369,74 @@ export function createAuthSessionController({ client }) {
     }
   }
 
+  function reconcileOperationalAccountState(epoch) {
+    if (!isCurrent(epoch) || accessToken === null) {
+      return Promise.reject(staleOperation());
+    }
+
+    if (accountStateFlight?.epoch === epoch) {
+      return accountStateFlight.promise;
+    }
+
+    const promise = (async () => {
+      let revision = tokenRevision;
+
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const loaded = await loadIdentity(epoch, revision);
+        if (loaded.error) {
+          throw loaded.error;
+        }
+        if (!loaded.stale) {
+          return loaded.identity || null;
+        }
+        if (!isCurrent(epoch) || accessToken === null) {
+          throw staleOperation();
+        }
+        if (tokenRevision === revision) {
+          throw staleOperation();
+        }
+        revision = tokenRevision;
+      }
+
+      throw staleOperation();
+    })().finally(() => {
+      if (accountStateFlight?.promise === promise) {
+        accountStateFlight = null;
+      }
+    });
+
+    accountStateFlight = { epoch, promise };
+    return promise;
+  }
+
+  async function handleOperationalAccountStateError(error, epoch) {
+    if (
+      !(error instanceof AuthHttpError) ||
+      error.status !== 403 ||
+      !OPERATIONAL_ACCOUNT_STATE_CODES.has(error.code) ||
+      !isCurrent(epoch)
+    ) {
+      return false;
+    }
+
+    try {
+      await reconcileOperationalAccountState(epoch);
+    } catch {
+      // loadIdentity já publicou o estado Auth sanitizado quando aplicável.
+    }
+    if (!isCurrent(epoch)) {
+      throw staleOperation();
+    }
+    return true;
+  }
+
   function beginGeneration({ preserveIdentity = false } = {}) {
     abortOwnedRequests();
     authEpoch += 1;
     clearAccessToken();
     refreshFlight = null;
     bootstrapFlight = null;
+    accountStateFlight = null;
 
     const epoch = authEpoch;
     publish(
@@ -456,6 +524,7 @@ export function createAuthSessionController({ client }) {
     const epoch = authEpoch;
     refreshFlight = null;
     bootstrapFlight = null;
+    accountStateFlight = null;
     publishAnonymous(epoch);
 
     return enqueueCookieMutation(epoch, () =>
@@ -517,6 +586,10 @@ export function createAuthSessionController({ client }) {
       }
       return result;
     } catch (error) {
+      if (await handleOperationalAccountStateError(error, epoch)) {
+        throw error;
+      }
+
       if (
         !(error instanceof AuthHttpError) ||
         error.status !== 401 ||
@@ -544,6 +617,9 @@ export function createAuthSessionController({ client }) {
         }
         return result;
       } catch (retryError) {
+        if (await handleOperationalAccountStateError(retryError, epoch)) {
+          throw retryError;
+        }
         if (
           retryError instanceof AuthHttpError &&
           retryError.status === 401 &&
@@ -567,6 +643,7 @@ export function createAuthSessionController({ client }) {
     clearAccessToken();
     refreshFlight = null;
     bootstrapFlight = null;
+    accountStateFlight = null;
   }
 
   return Object.freeze({

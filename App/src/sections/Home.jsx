@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import api from "../services/api";
+import useOperationalApi from "../hooks/useOperationalApi.js";
 import {
   Target,
   TrendingUp,
@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 
 const Home = () => {
+  const api = useOperationalApi();
   const [leads, setLeads] = useState([]);
   const [notes, setNotes] = useState([]);
   const [showNoteModal, setShowNoteModal] = useState(false);

@@ -3,7 +3,6 @@ const express = require("express");
 const http = require("http");
 const db = require("./database/db");
 const leadsRoutes = require("./routes/leads");
-const previewRoutes = require("./routes/previewRoutes");
 const briefingRoutes = require("./routes/briefingRoutes");
 const publicBriefingRoutes = require("./routes/publicBriefingRoutes");
 const serviceOpportunitiesRoutes = require("./routes/serviceOpportunities");
@@ -27,6 +26,9 @@ const {
   createRequireAuthenticatedContext,
 } = require("./middleware/requireAuthenticatedContext");
 const {
+  createRequireOperationalAccess,
+} = require("./middleware/requireOperationalAccess");
+const {
   createRefreshCookieService,
 } = require("./services/refreshCookieService");
 const {
@@ -40,9 +42,11 @@ const {
 } = require("./services/email/passwordResetEmailService");
 const { createSystemRouter } = require("./routes/systemRoutes");
 const {
+  createOperationalWebRouter,
+} = require("./routes/operationalWebRoutes");
+const {
   attachLegacySocketQuarantine,
 } = require("./socket/legacySocketQuarantine");
-const legacyWorkspaceContext = require("./middleware/legacyWorkspaceContext");
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -97,6 +101,7 @@ const requireAuthenticatedContext = createRequireAuthenticatedContext({
   accessTokenService,
   identityService: authIdentityService,
 });
+const requireOperationalAccess = createRequireOperationalAccess();
 const refreshCookieService = createRefreshCookieService(authConfig);
 const authRouter = createAuthRouter({
   service: authService,
@@ -131,17 +136,17 @@ if (process.env.NODE_ENV === "production") {
 app.use("/api/public/briefings", publicBriefingRoutes);
 app.use("/api/auth", authRouter);
 
-// --- Contexto temporário de Workspace ---
-// Enquanto a autenticação ainda não existe, todas as rotas /api recebem
-// workspace_id exclusivamente do servidor (LEGACY_WORKSPACE_ID, padrão 1).
-// O frontend NÃO escolhe o workspace.
-app.use("/api", legacyWorkspaceContext);
-
-// --- Rotas API ---
-app.use("/api/leads", leadsRoutes);
-app.use("/api/previews", previewRoutes);
-app.use("/api/briefings", briefingRoutes);
-app.use("/api/service-opportunities", serviceOpportunitiesRoutes);
+// --- Rotas web operacionais autenticadas ---
+app.use(
+  "/api",
+  createOperationalWebRouter({
+    requireAuthenticatedContext,
+    requireOperationalAccess,
+    leadsRouter: leadsRoutes,
+    briefingRouter: briefingRoutes,
+    serviceOpportunitiesRouter: serviceOpportunitiesRoutes,
+  }),
+);
 app.use(createSystemRouter());
 
 // --- Inicialização ---

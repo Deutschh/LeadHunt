@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from "react";
 import { Routes, Route } from "react-router-dom";
-import axios from "axios";
 import { AuthProvider } from "./auth/AuthProvider.jsx";
 import AuthRoutes from "./auth/AuthRoutes.jsx";
 import Sidebar from "./components/Sidebar";
@@ -11,9 +10,10 @@ import Home from "./sections/Home";
 import Automation from "./sections/Automation";
 import Analysis from "./sections/Analisy";
 import PublicBriefing from "./sections/PublicBriefing";
-import { API_ORIGIN } from "./config/apiConfig.js";
+import useOperationalApi from "./hooks/useOperationalApi.js";
 
 function LegacyAppShell() {
+  const api = useOperationalApi();
   const [activeTab, setActiveTab] = useState("home");
   const [leads, setLeads] = useState([]);
   const loading = false;
@@ -26,7 +26,7 @@ function LegacyAppShell() {
 
   const fetchLeads = async () => {
     try {
-      const { data } = await axios.get(`${API_ORIGIN}/api/leads`);
+      const { data } = await api.get("/leads");
       setLeads(data);
     } catch (error) {
       console.error("Erro ao buscar leads:", error);
@@ -35,7 +35,7 @@ function LegacyAppShell() {
 
   const handleUpdateStatus = async (id, newStatus) => {
     try {
-      const response = await axios.patch(`${API_ORIGIN}/api/leads/${id}`, {
+      const response = await api.patch(`/leads/${id}`, {
         status: newStatus,
       });
 

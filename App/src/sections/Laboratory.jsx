@@ -4,6 +4,7 @@ import { renderPreviewTemplate } from "../templates/core/renderPreviewTemplate";
 import PreviewCard from "../components/Laboratory/PreviewCard";
 import CreatePreviewModal from "../components/Laboratory/CreatePreviewModal";
 import { getPreviews, createPreview } from "../services/previewService";
+import useOperationalApi from "../hooks/useOperationalApi.js";
 
 const initialForm = {
   project_name: "",
@@ -18,34 +19,39 @@ const initialForm = {
 };
 
 export default function Laboratory() {
+  const api = useOperationalApi();
   const [previews, setPreviews] = useState([]);
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState(initialForm);
   const [selectedPreview, setSelectedPreview] = useState(null);
 
   useEffect(() => {
-    loadPreviews();
-  }, []);
+    let current = true;
 
-  async function loadPreviews() {
-    try {
-      const data = await getPreviews();
+    const loadPreviews = async () => {
+      try {
+        const data = await getPreviews(api);
+        if (!current) return;
 
-      if (Array.isArray(data)) {
-        setPreviews(data);
-      } else if (Array.isArray(data.previews)) {
-        setPreviews(data.previews);
-      } else if (Array.isArray(data.data)) {
-        setPreviews(data.data);
-      } else {
-        console.warn("Formato inesperado em getPreviews:", data);
-        setPreviews([]);
+        if (Array.isArray(data)) {
+          setPreviews(data);
+        } else if (Array.isArray(data.previews)) {
+          setPreviews(data.previews);
+        } else if (Array.isArray(data.data)) {
+          setPreviews(data.data);
+        } else {
+          setPreviews([]);
+        }
+      } catch {
+        if (current) setPreviews([]);
       }
-    } catch (err) {
-      console.error(err);
-      setPreviews([]);
-    }
-  }
+    };
+
+    void loadPreviews();
+    return () => {
+      current = false;
+    };
+  }, [api]);
 
   const handleCreatePreview = async () => {
     if (!form.project_name.trim()) {
@@ -54,7 +60,7 @@ export default function Laboratory() {
     }
 
     try {
-      const createdPreview = await createPreview(form);
+      const createdPreview = await createPreview(api, form);
 
       setPreviews((prev) => [
         Array.isArray(createdPreview) ? createdPreview[0] : createdPreview,

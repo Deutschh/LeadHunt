@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import api from "../services/api";
+import useOperationalApi from "../hooks/useOperationalApi.js";
 import {
   RefreshCw,
   Globe,
@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 
 const MyLeads = ({ leads, loading, onRefresh, onUpdateStatus, onOpenLead }) => {
+  const api = useOperationalApi();
   const [currentView, setCurrentView] = useState("pending");
   const [showAiModal, setShowAiModal] = useState(false);
 
@@ -657,7 +658,7 @@ function TabButton({ active, onClick, icon: Icon, label, orange, slate }) {
         active ? activeClass : "text-slate-500 hover:text-black"
       }`}
     >
-      <Icon size={18} /> {label}
+      {React.createElement(Icon, { size: 18 })} {label}
     </button>
   );
 }
@@ -711,7 +712,7 @@ function StatCard({ label, value, icon: Icon, color, pulse = false }) {
           <div
             className={`p-2.5 rounded-xl ${c.bg} ${pulse ? "animate-pulse" : ""}`}
           >
-            <Icon size={18} className={c.text} />
+            {React.createElement(Icon, { size: 18, className: c.text })}
           </div>
           <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.2em] leading-tight">
             {label}
