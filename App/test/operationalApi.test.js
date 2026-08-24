@@ -111,6 +111,23 @@ test("briefing público usa transporte sem credentials ou Bearer", async () => {
     ],
   ]);
   assert.equal(JSON.stringify(requests).includes("Authorization"), false);
+
+  const appSource = read("src/App.jsx");
+  const briefingSource = read("src/sections/PublicBriefing.jsx");
+  const publicRouteIndex = appSource.indexOf(
+    'path="/briefing/:publicToken"',
+  );
+  const authProviderIndex = appSource.indexOf("<AuthProvider>");
+  assert.ok(publicRouteIndex >= 0);
+  assert.ok(authProviderIndex > publicRouteIndex);
+  assert.match(
+    appSource,
+    /<Route path="\/briefing\/:publicToken" element={<PublicBriefing \/>} \/>\s*<Route[\s\S]*?path="\*"[\s\S]*?<AuthProvider>/,
+  );
+  assert.doesNotMatch(
+    briefingSource,
+    /AuthProvider|useAuth|authSessionController|\/auth\/(?:refresh|me)/,
+  );
 });
 
 test("todo App/src fica sem transporte operacional global reutilizável", () => {

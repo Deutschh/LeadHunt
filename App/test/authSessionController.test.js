@@ -361,46 +361,72 @@ test("403 comercial no retry após refresh também reconcilia sem novo retry", a
   );
 });
 
-test("feature 500/503 preserva sessão e /me 503 na reconciliação gera unavailable", async () => {
+test("feature 500/503/network preserva sessão e falha de /me gera unavailable", async () => {
   let featureStatus = 500;
+  let featureRefreshCalls = 0;
+  let featureRequestCalls = 0;
   const featureController = createAuthSessionController({
     client: createClient({
+      refresh: async () => {
+        featureRefreshCalls += 1;
+        return session("feature-token");
+      },
       me: async () => identity({ accountStatus: "active" }),
       request: async () => {
+        featureRequestCalls += 1;
         throw httpError(
           featureStatus,
           featureStatus === 503
             ? "FEATURE_TEMPORARILY_UNAVAILABLE"
-            : "INTERNAL_ERROR",
+            : featureStatus === 0
+              ? "NETWORK_ERROR"
+              : "INTERNAL_ERROR",
         );
       },
     }),
   });
   await featureController.start();
-  await assert.rejects(featureController.apiRequest("/leads"));
-  assert.equal(featureController.getSnapshot().status, "authenticated");
-  featureStatus = 503;
-  await assert.rejects(featureController.apiRequest("/leads"));
-  assert.equal(featureController.getSnapshot().status, "authenticated");
+  for (featureStatus of [500, 503, 0]) {
+    await assert.rejects(featureController.apiRequest("/leads"));
+    assert.equal(featureController.getSnapshot().status, "authenticated");
+  }
+  assert.equal(featureRefreshCalls, 1);
+  assert.equal(featureRequestCalls, 3);
 
-  let meCalls = 0;
-  const authController = createAuthSessionController({
-    client: createClient({
-      me: async () => {
-        meCalls += 1;
-        if (meCalls === 1) {
-          return identity({ accountStatus: "active" });
-        }
-        throw httpError(503, "AUTH_TEMPORARILY_UNAVAILABLE");
-      },
-      request: async () => {
-        throw httpError(403, "ACCOUNT_PENDING");
-      },
-    }),
-  });
-  await authController.start();
-  await assert.rejects(authController.apiRequest("/leads"));
-  assert.equal(authController.getSnapshot().status, "unavailable");
+  for (const meFailure of [
+    httpError(500, "INTERNAL_ERROR"),
+    httpError(503, "AUTH_TEMPORARILY_UNAVAILABLE"),
+    httpError(0, "NETWORK_ERROR"),
+  ]) {
+    let meCalls = 0;
+    let refreshCalls = 0;
+    let operationCalls = 0;
+    const authController = createAuthSessionController({
+      client: createClient({
+        refresh: async () => {
+          refreshCalls += 1;
+          return session("auth-token");
+        },
+        me: async () => {
+          meCalls += 1;
+          if (meCalls === 1) {
+            return identity({ accountStatus: "active" });
+          }
+          throw meFailure;
+        },
+        request: async () => {
+          operationCalls += 1;
+          throw httpError(403, "ACCOUNT_PENDING");
+        },
+      }),
+    });
+    await authController.start();
+    await assert.rejects(authController.apiRequest("/leads"));
+    assert.equal(authController.getSnapshot().status, "unavailable");
+    assert.equal(meCalls, 2);
+    assert.equal(refreshCalls, 1);
+    assert.equal(operationCalls, 1);
+  }
 });
 
 test("reconciliação ignora /me de token antigo e relê com a revisão atual", async () => {
@@ -513,6 +539,42 @@ test("logout local vence refresh pendente e respeita a fila de cookie", async ()
 
   assert.deepEqual(order, ["refresh-start", "refresh-end", "logout"]);
   assert.equal(controller.getSnapshot().status, "anonymous");
+});
+
+test("falha de rede no logout remoto mantém logout local definitivo", async () => {
+  let refreshCalls = 0;
+  let requestCalls = 0;
+  let logoutCalls = 0;
+  const controller = createAuthSessionController({
+    client: createClient({
+      refresh: async () => {
+        refreshCalls += 1;
+        return session("token-a");
+      },
+      request: async () => {
+        requestCalls += 1;
+        return { ok: true };
+      },
+      logout: async () => {
+        logoutCalls += 1;
+        throw httpError(0, "NETWORK_ERROR");
+      },
+    }),
+  });
+  await controller.start();
+
+  await assert.rejects(controller.logout(), (error) => {
+    assert.equal(error.code, "NETWORK_ERROR");
+    return true;
+  });
+  assert.equal(controller.getSnapshot().status, "anonymous");
+  await assert.rejects(controller.apiRequest("/leads"), (error) => {
+    assert.equal(error.code, "INVALID_SESSION");
+    return true;
+  });
+  assert.equal(refreshCalls, 1);
+  assert.equal(logoutCalls, 1);
+  assert.equal(requestCalls, 0);
 });
 
 test("login mais novo não é sobrescrito pelo bootstrap antigo", async () => {

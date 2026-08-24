@@ -312,6 +312,7 @@ test("logout é idempotente e revoga somente a família atual", async () => {
   await fixture.service.logout(null);
 
   const firstFamily = fixture.db.state.refreshTokens[0].family_id;
+  const secondFamily = fixture.db.state.refreshTokens[1].family_id;
   assert.equal(
     fixture.db.state.refreshTokens
       .filter((token) => token.family_id === firstFamily)
@@ -320,4 +321,25 @@ test("logout é idempotente e revoga somente a família atual", async () => {
   );
   assert.equal(fixture.db.state.refreshTokens[1].revoked_at, null);
   assert.equal(second.refreshToken, TOKENS[1]);
+
+  await expectSessionError(
+    fixture.service.refresh(first.refreshToken),
+    "INVALID_SESSION",
+  );
+  assert.equal(
+    fixture.db.state.refreshTokens.filter(
+      (token) => token.family_id === firstFamily,
+    ).length,
+    1,
+  );
+
+  const refreshedSecond = await fixture.service.refresh(second.refreshToken);
+  assert.equal(refreshedSecond.refreshToken, TOKENS[2]);
+  assert.equal(
+    fixture.db.state.refreshTokens.filter(
+      (token) => token.family_id === secondFamily,
+    ).length,
+    2,
+  );
+  assert.equal(fixture.issuedAccessTokens.length, 3);
 });
