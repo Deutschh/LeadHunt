@@ -46,7 +46,7 @@ const {
 const { createSystemRouter } = require("./routes/systemRoutes");
 const {
   createOperationalWebRouter,
-  setCommercialProfileNoStore,
+  setOperationalResourceNoStore,
 } = require("./routes/operationalWebRoutes");
 const {
   createCommercialProfileRepository,
@@ -54,6 +54,15 @@ const {
 const {
   createCommercialProfileService,
 } = require("./services/commercialProfileService");
+const {
+  createServiceCatalogRouter,
+} = require("./routes/serviceCatalogRoutes");
+const {
+  createServiceCatalogRepository,
+} = require("./repositories/serviceCatalogRepository");
+const {
+  createServiceCatalogService,
+} = require("./services/serviceCatalogService");
 const {
   attachLegacySocketQuarantine,
 } = require("./socket/legacySocketQuarantine");
@@ -66,7 +75,10 @@ const authConfig = loadAuthConfig(process.env);
 app.set("trust proxy", serverConfig.trustProxyHops);
 
 // --- Middlewares ---
-app.use("/api/commercial-profile", setCommercialProfileNoStore);
+app.use(
+  ["/api/commercial-profile", "/api/services"],
+  setOperationalResourceNoStore,
+);
 const corsPolicy = createCorsPolicy(serverConfig.corsAllowedOrigins);
 app.use(corsPolicy.enforceOrigin);
 app.use(corsPolicy.middleware);
@@ -120,6 +132,13 @@ const commercialProfileService = createCommercialProfileService({
 const commercialProfileRouter = createCommercialProfileRouter({
   service: commercialProfileService,
 });
+const serviceCatalogRepository = createServiceCatalogRepository({ db });
+const serviceCatalogService = createServiceCatalogService({
+  repository: serviceCatalogRepository,
+});
+const serviceCatalogRouter = createServiceCatalogRouter({
+  service: serviceCatalogService,
+});
 const refreshCookieService = createRefreshCookieService(authConfig);
 const authRouter = createAuthRouter({
   service: authService,
@@ -164,6 +183,7 @@ app.use(
     briefingRouter: briefingRoutes,
     serviceOpportunitiesRouter: serviceOpportunitiesRoutes,
     commercialProfileRouter,
+    serviceCatalogRouter,
   }),
 );
 app.use(createSystemRouter());

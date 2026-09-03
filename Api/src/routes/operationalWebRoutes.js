@@ -9,10 +9,12 @@ function sendNotFound(_req, res) {
   return res.status(404).json(NOT_FOUND_RESPONSE);
 }
 
-function setCommercialProfileNoStore(_req, res, next) {
+function setOperationalResourceNoStore(_req, res, next) {
   res.set("Cache-Control", "no-store");
   next();
 }
+
+const setCommercialProfileNoStore = setOperationalResourceNoStore;
 
 function createOperationalWebRouter({
   requireAuthenticatedContext,
@@ -21,6 +23,7 @@ function createOperationalWebRouter({
   briefingRouter,
   serviceOpportunitiesRouter,
   commercialProfileRouter,
+  serviceCatalogRouter,
 }) {
   if (
     typeof requireAuthenticatedContext !== "function" ||
@@ -44,6 +47,13 @@ function createOperationalWebRouter({
     requireAuthenticatedContext,
     requireOperationalAccess,
     commercialProfileRouter,
+  );
+
+  router.use(
+    "/services",
+    requireAuthenticatedContext,
+    requireOperationalAccess,
+    serviceCatalogRouter,
   );
 
   router.use(
@@ -72,4 +82,5 @@ module.exports = {
   NOT_FOUND_RESPONSE,
   createOperationalWebRouter,
   setCommercialProfileNoStore,
+  setOperationalResourceNoStore,
 };
