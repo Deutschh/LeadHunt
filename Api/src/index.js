@@ -6,6 +6,9 @@ const leadsRoutes = require("./routes/leads");
 const briefingRoutes = require("./routes/briefingRoutes");
 const publicBriefingRoutes = require("./routes/publicBriefingRoutes");
 const serviceOpportunitiesRoutes = require("./routes/serviceOpportunities");
+const {
+  createCommercialProfileRouter,
+} = require("./routes/commercialProfileRoutes");
 const { createAuthRouter } = require("./routes/authRoutes");
 const { loadAuthConfig } = require("./config/authConfig");
 const { loadServerConfig } = require("./config/serverConfig");
@@ -43,7 +46,14 @@ const {
 const { createSystemRouter } = require("./routes/systemRoutes");
 const {
   createOperationalWebRouter,
+  setCommercialProfileNoStore,
 } = require("./routes/operationalWebRoutes");
+const {
+  createCommercialProfileRepository,
+} = require("./repositories/commercialProfileRepository");
+const {
+  createCommercialProfileService,
+} = require("./services/commercialProfileService");
 const {
   attachLegacySocketQuarantine,
 } = require("./socket/legacySocketQuarantine");
@@ -56,6 +66,7 @@ const authConfig = loadAuthConfig(process.env);
 app.set("trust proxy", serverConfig.trustProxyHops);
 
 // --- Middlewares ---
+app.use("/api/commercial-profile", setCommercialProfileNoStore);
 const corsPolicy = createCorsPolicy(serverConfig.corsAllowedOrigins);
 app.use(corsPolicy.enforceOrigin);
 app.use(corsPolicy.middleware);
@@ -102,6 +113,13 @@ const requireAuthenticatedContext = createRequireAuthenticatedContext({
   identityService: authIdentityService,
 });
 const requireOperationalAccess = createRequireOperationalAccess();
+const commercialProfileRepository = createCommercialProfileRepository({ db });
+const commercialProfileService = createCommercialProfileService({
+  repository: commercialProfileRepository,
+});
+const commercialProfileRouter = createCommercialProfileRouter({
+  service: commercialProfileService,
+});
 const refreshCookieService = createRefreshCookieService(authConfig);
 const authRouter = createAuthRouter({
   service: authService,
@@ -145,6 +163,7 @@ app.use(
     leadsRouter: leadsRoutes,
     briefingRouter: briefingRoutes,
     serviceOpportunitiesRouter: serviceOpportunitiesRoutes,
+    commercialProfileRouter,
   }),
 );
 app.use(createSystemRouter());

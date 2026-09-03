@@ -137,6 +137,7 @@ test("rotas operacionais exigem JWT e aplicam o gate comercial", async (t) => {
       leadsRouter: downstream,
       briefingRouter: downstream,
       serviceOpportunitiesRouter: downstream,
+      commercialProfileRouter: downstream,
     }),
   );
   const runtime = await listen(app);
@@ -207,6 +208,7 @@ test("claims e workspace enviados pelo cliente não alteram a autoridade do banc
       leadsRouter: downstream,
       briefingRouter: downstream,
       serviceOpportunitiesRouter: downstream,
+      commercialProfileRouter: downstream,
     }),
   );
   const runtime = await listen(app);
@@ -256,6 +258,7 @@ test("pending, suspended e inactive são bloqueados antes do router", async (t) 
       leadsRouter: downstream,
       briefingRouter: downstream,
       serviceOpportunitiesRouter: downstream,
+      commercialProfileRouter: downstream,
     }),
   );
   const runtime = await listen(app);
@@ -298,6 +301,7 @@ test("quarentenas têm precedência real sobre auth e routers no Express 5", asy
       leadsRouter: downstream,
       briefingRouter: downstream,
       serviceOpportunitiesRouter: downstream,
+      commercialProfileRouter: downstream,
     }),
   );
   app.use(createSystemRouter());
@@ -379,6 +383,7 @@ test("routers reais usam SQL e parâmetros do workspace autenticado", async (t) 
       leadsRouter,
       briefingRouter,
       serviceOpportunitiesRouter,
+      commercialProfileRouter: createDownstreamRouter(),
     }),
   );
   const runtime = await listen(app);
@@ -473,6 +478,7 @@ test("rotas públicas permanecem fora da composição operacional", async (t) =>
       leadsRouter: createDownstreamRouter(),
       briefingRouter: createDownstreamRouter(),
       serviceOpportunitiesRouter: createDownstreamRouter(),
+      commercialProfileRouter: createDownstreamRouter(),
     }),
   );
   const runtime = await listen(app);

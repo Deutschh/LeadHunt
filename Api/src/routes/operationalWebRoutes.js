@@ -9,12 +9,18 @@ function sendNotFound(_req, res) {
   return res.status(404).json(NOT_FOUND_RESPONSE);
 }
 
+function setCommercialProfileNoStore(_req, res, next) {
+  res.set("Cache-Control", "no-store");
+  next();
+}
+
 function createOperationalWebRouter({
   requireAuthenticatedContext,
   requireOperationalAccess,
   leadsRouter,
   briefingRouter,
   serviceOpportunitiesRouter,
+  commercialProfileRouter,
 }) {
   if (
     typeof requireAuthenticatedContext !== "function" ||
@@ -32,6 +38,13 @@ function createOperationalWebRouter({
   router.use("/leads/sending-numbers/health-check-all", sendNotFound);
   router.use("/leads/sending-numbers/:id/health-check", sendNotFound);
   router.use("/leads/prompt-configs/:promptAngle/status", sendNotFound);
+
+  router.use(
+    "/commercial-profile",
+    requireAuthenticatedContext,
+    requireOperationalAccess,
+    commercialProfileRouter,
+  );
 
   router.use(
     "/leads",
@@ -58,4 +71,5 @@ function createOperationalWebRouter({
 module.exports = {
   NOT_FOUND_RESPONSE,
   createOperationalWebRouter,
+  setCommercialProfileNoStore,
 };

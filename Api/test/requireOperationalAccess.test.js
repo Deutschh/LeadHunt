@@ -225,6 +225,16 @@ test("owner e member não alteram a decisão operacional", () => {
   }
 });
 
+test("role ausente ou desconhecida invalida o contexto operacional", () => {
+  for (const role of [undefined, null, "", "admin", "OWNER", [], {}]) {
+    const result = invokeMiddleware({ req: createContext({ role }) });
+    assert.equal(result.res.statusCode, 500);
+    assert.equal(result.res.body.code, "INTERNAL_ERROR");
+    assert.equal(result.nextCalls, 0);
+    assert.deepEqual(result.logs, [["AUTH_OPERATIONAL_CONTEXT_INVALID"]]);
+  }
+});
+
 test("ignora valores do cliente e não chama DB, JWT ou crypto", () => {
   const calls = [];
   const req = {

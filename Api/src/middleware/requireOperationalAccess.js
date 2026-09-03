@@ -3,6 +3,7 @@ const VALID_ACCOUNT_STATUSES = new Set([
   "active",
   "suspended",
 ]);
+const VALID_MEMBERSHIP_ROLES = new Set(["owner", "member"]);
 
 const INTERNAL_ERROR_RESPONSE = Object.freeze({
   error: "Erro interno de autorização.",
@@ -61,6 +62,7 @@ function hasValidAuthenticatedContext(req) {
 
   return (
     VALID_ACCOUNT_STATUSES.has(req.workspace.accountStatus) &&
+    VALID_MEMBERSHIP_ROLES.has(req.membership.role) &&
     typeof req.workspace.isActive === "boolean"
   );
 }
