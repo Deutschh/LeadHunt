@@ -175,18 +175,24 @@ test("todo App/src fica sem transporte operacional global reutilizável", () => 
 test("Search e Config consomem o contrato camelCase de estratégias de nicho", () => {
   const searchSource = read("src/sections/Search.jsx");
   const configSource = read("src/sections/config.jsx");
+  const settingsApiSource = read(
+    "src/sections/commercial-settings/commercialSettingsApi.js",
+  );
+  const strategiesSource = read(
+    "src/sections/commercial-settings/NicheStrategiesSection.jsx",
+  );
+  const settingsSource = `${configSource}\n${settingsApiSource}\n${strategiesSource}`;
 
-  for (const source of [searchSource, configSource]) {
-    assert.match(source, /api\.get\("\/leads\/niches"\)/);
+  for (const source of [searchSource, settingsSource]) {
     assert.match(source, /nicheName/);
     assert.doesNotMatch(source, /niche_name|call_to_action/);
   }
-  assert.match(configSource, /callToAction/);
+  assert.match(searchSource, /api\.get\("\/leads\/niches"\)/);
+  assert.match(settingsApiSource, /api\.get\("\/leads\/niches", options\)/);
+  assert.match(settingsApiSource, /api\.post\("\/leads\/niches", payload\)/);
   assert.match(
-    configSource,
-    /callToAction:\s*newNiche\.callToAction\.trim\(\)/,
+    settingsApiSource,
+    /api\.delete\(`\/leads\/niches\/\$\{strategyId\}`\)/,
   );
-  assert.match(configSource, /!nichePayload\.callToAction/);
-  assert.match(configSource, /api\.post\("\/leads\/niches", nichePayload\)/);
-  assert.match(configSource, /api\.delete\(`\/leads\/niches\/\$\{id\}`\)/);
+  assert.match(strategiesSource, /callToAction/);
 });
