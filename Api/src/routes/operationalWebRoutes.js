@@ -25,6 +25,7 @@ function createOperationalWebRouter({
   commercialProfileRouter,
   serviceCatalogRouter,
   nicheStrategyRouter,
+  leadMessageRouter,
 }) {
   if (
     typeof requireAuthenticatedContext !== "function" ||
@@ -64,6 +65,16 @@ function createOperationalWebRouter({
     nicheStrategyRouter,
     sendNotFound,
   );
+
+  if (leadMessageRouter) {
+    router.use(
+      "/leads/generate-ai-mass",
+      requireAuthenticatedContext,
+      requireOperationalAccess,
+      leadMessageRouter,
+      sendNotFound,
+    );
+  }
 
   router.use(
     "/leads",

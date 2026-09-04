@@ -1,6 +1,7 @@
 require("dotenv").config();
 const express = require("express");
 const http = require("http");
+const { OpenAI } = require("openai");
 const db = require("./database/db");
 const leadsRoutes = require("./routes/leads");
 const briefingRoutes = require("./routes/briefingRoutes");
@@ -72,6 +73,16 @@ const {
 const {
   createNicheStrategyService,
 } = require("./services/nicheStrategyService");
+const {
+  createLeadMessageRepository,
+} = require("./repositories/leadMessageRepository");
+const {
+  createCommercialAiContextService,
+} = require("./services/commercialAiContextService");
+const { createAiService } = require("./services/aiService");
+const {
+  createLeadMessageRouter,
+} = require("./routes/leadMessageRoutes");
 const {
   attachLegacySocketQuarantine,
 } = require("./socket/legacySocketQuarantine");
@@ -155,6 +166,21 @@ const nicheStrategyService = createNicheStrategyService({
 const nicheStrategyRouter = createNicheStrategyRouter({
   service: nicheStrategyService,
 });
+const leadMessageRepository = createLeadMessageRepository({ db });
+const commercialAiContextService = createCommercialAiContextService({
+  commercialProfileService,
+  serviceCatalogService,
+  nicheStrategyService,
+});
+const aiService = createAiService({
+  client: new OpenAI({ apiKey: process.env.OPENAI_API_KEY }),
+  model: process.env.OPENAI_MESSAGE_MODEL || "gpt-4o-mini",
+});
+const leadMessageRouter = createLeadMessageRouter({
+  repository: leadMessageRepository,
+  commercialAiContextService,
+  aiService,
+});
 const refreshCookieService = createRefreshCookieService(authConfig);
 const authRouter = createAuthRouter({
   service: authService,
@@ -201,6 +227,7 @@ app.use(
     commercialProfileRouter,
     serviceCatalogRouter,
     nicheStrategyRouter,
+    leadMessageRouter,
   }),
 );
 app.use(createSystemRouter());
