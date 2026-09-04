@@ -171,3 +171,22 @@ test("todo App/src fica sem transporte operacional global reutilizável", () => 
 
   assert.equal(fs.existsSync(path.join(sourceRoot, "services", "promptService.js")), false);
 });
+
+test("Search e Config consomem o contrato camelCase de estratégias de nicho", () => {
+  const searchSource = read("src/sections/Search.jsx");
+  const configSource = read("src/sections/config.jsx");
+
+  for (const source of [searchSource, configSource]) {
+    assert.match(source, /api\.get\("\/leads\/niches"\)/);
+    assert.match(source, /nicheName/);
+    assert.doesNotMatch(source, /niche_name|call_to_action/);
+  }
+  assert.match(configSource, /callToAction/);
+  assert.match(
+    configSource,
+    /callToAction:\s*newNiche\.callToAction\.trim\(\)/,
+  );
+  assert.match(configSource, /!nichePayload\.callToAction/);
+  assert.match(configSource, /api\.post\("\/leads\/niches", nichePayload\)/);
+  assert.match(configSource, /api\.delete\(`\/leads\/niches\/\$\{id\}`\)/);
+});

@@ -32,7 +32,7 @@ const SearchSection = ({ onStartSearch, loading }) => {
         if (res.data.length > 0) {
           setConfig((prev) => ({
             ...prev,
-            niche: res.data[0].niche_name,
+            niche: res.data[0].nicheName,
           }));
         }
       } catch (err) {
@@ -121,8 +121,8 @@ const SearchSection = ({ onStartSearch, loading }) => {
               >
                 {niches.length > 0 ? (
                   niches.map((niche) => (
-                    <option key={niche.id} value={niche.niche_name}>
-                      {niche.niche_name}
+                    <option key={niche.id} value={niche.nicheName}>
+                      {niche.nicheName}
                     </option>
                   ))
                 ) : (

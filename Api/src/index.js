@@ -64,6 +64,15 @@ const {
   createServiceCatalogService,
 } = require("./services/serviceCatalogService");
 const {
+  createNicheStrategyRouter,
+} = require("./routes/nicheStrategyRoutes");
+const {
+  createNicheStrategyRepository,
+} = require("./repositories/nicheStrategyRepository");
+const {
+  createNicheStrategyService,
+} = require("./services/nicheStrategyService");
+const {
   attachLegacySocketQuarantine,
 } = require("./socket/legacySocketQuarantine");
 
@@ -76,7 +85,7 @@ app.set("trust proxy", serverConfig.trustProxyHops);
 
 // --- Middlewares ---
 app.use(
-  ["/api/commercial-profile", "/api/services"],
+  ["/api/commercial-profile", "/api/services", "/api/leads/niches"],
   setOperationalResourceNoStore,
 );
 const corsPolicy = createCorsPolicy(serverConfig.corsAllowedOrigins);
@@ -139,6 +148,13 @@ const serviceCatalogService = createServiceCatalogService({
 const serviceCatalogRouter = createServiceCatalogRouter({
   service: serviceCatalogService,
 });
+const nicheStrategyRepository = createNicheStrategyRepository({ db });
+const nicheStrategyService = createNicheStrategyService({
+  repository: nicheStrategyRepository,
+});
+const nicheStrategyRouter = createNicheStrategyRouter({
+  service: nicheStrategyService,
+});
 const refreshCookieService = createRefreshCookieService(authConfig);
 const authRouter = createAuthRouter({
   service: authService,
@@ -184,6 +200,7 @@ app.use(
     serviceOpportunitiesRouter: serviceOpportunitiesRoutes,
     commercialProfileRouter,
     serviceCatalogRouter,
+    nicheStrategyRouter,
   }),
 );
 app.use(createSystemRouter());

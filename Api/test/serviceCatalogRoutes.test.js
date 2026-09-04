@@ -222,6 +222,7 @@ function createFixture({ contexts = {}, rows = [], logger, keyFactory } = {}) {
       serviceOpportunitiesRouter: unusedRouter,
       commercialProfileRouter: unusedRouter,
       serviceCatalogRouter,
+      nicheStrategyRouter: unusedRouter,
     }),
   );
   app.get("/api/unrelated", (_req, res) => res.json({ unrelated: true }));

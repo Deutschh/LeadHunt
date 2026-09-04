@@ -24,6 +24,7 @@ function createOperationalWebRouter({
   serviceOpportunitiesRouter,
   commercialProfileRouter,
   serviceCatalogRouter,
+  nicheStrategyRouter,
 }) {
   if (
     typeof requireAuthenticatedContext !== "function" ||
@@ -54,6 +55,14 @@ function createOperationalWebRouter({
     requireAuthenticatedContext,
     requireOperationalAccess,
     serviceCatalogRouter,
+  );
+
+  router.use(
+    "/leads/niches",
+    requireAuthenticatedContext,
+    requireOperationalAccess,
+    nicheStrategyRouter,
+    sendNotFound,
   );
 
   router.use(

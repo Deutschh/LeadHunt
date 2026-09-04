@@ -11,6 +11,15 @@ const leadsRouter = require("../src/routes/leads");
 const briefingRouter = require("../src/routes/briefingRoutes");
 const serviceOpportunitiesRouter = require("../src/routes/serviceOpportunities");
 const {
+  createNicheStrategyRepository,
+} = require("../src/repositories/nicheStrategyRepository");
+const {
+  createNicheStrategyService,
+} = require("../src/services/nicheStrategyService");
+const {
+  createNicheStrategyRouter,
+} = require("../src/routes/nicheStrategyRoutes");
+const {
   AuthIdentityError,
 } = require("../src/services/authIdentityService");
 const {
@@ -139,6 +148,7 @@ test("rotas operacionais exigem JWT e aplicam o gate comercial", async (t) => {
       serviceOpportunitiesRouter: downstream,
       commercialProfileRouter: downstream,
       serviceCatalogRouter: downstream,
+      nicheStrategyRouter: downstream,
     }),
   );
   const runtime = await listen(app);
@@ -211,6 +221,7 @@ test("claims e workspace enviados pelo cliente não alteram a autoridade do banc
       serviceOpportunitiesRouter: downstream,
       commercialProfileRouter: downstream,
       serviceCatalogRouter: downstream,
+      nicheStrategyRouter: downstream,
     }),
   );
   const runtime = await listen(app);
@@ -262,6 +273,7 @@ test("pending, suspended e inactive são bloqueados antes do router", async (t) 
       serviceOpportunitiesRouter: downstream,
       commercialProfileRouter: downstream,
       serviceCatalogRouter: downstream,
+      nicheStrategyRouter: downstream,
     }),
   );
   const runtime = await listen(app);
@@ -306,6 +318,7 @@ test("quarentenas têm precedência real sobre auth e routers no Express 5", asy
       serviceOpportunitiesRouter: downstream,
       commercialProfileRouter: downstream,
       serviceCatalogRouter: downstream,
+      nicheStrategyRouter: downstream,
     }),
   );
   app.use(createSystemRouter());
@@ -371,6 +384,12 @@ test("routers reais usam SQL e parâmetros do workspace autenticado", async (t) 
   });
 
   const authenticated = context();
+  const nicheStrategyRouter = createNicheStrategyRouter({
+    service: createNicheStrategyService({
+      repository: createNicheStrategyRepository({ db }),
+    }),
+    logger: { error() {} },
+  });
   const app = express();
   app.use(express.json());
   app.use(
@@ -389,6 +408,7 @@ test("routers reais usam SQL e parâmetros do workspace autenticado", async (t) 
       serviceOpportunitiesRouter,
       commercialProfileRouter: createDownstreamRouter(),
       serviceCatalogRouter: createDownstreamRouter(),
+      nicheStrategyRouter,
     }),
   );
   const runtime = await listen(app);
@@ -419,7 +439,10 @@ test("routers reais usam SQL e parâmetros do workspace autenticado", async (t) 
     method: "DELETE",
   });
   assert.equal(response.status, 404);
-  assert.match(calls.at(-1).sql, /DELETE FROM niche_strategies[\s\S]*workspace_id = \$2/);
+  assert.match(
+    calls.at(-1).sql,
+    /DELETE FROM public\.niche_strategies[\s\S]*workspace_id = \$2/,
+  );
   assert.deepEqual(calls.at(-1).params, ["12", "11"]);
 
   response = await requestJson(
@@ -485,6 +508,7 @@ test("rotas públicas permanecem fora da composição operacional", async (t) =>
       serviceOpportunitiesRouter: createDownstreamRouter(),
       commercialProfileRouter: createDownstreamRouter(),
       serviceCatalogRouter: createDownstreamRouter(),
+      nicheStrategyRouter: createDownstreamRouter(),
     }),
   );
   const runtime = await listen(app);

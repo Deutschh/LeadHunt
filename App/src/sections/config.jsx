@@ -19,9 +19,9 @@ const Configs = () => {
 
   const [editingId, setEditingId] = useState(null);
   const [newNiche, setNewNiche] = useState({
-    niche_name: "",
+    nicheName: "",
     hook: "",
-    call_to_action: "",
+    callToAction: "",
   });
 
   // 1. Carregar configurações ao abrir
@@ -51,26 +51,37 @@ const Configs = () => {
   const startEdit = (niche) => {
     setEditingId(niche.id);
     setNewNiche({
-      niche_name: niche.niche_name,
+      nicheName: niche.nicheName,
       hook: niche.hook,
-      call_to_action: niche.call_to_action,
+      callToAction: niche.callToAction,
     });
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const cancelEdit = () => {
     setEditingId(null);
-    setNewNiche({ niche_name: "", hook: "", call_to_action: "" });
+    setNewNiche({ nicheName: "", hook: "", callToAction: "" });
   };
 
   const handleSaveNiche = async () => {
-    if (!newNiche.niche_name || !newNiche.hook)
-      return alert("Preencha ao menos o nome e o hook!");
+    const nichePayload = {
+      nicheName: newNiche.nicheName.trim(),
+      hook: newNiche.hook.trim(),
+      callToAction: newNiche.callToAction.trim(),
+    };
+
+    if (
+      !nichePayload.nicheName ||
+      !nichePayload.hook ||
+      !nichePayload.callToAction
+    ) {
+      return alert("Preencha o nome, o hook e o CTA!");
+    }
 
     try {
       // CORREÇÃO: Rota correta /leads/niches
-      await api.post("/leads/niches", newNiche);
-      setNewNiche({ niche_name: "", hook: "", call_to_action: "" });
+      await api.post("/leads/niches", nichePayload);
+      setNewNiche({ nicheName: "", hook: "", callToAction: "" });
       setEditingId(null);
       alert(
         editingId ? "✅ Estratégia atualizada!" : "🎯 Novo nicho cadastrado!",
@@ -154,9 +165,9 @@ const Configs = () => {
               </label>
               <input
                 className="w-full p-4 rounded-xl border-none outline-none font-bold text-sm shadow-sm"
-                value={newNiche.niche_name}
+                value={newNiche.nicheName}
                 onChange={(e) =>
-                  setNewNiche({ ...newNiche, niche_name: e.target.value })
+                  setNewNiche({ ...newNiche, nicheName: e.target.value })
                 }
                 placeholder="Ex: Dentistas"
                 disabled={!!editingId}
@@ -182,9 +193,9 @@ const Configs = () => {
                 </label>
                 <input
                   className="w-full p-4 rounded-xl border-none outline-none font-bold text-sm shadow-sm"
-                  value={newNiche.call_to_action}
+                  value={newNiche.callToAction}
                   onChange={(e) =>
-                    setNewNiche({ ...newNiche, call_to_action: e.target.value })
+                    setNewNiche({ ...newNiche, callToAction: e.target.value })
                   }
                   placeholder="Pergunta final..."
                 />
@@ -211,7 +222,7 @@ const Configs = () => {
                       <span
                         className={`w-2 h-2 rounded-full ${editingId === n.id ? "bg-green-500 animate-pulse" : "bg-blue-500"}`}
                       ></span>
-                      {n.niche_name}
+                      {n.nicheName}
                     </h4>
                     <p className="text-[11px] text-slate-400 mt-1 leading-relaxed italic line-clamp-1">
                       "{n.hook}"
