@@ -9,7 +9,9 @@ const jwt = require("jsonwebtoken");
 const db = require("../src/database/db");
 const leadsRouter = require("../src/routes/leads");
 const briefingRouter = require("../src/routes/briefingRoutes");
-const serviceOpportunitiesRouter = require("../src/routes/serviceOpportunities");
+const {
+  createServiceOpportunitiesRouter,
+} = require("../src/routes/serviceOpportunities");
 const {
   createNicheStrategyRepository,
 } = require("../src/repositories/nicheStrategyRepository");
@@ -389,6 +391,17 @@ test("routers reais usam SQL e parâmetros do workspace autenticado", async (t) 
       repository: createNicheStrategyRepository({ db }),
     }),
     logger: { error() {} },
+  });
+  const serviceOpportunitiesRouter = createServiceOpportunitiesRouter({
+    db,
+    logger: { error() {} },
+    negotiationGuideService: { async generateNegotiationGuide() {} },
+    commercialProfileService: { async getByWorkspaceId() {} },
+    nicheStrategyService: {
+      async resolveWorkspaceNicheStrategy() {
+        return null;
+      },
+    },
   });
   const app = express();
   app.use(express.json());

@@ -1,5 +1,15 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import useOperationalApi from "../hooks/useOperationalApi.js";
+import {
+  buildClosingServiceOptions,
+  chooseAdditionalClosingService,
+  createLatestRequestGate,
+  createDealItem,
+  createEmptyDealData,
+  getDealItemServiceOptions,
+  loadLatestResource,
+  resolveClosingDraftInitialization,
+} from "./closingDealModel.js";
 import {
   ArrowLeft,
   Send,
@@ -84,6 +94,13 @@ const LeadDetails = ({ leadId, onBack }) => {
 
   const [recommendations, setRecommendations] = useState(null);
   const [currentOpportunity, setCurrentOpportunity] = useState(null);
+  const [currentOpportunityError, setCurrentOpportunityError] = useState("");
+  const [currentOpportunityResolved, setCurrentOpportunityResolved] =
+    useState(false);
+  const [activeServices, setActiveServices] = useState([]);
+  const [activeServicesResolved, setActiveServicesResolved] = useState(false);
+  const [activeServicesError, setActiveServicesError] = useState("");
+  const [leadResolved, setLeadResolved] = useState(false);
 
   const [loadingRecommendations, setLoadingRecommendations] = useState(true);
   const [recommendationError, setRecommendationError] = useState("");
@@ -119,26 +136,37 @@ const LeadDetails = ({ leadId, onBack }) => {
   );
 
   const [showClosingModal, setShowClosingModal] = useState(false);
-  const [dealData, setDealData] = useState({
-    items: [],
-    totalInitialValue: 0,
-    monthlyRecurringValue: 0,
-    closingDate: new Date().toISOString().split("T")[0],
-  });
+  const [dealData, setDealData] = useState(createEmptyDealData);
+  const draftInitializedRef = useRef(false);
+  const draftDirtyRef = useRef(false);
+  const loadGenerationRef = useRef(0);
+  const currentRequestGateRef = useRef(createLatestRequestGate());
+  const recommendationsRequestGateRef = useRef(createLatestRequestGate());
+  const servicesRequestGateRef = useRef(createLatestRequestGate());
 
-  const AVAILABLE_DEAL_SERVICES = [
-    { id: "social", label: "Gestão Social", icon: "📱" },
-    { id: "site", label: "Site Institucional", icon: "🌐" },
-    { id: "landing_page", label: "Landing Page", icon: "🧲" },
-    { id: "ads", label: "Tráfego Pago", icon: "📈" },
-    { id: "automation", label: "Automação WhatsApp", icon: "🤖" },
-    { id: "branding", label: "Identidade Visual", icon: "🎨" },
-    { id: "google_business", label: "Google Meu Negócio", icon: "📍" },
-    { id: "hosting", label: "Hospedagem / Manutenção", icon: "🛠️" },
-  ];
+  const closingServiceOptions = useMemo(
+    () => buildClosingServiceOptions(activeServices, currentOpportunity),
+    [activeServices, currentOpportunity],
+  );
 
   useEffect(() => {
     if (!leadId) return;
+
+    const generation = loadGenerationRef.current + 1;
+    loadGenerationRef.current = generation;
+    currentRequestGateRef.current.invalidate();
+    recommendationsRequestGateRef.current.invalidate();
+    servicesRequestGateRef.current.invalidate();
+    draftInitializedRef.current = false;
+    draftDirtyRef.current = false;
+    setDealData(createEmptyDealData());
+    setLeadResolved(false);
+    setCurrentOpportunityResolved(false);
+    setCurrentOpportunityError("");
+    setActiveServicesResolved(false);
+    setActiveServicesError("");
+    setActiveServices([]);
+    setCurrentOpportunity(null);
 
     setShowAllServices(false);
     setServiceFeedback("");
@@ -152,8 +180,12 @@ const LeadDetails = ({ leadId, onBack }) => {
     setCopiedGuideItem("");
     setExpandedGuideSections(INITIAL_GUIDE_SECTIONS);
 
-    fetchData();
+    fetchData(generation);
     fetchServiceOpportunityData();
+    fetchActiveServices();
+    // O leadId é a autoridade do ciclo; os loaders usam a geração capturada
+    // para descartar respostas antigas sem reiniciar o efeito a cada render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leadId]);
 
   const getTemperatureMeta = (score = 0, band = "cold") => {
@@ -409,7 +441,7 @@ const LeadDetails = ({ leadId, onBack }) => {
     };
   };
 
-  const fetchData = async () => {
+  const fetchData = async (generation = loadGenerationRef.current) => {
     try {
       const [leadRes, activityRes, briefingRes] = await Promise.all([
         api.get(`/leads/${leadId}`),
@@ -418,6 +450,8 @@ const LeadDetails = ({ leadId, onBack }) => {
       ]);
 
       const data = leadRes.data;
+
+      if (generation !== loadGenerationRef.current) return;
 
       setLead(data);
       setObservation(data.market_observation || "");
@@ -428,42 +462,68 @@ const LeadDetails = ({ leadId, onBack }) => {
 
       setCustomMessage(data.custom_message || data.ai_message_suggestion || "");
 
-      if (data.deal_details?.items) {
-        setDealData(data.deal_details);
-      }
-
+      setLeadResolved(true);
       setLoading(false);
     } catch (err) {
       console.error("Erro ao carregar dados", err);
     }
   };
 
+  const fetchCurrentOpportunity = () =>
+    loadLatestResource({
+      gate: currentRequestGateRef.current,
+      load: () => api.get(`/service-opportunities/leads/${leadId}/current`),
+      onStart: () => {
+        setCurrentOpportunityError("");
+        setCurrentOpportunityResolved(false);
+      },
+      onResolved: (response) => {
+        setCurrentOpportunity(response.data?.opportunity || null);
+        setCurrentOpportunityResolved(true);
+      },
+      onRejected: (error) => {
+        console.error("Erro ao carregar o serviço atual do lead:", error);
+        setCurrentOpportunityError(
+          error.response?.data?.error ||
+            "Não foi possível carregar o serviço atual.",
+        );
+      },
+    });
+
+  const fetchRecommendations = () =>
+    loadLatestResource({
+      gate: recommendationsRequestGateRef.current,
+      load: () =>
+        api.get(`/service-opportunities/leads/${leadId}/recommendations`),
+      onStart: () => {
+        setLoadingRecommendations(true);
+        setRecommendationError("");
+      },
+      onResolved: (response) => {
+        setRecommendations(response.data);
+      },
+      onRejected: (error) => {
+        console.error("Erro ao carregar recomendações:", error);
+        setRecommendationError(
+          error.response?.data?.error ||
+            "Não foi possível carregar as recomendações.",
+        );
+      },
+      onSettled: () => {
+        setLoadingRecommendations(false);
+      },
+    });
+
   const fetchServiceOpportunityData = async () => {
     if (!leadId) return;
+    await Promise.all([fetchCurrentOpportunity(), fetchRecommendations()]);
+  };
 
-    setLoadingRecommendations(true);
-    setRecommendationError("");
-
-    try {
-      const [recommendationsRes, currentRes] = await Promise.all([
-        api.get(`/service-opportunities/leads/${leadId}/recommendations`),
-
-        api.get(`/service-opportunities/leads/${leadId}/current`),
-      ]);
-
-      setRecommendations(recommendationsRes.data);
-
-      setCurrentOpportunity(currentRes.data?.opportunity || null);
-    } catch (error) {
-      console.error("Erro ao carregar recomendações:", error);
-
-      setRecommendationError(
-        error.response?.data?.error ||
-          "Não foi possível carregar as recomendações.",
-      );
-    } finally {
-      setLoadingRecommendations(false);
-    }
+  const retryServiceOpportunityFailures = async () => {
+    const retries = [];
+    if (currentOpportunityError) retries.push(fetchCurrentOpportunity());
+    if (recommendationError) retries.push(fetchRecommendations());
+    await Promise.all(retries);
   };
 
   const openAnalysisModal = (opportunity = currentOpportunity) => {
@@ -945,43 +1005,46 @@ const LeadDetails = ({ leadId, onBack }) => {
     }
   };
 
-  const addDealItem = () => {
-    const defaultService = AVAILABLE_DEAL_SERVICES[0];
+  const updateDealDraft = (updater) => {
+    draftDirtyRef.current = true;
+    draftInitializedRef.current = true;
+    setDealData(updater);
+  };
 
-    setDealData((prev) => ({
+  const addDealItem = () => {
+    const defaultService = chooseAdditionalClosingService(activeServices);
+    const item = createDealItem(defaultService);
+    if (!item) {
+      setProgressError(
+        activeServicesError ||
+          "Nenhum produto ou serviço está disponível para o fechamento.",
+      );
+      return;
+    }
+
+    updateDealDraft((prev) => ({
       ...prev,
-      items: [
-        ...prev.items,
-        {
-          id: `item_${Date.now()}`,
-          service_id: defaultService.id,
-          service_label: defaultService.label,
-          icon: defaultService.icon,
-          billing_type: "recurring",
-          amount: "",
-          frequency: "monthly",
-          due_day: "",
-          deadline: "",
-          notes: "",
-        },
-      ],
+      items: [...prev.items, item],
     }));
   };
 
   const updateDealItem = (itemId, field, value) => {
-    setDealData((prev) => ({
+    updateDealDraft((prev) => ({
       ...prev,
       items: prev.items.map((item) => {
         if (item.id !== itemId) return item;
 
         if (field === "service_id") {
-          const service = AVAILABLE_DEAL_SERVICES.find((s) => s.id === value);
+          const service = closingServiceOptions.find(
+            (option) => option.id === Number(value),
+          );
+          if (!service) return item;
 
           return {
             ...item,
             service_id: service.id,
-            service_label: service.label,
-            icon: service.icon,
+            service_label: service.name,
+            icon: "🧩",
           };
         }
 
@@ -994,7 +1057,7 @@ const LeadDetails = ({ leadId, onBack }) => {
   };
 
   const removeDealItem = (itemId) => {
-    setDealData((prev) => ({
+    updateDealDraft((prev) => ({
       ...prev,
       items: prev.items.filter((item) => item.id !== itemId),
     }));
@@ -1125,6 +1188,53 @@ const LeadDetails = ({ leadId, onBack }) => {
       setGeneratingBriefingLink(false);
     }
   };
+
+  const fetchActiveServices = () =>
+    loadLatestResource({
+      gate: servicesRequestGateRef.current,
+      load: () => api.get("/services?active=true"),
+      onStart: () => {
+        setActiveServicesError("");
+        setActiveServicesResolved(false);
+      },
+      onResolved: (response) => {
+        setActiveServices(
+          Array.isArray(response.data?.services) ? response.data.services : [],
+        );
+        setActiveServicesResolved(true);
+      },
+      onRejected: (error) => {
+        console.error("Erro ao carregar serviços do fechamento:", error);
+        setActiveServicesError(
+          error.response?.data?.error ||
+            "Não foi possível carregar os serviços do fechamento.",
+        );
+      },
+    });
+
+  useEffect(() => {
+    const initialization = resolveClosingDraftInitialization({
+      leadResolved,
+      currentResolved: currentOpportunityResolved,
+      servicesResolved: activeServicesResolved,
+      existingDealDetails: lead?.deal_details || null,
+      activeServices,
+      current: currentOpportunity,
+      draftInitialized: draftInitializedRef.current,
+      draftDirty: draftDirtyRef.current,
+    });
+    if (!initialization) return;
+
+    draftInitializedRef.current = true;
+    setDealData(initialization.dealData);
+  }, [
+    activeServices,
+    activeServicesResolved,
+    currentOpportunity,
+    currentOpportunityResolved,
+    lead?.deal_details,
+    leadResolved,
+  ]);
 
   const copyBriefingLinkToClipboard = async () => {
     try {
@@ -1610,6 +1720,17 @@ const LeadDetails = ({ leadId, onBack }) => {
             </div>
 
             <div className="p-8 space-y-6 max-h-[60vh] overflow-y-auto scrollbar-hide">
+              {activeServicesError && (
+                <div className="p-4 rounded-2xl bg-red-50 border border-red-100 text-red-600 flex items-start justify-between gap-3">
+                  <p className="text-sm font-bold">{activeServicesError}</p>
+                  <button
+                    onClick={() => fetchActiveServices()}
+                    className="shrink-0 px-3 py-2 rounded-xl bg-white border border-red-100 text-[10px] font-black uppercase tracking-widest"
+                  >
+                    Tentar novamente
+                  </button>
+                </div>
+              )}
               {progressError && (
                 <div className="p-4 rounded-2xl bg-red-50 border border-red-100 text-red-600 flex items-start gap-3">
                   <AlertCircle size={18} className="shrink-0 mt-0.5" />
@@ -1692,7 +1813,10 @@ const LeadDetails = ({ leadId, onBack }) => {
                             )
                           }
                         >
-                          {AVAILABLE_DEAL_SERVICES.map((service) => (
+                          {getDealItemServiceOptions(
+                            closingServiceOptions,
+                            item.service_id,
+                          ).map((service) => (
                             <option key={service.id} value={service.id}>
                               {service.label}
                             </option>
@@ -2205,7 +2329,7 @@ const LeadDetails = ({ leadId, onBack }) => {
                   Consultando o histórico comercial do nicho.
                 </p>
               </div>
-            ) : recommendationError ? (
+            ) : currentOpportunityError || recommendationError ? (
               <div className="p-6 rounded-[2rem] bg-red-50 border border-red-100">
                 <div className="flex items-start gap-3">
                   <AlertCircle size={20} className="text-red-500 shrink-0" />
@@ -2216,11 +2340,11 @@ const LeadDetails = ({ leadId, onBack }) => {
                     </p>
 
                     <p className="text-xs text-red-500 font-medium mt-1">
-                      {recommendationError}
+                      {currentOpportunityError || recommendationError}
                     </p>
 
                     <button
-                      onClick={fetchServiceOpportunityData}
+                      onClick={() => retryServiceOpportunityFailures()}
                       className="mt-4 px-4 py-2 rounded-xl bg-white text-red-600 text-[10px] font-black uppercase tracking-widest border border-red-100"
                     >
                       Tentar novamente

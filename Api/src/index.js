@@ -6,7 +6,9 @@ const db = require("./database/db");
 const leadsRoutes = require("./routes/leads");
 const briefingRoutes = require("./routes/briefingRoutes");
 const publicBriefingRoutes = require("./routes/publicBriefingRoutes");
-const serviceOpportunitiesRoutes = require("./routes/serviceOpportunities");
+const {
+  createServiceOpportunitiesRouter,
+} = require("./routes/serviceOpportunities");
 const {
   createCommercialProfileRouter,
 } = require("./routes/commercialProfileRoutes");
@@ -80,6 +82,9 @@ const {
   createCommercialAiContextService,
 } = require("./services/commercialAiContextService");
 const { createAiService } = require("./services/aiService");
+const {
+  createNegotiationGuideService,
+} = require("./services/negotiationGuideService");
 const {
   createLeadMessageRouter,
 } = require("./routes/leadMessageRoutes");
@@ -172,14 +177,25 @@ const commercialAiContextService = createCommercialAiContextService({
   serviceCatalogService,
   nicheStrategyService,
 });
+const openAiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const aiService = createAiService({
-  client: new OpenAI({ apiKey: process.env.OPENAI_API_KEY }),
+  client: openAiClient,
   model: process.env.OPENAI_MESSAGE_MODEL || "gpt-4o-mini",
 });
 const leadMessageRouter = createLeadMessageRouter({
   repository: leadMessageRepository,
   commercialAiContextService,
   aiService,
+});
+const negotiationGuideService = createNegotiationGuideService({
+  client: openAiClient,
+  model: process.env.OPENAI_GUIDE_MODEL || "gpt-4o-mini",
+});
+const serviceOpportunitiesRouter = createServiceOpportunitiesRouter({
+  db,
+  negotiationGuideService,
+  commercialProfileService,
+  nicheStrategyService,
 });
 const refreshCookieService = createRefreshCookieService(authConfig);
 const authRouter = createAuthRouter({
@@ -223,7 +239,7 @@ app.use(
     requireOperationalAccess,
     leadsRouter: leadsRoutes,
     briefingRouter: briefingRoutes,
-    serviceOpportunitiesRouter: serviceOpportunitiesRoutes,
+    serviceOpportunitiesRouter,
     commercialProfileRouter,
     serviceCatalogRouter,
     nicheStrategyRouter,

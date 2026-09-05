@@ -1,10 +1,17 @@
 const express = require("express");
-const router = express.Router();
-const db = require("../database/db");
-const {
-  generateNegotiationGuide,
-} = require("../services/negotiationGuideService");
 const { createLeadEvent } = require("../services/eventService");
+const {
+  CommercialProfileStateError,
+} = require("../services/commercialProfileService");
+const {
+  createNegotiationGuideContextService,
+} = require("../services/negotiationGuideContextService");
+const {
+  ClosingDealServiceNotFoundError,
+  ClosingDealValidationError,
+  canonicalizeClosingDealDetails,
+  validateClosingDealDetails,
+} = require("../services/closingDealService");
 
 /**
  * Converte uma categoria em uma chave estável para rankings.
@@ -253,10 +260,51 @@ const PROGRESS_EVENTS = {
   },
 };
 
+function createServiceOpportunitiesRouter({
+  db,
+  negotiationGuideService,
+  commercialProfileService,
+  nicheStrategyService,
+  logger = console,
+}) {
+  if (
+    !db ||
+    typeof db.query !== "function" ||
+    typeof db.connect !== "function"
+  ) {
+    throw new TypeError("Banco injetado é obrigatório.");
+  }
+  if (
+    !negotiationGuideService ||
+    typeof negotiationGuideService.generateNegotiationGuide !== "function"
+  ) {
+    throw new TypeError("Serviço de guia de negociação é obrigatório.");
+  }
+  if (
+    !commercialProfileService ||
+    typeof commercialProfileService.getByWorkspaceId !== "function"
+  ) {
+    throw new TypeError("Serviço de perfil comercial é obrigatório.");
+  }
+  if (
+    !nicheStrategyService ||
+    typeof nicheStrategyService.resolveWorkspaceNicheStrategy !== "function"
+  ) {
+    throw new TypeError("Serviço de estratégia de nicho é obrigatório.");
+  }
+
+  const router = express.Router();
+  const { generateNegotiationGuide } = negotiationGuideService;
+  const negotiationGuideContextService =
+    createNegotiationGuideContextService({
+      commercialProfileService,
+      nicheStrategyService,
+    });
+
 /**
  * GET /api/service-opportunities/services
  *
- * Retorna o catálogo ativo de serviços da Velaris.
+ * Retorna o catálogo ativo de serviços do workspace autenticado.
  */
 router.get("/services", async (req, res) => {
   const workspaceId = req.workspaceId;
@@ -314,8 +362,8 @@ router.get("/services", async (req, res) => {
  * Exemplos:
  * /stats?period=30
  * /stats?period=30&niche=salao_de_beleza
- * /stats?period=30&service=social
- * /stats?period=all&niche=clinica_veterinaria&service=site
+ * /stats?period=30&service=svc_example
+ * /stats?period=all&niche=clinica_veterinaria&service=12
  *
  * O período considera a data em que a oportunidade
  * foi selecionada: selected_at.
@@ -475,6 +523,10 @@ router.get("/stats", async (req, res) => {
         AND service.workspace_id =
           opportunity.workspace_id
 
+      INNER JOIN leads lead
+        ON lead.id = opportunity.lead_id
+        AND lead.workspace_id = opportunity.workspace_id
+
       WHERE ${whereClause}
     `;
 
@@ -541,6 +593,10 @@ router.get("/stats", async (req, res) => {
           opportunity.service_id
         AND service.workspace_id =
           opportunity.workspace_id
+
+      INNER JOIN leads lead
+        ON lead.id = opportunity.lead_id
+        AND lead.workspace_id = opportunity.workspace_id
 
       WHERE ${whereClause}
 
@@ -634,6 +690,10 @@ router.get("/stats", async (req, res) => {
         AND service.workspace_id =
           opportunity.workspace_id
 
+      INNER JOIN leads lead
+        ON lead.id = opportunity.lead_id
+        AND lead.workspace_id = opportunity.workspace_id
+
       WHERE ${whereClause}
 
       GROUP BY
@@ -669,29 +729,33 @@ router.get("/stats", async (req, res) => {
 
     const availableNichesQuery = `
       SELECT
-        niche_key,
+        opportunity.niche_key,
 
         COALESCE(
           MAX(
             NULLIF(
-              TRIM(lead_category),
+              TRIM(opportunity.lead_category),
               ''
             )
           ),
-          niche_key
+          opportunity.niche_key
         )
           AS niche_label,
 
         COUNT(*)::integer
           AS opportunities
 
-      FROM lead_service_opportunities
+      FROM lead_service_opportunities opportunity
 
-      WHERE workspace_id = $1
-        AND niche_key IS NOT NULL
-        AND TRIM(niche_key) <> ''
+      INNER JOIN leads lead
+        ON lead.id = opportunity.lead_id
+        AND lead.workspace_id = opportunity.workspace_id
 
-      GROUP BY niche_key
+      WHERE opportunity.workspace_id = $1
+        AND opportunity.niche_key IS NOT NULL
+        AND TRIM(opportunity.niche_key) <> ''
+
+      GROUP BY opportunity.niche_key
 
       ORDER BY niche_label ASC
     `;
@@ -966,6 +1030,7 @@ router.get("/leads/:leadId/current", async (req, res) => {
         service.how_it_works,
         service.problems_solved,
         service.target_niches,
+        service.is_active AS service_is_active,
         service.display_order
 
       FROM lead_service_opportunities opportunity
@@ -1024,7 +1089,7 @@ router.get("/leads/:leadId/current", async (req, res) => {
  *
  * Também é permitido:
  * {
- *   "service_key": "scheduling",
+ *   "service_key": "svc_example",
  *   "confirm_reset": false
  * }
  */
@@ -1486,26 +1551,30 @@ router.get("/leads/:leadId/recommendations", async (req, res) => {
       `
       WITH service_stats AS (
         SELECT
-          service_id,
+          opportunity.service_id,
 
           COUNT(*)::integer AS times_selected,
 
           COALESCE(
-            SUM(total_score),
+          SUM(opportunity.total_score),
             0
           )::integer AS total_points,
 
           ROUND(
-            AVG(total_score)::numeric,
+            AVG(opportunity.total_score)::numeric,
             2
           ) AS average_score
 
-        FROM lead_service_opportunities
+        FROM lead_service_opportunities opportunity
 
-        WHERE niche_key = $1
-          AND workspace_id = $2
+        INNER JOIN leads historical_lead
+          ON historical_lead.id = opportunity.lead_id
+          AND historical_lead.workspace_id = opportunity.workspace_id
 
-        GROUP BY service_id
+        WHERE opportunity.niche_key = $1
+          AND opportunity.workspace_id = $2
+
+        GROUP BY opportunity.service_id
       )
 
       SELECT
@@ -1999,99 +2068,26 @@ router.post("/leads/:leadId/guide", async (req, res) => {
 
     const hadPreviousGuide = Boolean(row.negotiation_guide);
 
-    const context = {
-      lead: {
-        id: row.lead_id,
-        name: row.lead_name,
-
-        category: row.lead_category || row.niche || "Não informado",
-
-        city: row.lead_city || "Não informada",
-
-        google_rating: row.rating ?? null,
-
-        google_reviews: row.reviews_count ?? null,
-
-        has_website: row.has_website ?? null,
-
-        status: row.lead_status,
-
-        pipeline_stage: row.pipeline_stage,
-
-        has_responded: Boolean(row.responded_at || row.last_reply_at),
-
-        preview_sent: Boolean(row.preview_sent),
-
-        price_requested: Boolean(row.price_requested),
-      },
-
-      selected_service: {
-        id: row.service_id,
-        key: row.service_key,
-        name: row.service_name,
-
-        type: row.service_type,
-
-        problem_category: row.problem_category,
-
-        description: row.service_description,
-
-        how_it_works: row.how_it_works,
-
-        problems_solved: row.problems_solved || [],
-
-        target_niches: row.target_niches || [],
-      },
-
-      human_analysis: {
-        analysis_notes: row.analysis_notes || "",
-
-        perceived_goal: row.perceived_goal || "",
-
-        pain_points: painPoints,
-      },
-
-      commercial_context: {
-        market_observation: row.market_observation || "",
-
-        internal_notes: row.internal_notes || "",
-
-        initial_message: row.custom_message || row.ai_message_suggestion || "",
-
-        opportunity_score: Number(row.total_score || 0),
-
-        interest_registered: Number(row.interest_score || 0) > 0,
-
-        preview_registered: Number(row.preview_score || 0) > 0,
-
-        price_registered: Number(row.price_score || 0) > 0,
-
-        closed: Number(row.closed_score || 0) > 0,
-      },
-
-      recent_activities: activitiesResult.rows.map((activity) => ({
-        type: activity.type,
-
-        description: activity.description,
-
-        created_at: activity.created_at,
-      })),
-    };
+    const context = await negotiationGuideContextService.compose({
+      workspaceId,
+      row,
+      recentActivities: activitiesResult.rows,
+    });
 
     let guide;
 
     try {
       guide = await generateNegotiationGuide(context);
     } catch (generationError) {
-      console.error("Erro na geração do guia:", generationError);
+      logger.error?.("Erro na geração do guia.", {
+        errorName: generationError?.name || "Error",
+      });
 
       return res.status(502).json({
         success: false,
         code: "GUIDE_GENERATION_FAILED",
 
         error: "A IA não conseguiu gerar um guia válido.",
-
-        details: generationError.message,
       });
     }
 
@@ -2173,6 +2169,14 @@ router.post("/leads/:leadId/guide", async (req, res) => {
       opportunity,
     });
   } catch (error) {
+    if (error instanceof CommercialProfileStateError) {
+      return res.status(409).json({
+        success: false,
+        code: "COMMERCIAL_PROFILE_STATE_CONFLICT",
+        error: "O perfil comercial deste workspace está indisponível.",
+      });
+    }
+
     console.error("Erro ao processar guia:", error);
 
     return res.status(500).json({
@@ -2217,6 +2221,7 @@ router.patch("/leads/:leadId/progress", async (req, res) => {
   }
 
   let normalizedSaleValue = null;
+  let validatedDeal = null;
 
   if (sale_value !== null && sale_value !== undefined && sale_value !== "") {
     normalizedSaleValue = Number(sale_value);
@@ -2227,6 +2232,21 @@ router.patch("/leads/:leadId/progress", async (req, res) => {
         code: "INVALID_SALE_VALUE",
         error: "Valor da venda inválido.",
       });
+    }
+  }
+
+  if (event === "closed" && deal_details !== null && deal_details !== undefined) {
+    try {
+      validatedDeal = validateClosingDealDetails(deal_details);
+    } catch (error) {
+      if (error instanceof ClosingDealValidationError) {
+        return res.status(400).json({
+          success: false,
+          code: "INVALID_DEAL_DETAILS",
+          error: error.message,
+        });
+      }
+      throw error;
     }
   }
 
@@ -2304,6 +2324,40 @@ router.patch("/leads/:leadId/progress", async (req, res) => {
     );
 
     const currentOpportunity = opportunityResult.rows[0] || null;
+
+    let normalizedDealDetails = null;
+    if (validatedDeal) {
+      const dealServicesResult = await client.query(
+        `
+        SELECT
+          id,
+          service_name,
+          is_active
+        FROM velaris_services
+        WHERE workspace_id = $1
+          AND id = ANY($2::integer[])
+        `,
+        [workspaceId, validatedDeal.serviceIds],
+      );
+
+      try {
+        normalizedDealDetails = canonicalizeClosingDealDetails({
+          dealDetails: validatedDeal.dealDetails,
+          services: dealServicesResult.rows,
+          selectedServiceId: currentOpportunity?.service_id ?? null,
+        });
+      } catch (error) {
+        if (error instanceof ClosingDealServiceNotFoundError) {
+          await client.query("ROLLBACK");
+          return res.status(404).json({
+            success: false,
+            code: "DEAL_SERVICE_NOT_FOUND",
+            error: "Um ou mais serviços do fechamento não estão disponíveis.",
+          });
+        }
+        throw error;
+      }
+    }
 
     let opportunity = null;
     let alreadyAttributed = false;
@@ -2516,7 +2570,7 @@ router.patch("/leads/:leadId/progress", async (req, res) => {
         leadId,
         event,
         normalizedSaleValue,
-        deal_details ? JSON.stringify(deal_details) : null,
+        normalizedDealDetails ? JSON.stringify(normalizedDealDetails) : null,
         workspaceId,
       ],
     );
@@ -2659,4 +2713,10 @@ router.patch("/leads/:leadId/progress", async (req, res) => {
   }
 });
 
-module.exports = router;
+  return router;
+}
+
+module.exports = {
+  createServiceOpportunitiesRouter,
+  normalizeNicheKey,
+};
