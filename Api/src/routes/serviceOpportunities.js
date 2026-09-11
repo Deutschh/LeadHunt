@@ -1839,6 +1839,12 @@ router.patch("/leads/:leadId/analysis", async (req, res) => {
     AND is_active = TRUE
     AND EXISTS (
       SELECT 1
+      FROM leads lead
+      WHERE lead.id = lead_service_opportunities.lead_id
+        AND lead.workspace_id = $8
+    )
+    AND EXISTS (
+      SELECT 1
       FROM velaris_services service
       WHERE service.id = lead_service_opportunities.service_id
         AND service.workspace_id = $8

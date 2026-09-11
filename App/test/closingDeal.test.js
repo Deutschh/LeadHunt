@@ -197,6 +197,46 @@ test("resposta ou erro tardio de A não sobrescreve sucesso do retry B", async (
   }
 });
 
+test("troca de lead invalida o ciclo anterior sem cruzar recursos", async () => {
+  const currentGate = createLatestRequestGate();
+  const recommendationsGate = createLatestRequestGate();
+  const servicesGate = createLatestRequestGate();
+  const oldCurrent = deferred();
+  const newCurrent = deferred();
+  const state = {
+    current: null,
+    recommendations: "recommendations-B",
+    services: "services-B",
+  };
+  const loadingOld = loadLatestResource({
+    gate: currentGate,
+    load: () => oldCurrent.promise,
+    onResolved: (value) => {
+      state.current = value;
+    },
+  });
+
+  currentGate.invalidate();
+  const loadingNew = loadLatestResource({
+    gate: currentGate,
+    load: () => newCurrent.promise,
+    onResolved: (value) => {
+      state.current = value;
+    },
+  });
+  newCurrent.resolve("current-B");
+  await loadingNew;
+  oldCurrent.resolve("current-A");
+  assert.deepEqual(await loadingOld, { status: "stale" });
+  assert.deepEqual(state, {
+    current: "current-B",
+    recommendations: "recommendations-B",
+    services: "services-B",
+  });
+  assert.equal(recommendationsGate.isCurrent(0), true);
+  assert.equal(servicesGate.isCurrent(0), true);
+});
+
 test("inicialização espera current e catálogo independentemente da ordem", () => {
   const current = {
     service_id: 3,
@@ -337,6 +377,9 @@ test("LeadDetails usa catálogo ativo e não envia identidade de workspace", () 
   assert.doesNotMatch(source, /workspace_id|workspaceId|serviceKey/);
   assert.match(source, /draftDirtyRef\.current/);
   assert.match(source, /draftInitializedRef\.current/);
+  assert.match(source, /currentRequestGateRef\.current\.invalidate\(\)/);
+  assert.match(source, /recommendationsRequestGateRef\.current\.invalidate\(\)/);
+  assert.match(source, /servicesRequestGateRef\.current\.invalidate\(\)/);
   assert.match(source, /onClick=\{\(\) => fetchActiveServices\(\)\}/);
   assert.match(
     source,

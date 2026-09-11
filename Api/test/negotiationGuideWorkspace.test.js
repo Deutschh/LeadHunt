@@ -83,14 +83,27 @@ test("compositor usa profile e estratégia do workspace sem fallback de niche", 
   const contextA = await service.compose({
     workspaceId: "11",
     row: row({ niche: "Não deve ser usada" }),
+    recentActivities: [{
+      type: "note",
+      description: "Atividade exclusiva A",
+      created_at: "2026-09-11T10:00:00.000Z",
+    }],
   });
   const contextB = await service.compose({
     workspaceId: "12",
     row: row(),
+    recentActivities: [{
+      type: "note",
+      description: "Atividade exclusiva B",
+      created_at: "2026-09-11T11:00:00.000Z",
+    }],
   });
   assert.equal(contextA.seller.business_name, "Empresa 11");
   assert.equal(contextB.seller.business_name, "Empresa 12");
   assert.equal(contextA.niche_strategy.hook, "Hook 11");
+  assert.equal(contextA.recent_activities[0].description, "Atividade exclusiva A");
+  assert.equal(contextB.recent_activities[0].description, "Atividade exclusiva B");
+  assert.equal(JSON.stringify(contextA).includes("Atividade exclusiva B"), false);
   assert.deepEqual(calls[1], ["strategy", "11", "Clínicas"]);
   assert.equal("presentation_preferences" in contextA.seller, false);
   assert.equal("id" in contextA.selected_service, false);

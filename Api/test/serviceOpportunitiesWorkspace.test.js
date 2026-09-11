@@ -139,6 +139,108 @@ test("current cross-workspace retorna 404 sem consultar oportunidade", async (t)
   assert.deepEqual(db.calls[0].params, [4, "12"]);
 });
 
+function selectionDb({ ownedServiceId, serviceWorkspaceId }) {
+  const calls = [];
+  return {
+    calls,
+    async query(sql, params) {
+      const statement = String(sql);
+      calls.push({ sql: statement, params });
+      if (/FROM leads\s+WHERE id = \$1/u.test(statement)) {
+        return {
+          rows: [{
+            id: params[0],
+            name: `Lead ${params[1]}`,
+            status: "responded",
+            pipeline_stage: "responded",
+            responded_at: new Date(),
+            lead_category: "Clínicas",
+          }],
+          rowCount: 1,
+        };
+      }
+      if (/FROM velaris_services[\s\S]*WHERE id = \$1/u.test(statement)) {
+        const rows = Number(params[0]) === ownedServiceId
+          && params[1] === serviceWorkspaceId
+          ? [{
+              id: ownedServiceId,
+              service_key: `svc_${params[1]}`,
+              service_name: `Oferta ${params[1]}`,
+              is_active: true,
+            }]
+          : [];
+        return { rows, rowCount: rows.length };
+      }
+      if (/FROM lead_service_opportunities[\s\S]*is_active = TRUE/u.test(statement)) {
+        return { rows: [], rowCount: 0 };
+      }
+      if (/INSERT INTO lead_service_opportunities/u.test(statement)) {
+        return {
+          rows: [{
+            id: 30,
+            workspace_id: params[0],
+            lead_id: params[1],
+            service_id: params[2],
+            is_active: true,
+          }],
+          rowCount: 1,
+        };
+      }
+      throw new Error("SQL inesperado no teste de seleção");
+    },
+    async connect() {
+      throw new Error("connect não esperado");
+    },
+  };
+}
+
+test("seleção grava lead, serviço e oportunidade somente no workspace autenticado", async (t) => {
+  for (const [workspaceId, serviceId] of [["11", 101], ["12", 201]]) {
+    const db = selectionDb({
+      ownedServiceId: serviceId,
+      serviceWorkspaceId: workspaceId,
+    });
+    const runtime = await listen(createApp({ db, workspaceId }));
+    t.after(runtime.close);
+    const response = await request(
+      runtime.origin,
+      "/api/service-opportunities/leads/4/select",
+      { method: "POST", body: { service_id: serviceId } },
+    );
+    assert.equal(response.status, 201);
+    assert.equal(response.body.opportunity.workspace_id, workspaceId);
+    assert.deepEqual(db.calls[0].params, [4, workspaceId]);
+    assert.deepEqual(db.calls[1].params, [serviceId, workspaceId]);
+    assert.deepEqual(db.calls[2].params, [4, workspaceId]);
+    assert.deepEqual(db.calls[3].params.slice(0, 3), [
+      workspaceId,
+      4,
+      serviceId,
+    ]);
+  }
+
+  const crossDb = selectionDb({
+    ownedServiceId: 201,
+    serviceWorkspaceId: "12",
+  });
+  const crossRuntime = await listen(
+    createApp({ db: crossDb, workspaceId: "11" }),
+  );
+  t.after(crossRuntime.close);
+  const crossResponse = await request(
+    crossRuntime.origin,
+    "/api/service-opportunities/leads/4/select",
+    { method: "POST", body: { service_id: 201 } },
+  );
+  assert.equal(crossResponse.status, 404);
+  assert.equal(
+    crossDb.calls.some(({ sql }) =>
+      /INSERT INTO lead_service_opportunities/u.test(sql),
+    ),
+    false,
+  );
+});
+
 test("stats valida o vínculo do lead e qualifica o contrato histórico por workspace", async (t) => {
   const calls = [];
   const db = {
@@ -257,6 +359,96 @@ test("recommendations isola ranking por workspace e considera somente ativos", a
     assert.match(rankingCall.sql, /service\.workspace_id = \$2/u);
     assert.match(rankingCall.sql, /service\.is_active = TRUE/u);
   }
+});
+
+function analysisDb({ leadWorkspace = "11", serviceWorkspace = "11" } = {}) {
+  const calls = [];
+  return {
+    calls,
+    async query(sql, params) {
+      const statement = String(sql);
+      calls.push({ sql: statement, params });
+      if (/UPDATE lead_service_opportunities/u.test(statement)) {
+        const workspaceId = params[7];
+        const ownsLead = leadWorkspace === workspaceId;
+        const ownsService = serviceWorkspace === workspaceId;
+        const rows = ownsLead && ownsService
+          ? [{
+              id: 20,
+              lead_id: params[0],
+              service_id: 7,
+              analysis_notes: params[2],
+              perceived_goal: params[4],
+              pain_points: JSON.parse(params[6]),
+            }]
+          : [];
+        return { rows, rowCount: rows.length };
+      }
+      if (/FROM velaris_services/u.test(statement)) {
+        return {
+          rows: [{ id: 7, service_name: "Oferta própria" }],
+          rowCount: 1,
+        };
+      }
+      throw new Error("SQL inesperado no teste de analysis");
+    },
+    async connect() {
+      throw new Error("connect não esperado");
+    },
+  };
+}
+
+test("analysis exige ownership do lead e do serviço relacionados", async (t) => {
+  const validDb = analysisDb();
+  const validRuntime = await listen(createApp({ db: validDb }));
+  t.after(validRuntime.close);
+  const validResponse = await request(
+    validRuntime.origin,
+    "/api/service-opportunities/leads/4/analysis",
+    {
+      method: "PATCH",
+      body: {
+        analysis_notes: "Análise do Workspace A",
+        perceived_goal: "Objetivo A",
+        pain_points: [],
+      },
+    },
+  );
+  assert.equal(validResponse.status, 200);
+  const updateCall = validDb.calls[0];
+  assert.deepEqual(updateCall.params, [
+    4,
+    true,
+    "Análise do Workspace A",
+    true,
+    "Objetivo A",
+    true,
+    "[]",
+    "11",
+  ]);
+  assert.match(
+    updateCall.sql,
+    /FROM leads lead[\s\S]*lead\.id = lead_service_opportunities\.lead_id[\s\S]*lead\.workspace_id = \$8/u,
+  );
+  assert.match(
+    updateCall.sql,
+    /service\.id = lead_service_opportunities\.service_id[\s\S]*service\.workspace_id = \$8/u,
+  );
+
+  const crossedDb = analysisDb({ leadWorkspace: "12" });
+  const crossedRuntime = await listen(createApp({ db: crossedDb }));
+  t.after(crossedRuntime.close);
+  const crossedResponse = await request(
+    crossedRuntime.origin,
+    "/api/service-opportunities/leads/4/analysis",
+    {
+      method: "PATCH",
+      body: { analysis_notes: "Não deve atravessar workspace" },
+    },
+  );
+  assert.equal(crossedResponse.status, 404);
+  assert.equal(crossedResponse.body.code, "ACTIVE_OPPORTUNITY_NOT_FOUND");
+  assert.equal(crossedDb.calls.length, 1);
 });
 
 test("guia falha fechado quando o perfil estrutural está ausente", async (t) => {
