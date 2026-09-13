@@ -34,6 +34,7 @@ const {
 const {
   createRequireOperationalAccess,
 } = require("./middleware/requireOperationalAccess");
+const { createRequireAdmin } = require("./middleware/requireAdmin");
 const {
   createRefreshCookieService,
 } = require("./services/refreshCookieService");
@@ -47,6 +48,10 @@ const {
   createPasswordResetEmailService,
 } = require("./services/email/passwordResetEmailService");
 const { createSystemRouter } = require("./routes/systemRoutes");
+const {
+  createAdminRouter,
+  setAdminNoStore,
+} = require("./routes/adminRoutes");
 const {
   createOperationalWebRouter,
   setOperationalResourceNoStore,
@@ -104,6 +109,7 @@ app.use(
   ["/api/commercial-profile", "/api/services", "/api/leads/niches"],
   setOperationalResourceNoStore,
 );
+app.use("/api/admin", setAdminNoStore);
 const corsPolicy = createCorsPolicy(serverConfig.corsAllowedOrigins);
 app.use(corsPolicy.enforceOrigin);
 app.use(corsPolicy.middleware);
@@ -150,6 +156,8 @@ const requireAuthenticatedContext = createRequireAuthenticatedContext({
   identityService: authIdentityService,
 });
 const requireOperationalAccess = createRequireOperationalAccess();
+const requireAdmin = createRequireAdmin({ db });
+const adminRouter = createAdminRouter();
 const commercialProfileRepository = createCommercialProfileRepository({ db });
 const commercialProfileService = createCommercialProfileService({
   repository: commercialProfileRepository,
@@ -230,6 +238,14 @@ if (process.env.NODE_ENV === "production") {
 // --- Rotas públicas sem contexto de workspace ---
 app.use("/api/public/briefings", publicBriefingRoutes);
 app.use("/api/auth", authRouter);
+
+// --- Rotas administrativas autenticadas e autorizadas no servidor ---
+app.use(
+  "/api/admin",
+  requireAuthenticatedContext,
+  requireAdmin,
+  adminRouter,
+);
 
 // --- Rotas web operacionais autenticadas ---
 app.use(
