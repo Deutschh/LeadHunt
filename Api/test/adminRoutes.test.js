@@ -81,6 +81,17 @@ async function withServer(options, operation) {
           throw new Error("unexpected workspace audit");
         },
       },
+      workspaceStatusService: {
+        activateWorkspace: async () => {
+          throw new Error("unexpected workspace activation");
+        },
+        suspendWorkspace: async () => {
+          throw new Error("unexpected workspace suspension");
+        },
+        reactivateWorkspace: async () => {
+          throw new Error("unexpected workspace reactivation");
+        },
+      },
       logger: { error: () => {} },
     }),
   );

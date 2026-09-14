@@ -56,8 +56,14 @@ const {
   createAdminWorkspaceRepository,
 } = require("./repositories/adminWorkspaceRepository");
 const {
+  createAdminWorkspaceStatusRepository,
+} = require("./repositories/adminWorkspaceStatusRepository");
+const {
   createAdminWorkspaceService,
 } = require("./services/adminWorkspaceService");
+const {
+  createAdminWorkspaceStatusService,
+} = require("./services/adminWorkspaceStatusService");
 const {
   createOperationalWebRouter,
   setOperationalResourceNoStore,
@@ -167,8 +173,15 @@ const adminWorkspaceRepository = createAdminWorkspaceRepository({ db });
 const adminWorkspaceService = createAdminWorkspaceService({
   repository: adminWorkspaceRepository,
 });
+const adminWorkspaceStatusRepository = createAdminWorkspaceStatusRepository({
+  db,
+});
+const adminWorkspaceStatusService = createAdminWorkspaceStatusService({
+  repository: adminWorkspaceStatusRepository,
+});
 const adminRouter = createAdminRouter({
   workspaceService: adminWorkspaceService,
+  workspaceStatusService: adminWorkspaceStatusService,
 });
 const commercialProfileRepository = createCommercialProfileRepository({ db });
 const commercialProfileService = createCommercialProfileService({

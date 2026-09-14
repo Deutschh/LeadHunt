@@ -111,12 +111,27 @@ async function withServer(options, operation) {
       return results.audit;
     },
   };
+  const workspaceStatusService = {
+    activateWorkspace: async () => {
+      throw new Error("unexpected workspace activation");
+    },
+    suspendWorkspace: async () => {
+      throw new Error("unexpected workspace suspension");
+    },
+    reactivateWorkspace: async () => {
+      throw new Error("unexpected workspace reactivation");
+    },
+  };
 
   app.use(
     "/api/admin",
     requireAuthenticatedContext,
     requireAdmin,
-    createAdminRouter({ workspaceService, logger: { error: () => {} } }),
+    createAdminRouter({
+      workspaceService,
+      workspaceStatusService,
+      logger: { error: () => {} },
+    }),
   );
 
   const server = http.createServer(app);
