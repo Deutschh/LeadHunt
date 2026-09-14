@@ -69,7 +69,20 @@ async function withServer(options, operation) {
     "/api/admin",
     requireAuthenticatedContext,
     requireAdmin,
-    createAdminRouter(),
+    createAdminRouter({
+      workspaceService: {
+        listWorkspaces: async () => {
+          throw new Error("unexpected workspace list");
+        },
+        getWorkspaceDetails: async () => {
+          throw new Error("unexpected workspace details");
+        },
+        listWorkspaceAudit: async () => {
+          throw new Error("unexpected workspace audit");
+        },
+      },
+      logger: { error: () => {} },
+    }),
   );
 
   const server = http.createServer(app);

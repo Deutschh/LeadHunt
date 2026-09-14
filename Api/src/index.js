@@ -53,6 +53,12 @@ const {
   setAdminNoStore,
 } = require("./routes/adminRoutes");
 const {
+  createAdminWorkspaceRepository,
+} = require("./repositories/adminWorkspaceRepository");
+const {
+  createAdminWorkspaceService,
+} = require("./services/adminWorkspaceService");
+const {
   createOperationalWebRouter,
   setOperationalResourceNoStore,
 } = require("./routes/operationalWebRoutes");
@@ -157,7 +163,13 @@ const requireAuthenticatedContext = createRequireAuthenticatedContext({
 });
 const requireOperationalAccess = createRequireOperationalAccess();
 const requireAdmin = createRequireAdmin({ db });
-const adminRouter = createAdminRouter();
+const adminWorkspaceRepository = createAdminWorkspaceRepository({ db });
+const adminWorkspaceService = createAdminWorkspaceService({
+  repository: adminWorkspaceRepository,
+});
+const adminRouter = createAdminRouter({
+  workspaceService: adminWorkspaceService,
+});
 const commercialProfileRepository = createCommercialProfileRepository({ db });
 const commercialProfileService = createCommercialProfileService({
   repository: commercialProfileRepository,
