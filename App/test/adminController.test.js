@@ -68,6 +68,7 @@ test("ADMIN_ACCESS_DENIED rebaixa, cancela e limpa todos os recursos", async () 
   assert.deepEqual(controller.getSnapshot(), {
     accessStatus: "notAdmin",
     accessError: null,
+    summary: { status: "idle", data: null, error: null },
     filters: { page: 1, pageSize: 25 },
     workspaces: { status: "idle", data: null, error: null },
     selectedWorkspaceId: null,
@@ -243,4 +244,137 @@ test("refresh normal preserva sessionVersion, estado Admin e conclusão atual", 
   assert.equal(auth.getSnapshot().sessionVersion, sessionVersion);
   assert.equal(controller.getSnapshot().accessStatus, "admin");
   assert.equal(controller.getSnapshot().workspaces.status, "ready");
+});
+
+test("summary só publica as três contagens válidas da mesma geração", async () => {
+  const responses = {
+    pending: deferred(),
+    active: deferred(),
+    suspended: deferred(),
+  };
+  const controller = createAdminController({
+    api: createApi({
+      listWorkspaces: async ({ status }) => responses[status].promise,
+    }),
+  });
+  await controller.startSession(40);
+  const loading = controller.loadWorkspaceSummary();
+  responses.pending.resolve({ pagination: { totalItems: 2 } });
+  responses.active.resolve({ pagination: { totalItems: 5 } });
+  await Promise.resolve();
+  assert.equal(controller.getSnapshot().summary.status, "loading");
+  assert.equal(controller.getSnapshot().summary.data, null);
+  responses.suspended.resolve({ pagination: { totalItems: 1 } });
+  assert.deepEqual(await loading, { total: 8, pending: 2, active: 5, suspended: 1 });
+});
+
+test("falha parcial do summary não publica parcial e preserva refresh anterior", async () => {
+  let round = 0;
+  const controller = createAdminController({
+    api: createApi({
+      listWorkspaces: async ({ status }) => {
+        if (round === 0) {
+          return { pagination: { totalItems: { pending: 1, active: 3, suspended: 2 }[status] } };
+        }
+        if (status === "active") throw httpError(500, "INTERNAL_ERROR");
+        return { pagination: { totalItems: 99 } };
+      },
+    }),
+  });
+  await controller.startSession(41);
+  await controller.loadWorkspaceSummary();
+  const previous = controller.getSnapshot().summary.data;
+  round = 1;
+  await assert.rejects(controller.loadWorkspaceSummary(), (error) => error.code === "INTERNAL_ERROR");
+  assert.equal(controller.getSnapshot().summary.status, "error");
+  assert.equal(controller.getSnapshot().summary.data, previous);
+  assert.deepEqual(previous, { total: 6, pending: 1, active: 3, suspended: 2 });
+});
+
+test("falha parcial inicial deixa summary sem dados", async () => {
+  const signals = [];
+  const controller = createAdminController({
+    api: createApi({
+      listWorkspaces: async ({ status }, options) => {
+        signals.push(options.signal);
+        if (status === "suspended") throw httpError(500, "INTERNAL_ERROR");
+        return { pagination: { totalItems: 4 } };
+      },
+    }),
+  });
+  await controller.startSession(42);
+  await assert.rejects(controller.loadWorkspaceSummary());
+  assert.equal(controller.getSnapshot().summary.status, "error");
+  assert.equal(controller.getSnapshot().summary.data, null);
+  assert.equal(signals.length, 3);
+  assert.equal(signals.every((signal) => signal.aborted), true);
+});
+
+test("summary stale não substitui nova geração nem nova sessão", async () => {
+  const oldRequests = [deferred(), deferred(), deferred()];
+  const oldSignals = [];
+  let call = 0;
+  const controller = createAdminController({
+    api: createApi({
+      listWorkspaces: async (_filters, options) => {
+        if (call < 3) {
+          oldSignals.push(options.signal);
+          return oldRequests[call++].promise;
+        }
+        return { pagination: { totalItems: 2 } };
+      },
+    }),
+  });
+  await controller.startSession(43);
+  const stale = controller.loadWorkspaceSummary().catch((error) => error);
+  controller.endSession();
+  assert.equal(oldSignals.every((signal) => signal.aborted), true);
+  await controller.startSession(44);
+  await controller.loadWorkspaceSummary();
+  for (const request of oldRequests) request.resolve({ pagination: { totalItems: 100 } });
+  assert.equal((await stale).code, "STALE_ADMIN_OPERATION");
+  assert.deepEqual(controller.getSnapshot().summary.data, { total: 6, pending: 2, active: 2, suspended: 2 });
+});
+
+test("nova geração de summary cancela e inutiliza a anterior na mesma sessão", async () => {
+  const oldRequests = [deferred(), deferred(), deferred()];
+  const oldSignals = [];
+  let call = 0;
+  const controller = createAdminController({
+    api: createApi({
+      listWorkspaces: async (_filters, options) => {
+        if (call < 3) {
+          oldSignals.push(options.signal);
+          return oldRequests[call++].promise;
+        }
+        return { pagination: { totalItems: 3 } };
+      },
+    }),
+  });
+  await controller.startSession(45);
+  const stale = controller.loadWorkspaceSummary().catch((error) => error);
+  const current = await controller.loadWorkspaceSummary();
+  assert.equal(oldSignals.every((signal) => signal.aborted), true);
+  for (const request of oldRequests) request.resolve({ pagination: { totalItems: 100 } });
+  assert.equal((await stale).code, "STALE_ADMIN_OPERATION");
+  assert.deepEqual(current, { total: 9, pending: 3, active: 3, suspended: 3 });
+  assert.equal(controller.getSnapshot().summary.data, current);
+});
+
+test("ADMIN_ACCESS_DENIED durante summary revoga e limpa todos os recursos", async () => {
+  const signals = [];
+  const controller = createAdminController({
+    api: createApi({
+      listWorkspaces: async ({ status }, options) => {
+        signals.push(options.signal);
+        if (status === "active") throw httpError(403, "ADMIN_ACCESS_DENIED");
+        return { pagination: { totalItems: 1 } };
+      },
+    }),
+  });
+  await controller.startSession(46);
+  await assert.rejects(controller.loadWorkspaceSummary(), (error) => error.code === "ADMIN_ACCESS_DENIED");
+  assert.equal(signals.every((signal) => signal.aborted), true);
+  assert.equal(controller.getSnapshot().accessStatus, "notAdmin");
+  assert.equal(controller.getSnapshot().summary.data, null);
 });

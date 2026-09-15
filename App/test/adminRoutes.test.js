@@ -42,6 +42,9 @@ test("namespace Admin é montado antes do wildcard e fora do gate operacional", 
 
   assert.ok(routes.indexOf('path="/admin"') < routes.indexOf('path="*"'));
   assert.match(routes, /path="workspaces\/:workspaceId"/u);
+  assert.match(routes, /AdminLayout/u);
+  assert.match(routes, /AdminWorkspacesPage/u);
+  assert.match(routes, /AdminWorkspaceDetailsPage/u);
   assert.match(
     routes,
     /path="\/admin"[\s\S]*path="workspaces\/:workspaceId"[\s\S]*path="\*"[\s\S]*<\/Route>/u,

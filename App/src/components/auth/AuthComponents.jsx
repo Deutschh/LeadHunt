@@ -91,7 +91,7 @@ export function SubmitButton({ busy, children, disabled }) {
   );
 }
 
-export function LogoutButton() {
+export function LogoutButton({ compact = false }) {
   const auth = useAuth();
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
@@ -101,7 +101,7 @@ export function LogoutButton() {
     try { await auth.logout(); } catch { /* logout local permanece definitivo */ }
     navigate("/login", { replace: true });
   };
-  return <button type="button" onClick={() => void handleLogout()} disabled={busy} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"><LogOut size={17} />Sair</button>;
+  return <button type="button" onClick={() => void handleLogout()} disabled={busy} aria-label={compact ? "Sair" : undefined} className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white py-2 font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50 ${compact ? "min-w-11 px-2" : "px-4"}`}><LogOut size={17} /><span className={compact ? "sr-only" : ""}>Sair</span></button>;
 }
 
 export function AuthStatusScreen({ unavailable = false, onRetry }) {

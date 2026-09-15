@@ -11,6 +11,7 @@ import {
 
 const DEFAULT_FILTERS = Object.freeze({ page: 1, pageSize: 25 });
 const DEFAULT_AUDIT_PAGINATION = Object.freeze({ page: 1, pageSize: 25 });
+const SUMMARY_STATUSES = Object.freeze(["pending", "active", "suspended"]);
 
 function resource(status = "idle", data = null, error = null) {
   return Object.freeze({ status, data, error });
@@ -20,6 +21,7 @@ function initialState(accessStatus = "unknown") {
   return Object.freeze({
     accessStatus,
     accessError: null,
+    summary: resource(),
     filters: DEFAULT_FILTERS,
     workspaces: resource(),
     selectedWorkspaceId: null,
@@ -57,8 +59,8 @@ export function createAdminController({ api }) {
   let sessionVersion = null;
   let sessionGeneration = 0;
   const listeners = new Set();
-  const generations = { access: 0, workspaces: 0, details: 0, audit: 0 };
-  const abortControllers = { access: null, workspaces: null, details: null, audit: null };
+  const generations = { access: 0, summary: 0, workspaces: 0, details: 0, audit: 0 };
+  const abortControllers = { access: null, summary: null, workspaces: null, details: null, audit: null };
 
   function getSnapshot() {
     return state;
@@ -217,6 +219,48 @@ export function createAdminController({ api }) {
     }
   }
 
+  async function loadWorkspaceSummary() {
+    requireAdminSession();
+    const request = beginResource("summary");
+    const previousData = state.summary.data;
+    publish({ summary: resource("loading", previousData) });
+    try {
+      const responses = await Promise.all(
+        SUMMARY_STATUSES.map((status) =>
+          api.listWorkspaces(
+            { page: 1, pageSize: 1, status },
+            { signal: request.abortController.signal },
+          ),
+        ),
+      );
+      if (!currentResource("summary", request)) throw staleAdminOperation();
+      const counts = Object.fromEntries(
+        SUMMARY_STATUSES.map((status, index) => [
+          status,
+          responses[index].pagination.totalItems,
+        ]),
+      );
+      const data = Object.freeze({
+        total: counts.pending + counts.active + counts.suspended,
+        pending: counts.pending,
+        active: counts.active,
+        suspended: counts.suspended,
+      });
+      publish({ summary: resource("ready", data) });
+      return data;
+    } catch (error) {
+      if (!currentResource("summary", request)) throw staleAdminOperation();
+      request.abortController.abort();
+      const normalized = handleAdminError(error);
+      if (!isSilentCancellation(normalized) && !isAdminAccessDenied(normalized)) {
+        publish({ summary: resource("error", previousData, normalized) });
+      }
+      throw normalized;
+    } finally {
+      if (currentResource("summary", request)) abortControllers.summary = null;
+    }
+  }
+
   function selectWorkspace(workspaceId) {
     requireAdminSession();
     let id;
@@ -331,6 +375,7 @@ export function createAdminController({ api }) {
     getSnapshot,
     loadWorkspaceAudit,
     loadWorkspaceDetails,
+    loadWorkspaceSummary,
     loadWorkspaces,
     reactivateWorkspace: (...args) => mutation("reactivateWorkspace", args),
     retryAccess: checkAccess,

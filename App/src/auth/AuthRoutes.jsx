@@ -3,6 +3,9 @@ import { useAuth } from "./AuthProvider.jsx";
 import { getAccountDestination, getInternalLocation, sanitizeReturnTo } from "./authFlow.js";
 import { AuthStatusScreen } from "../components/auth/AuthComponents.jsx";
 import AdminRouteBoundary from "../admin/AdminRoutes.jsx";
+import AdminLayout from "../admin/AdminLayout.jsx";
+import AdminWorkspaceDetailsPage from "../admin/AdminWorkspaceDetailsPage.jsx";
+import AdminWorkspacesPage from "../admin/AdminWorkspacesPage.jsx";
 import AccountStatePage from "../pages/auth/AccountStatePage.jsx";
 import ForgotPasswordPage from "../pages/auth/ForgotPasswordPage.jsx";
 import LoginPage from "../pages/auth/LoginPage.jsx";
@@ -52,9 +55,11 @@ export default function AuthRoutes({ operationalElement }) {
     <Route path="/suspended" element={<AccountStateRoute state="suspended" />} />
     <Route path="/inactive" element={<AccountStateRoute state="inactive" />} />
     <Route path="/admin" element={<AdminRouteBoundary />}>
-      <Route index element={null} />
-      <Route path="workspaces/:workspaceId" element={null} />
-      <Route path="*" element={null} />
+      <Route element={<AdminLayout />}>
+        <Route index element={<AdminWorkspacesPage />} />
+        <Route path="workspaces/:workspaceId" element={<AdminWorkspaceDetailsPage />} />
+        <Route path="*" element={<Navigate to="/admin" replace />} />
+      </Route>
     </Route>
     <Route path="*" element={<OperationalRoute>{operationalElement}</OperationalRoute>} />
   </Routes></SessionBoundary>;

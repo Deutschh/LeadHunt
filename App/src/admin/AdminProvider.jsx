@@ -39,6 +39,7 @@ export function AdminProvider({ children }) {
       activateWorkspace: controller.activateWorkspace,
       loadWorkspaceAudit: controller.loadWorkspaceAudit,
       loadWorkspaceDetails: controller.loadWorkspaceDetails,
+      loadWorkspaceSummary: controller.loadWorkspaceSummary,
       loadWorkspaces: controller.loadWorkspaces,
       reactivateWorkspace: controller.reactivateWorkspace,
       retryAccess: controller.retryAccess,
