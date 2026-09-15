@@ -2,6 +2,7 @@ import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { useAuth } from "./AuthProvider.jsx";
 import { getAccountDestination, getInternalLocation, sanitizeReturnTo } from "./authFlow.js";
 import { AuthStatusScreen } from "../components/auth/AuthComponents.jsx";
+import AdminRouteBoundary from "../admin/AdminRoutes.jsx";
 import AccountStatePage from "../pages/auth/AccountStatePage.jsx";
 import ForgotPasswordPage from "../pages/auth/ForgotPasswordPage.jsx";
 import LoginPage from "../pages/auth/LoginPage.jsx";
@@ -50,6 +51,11 @@ export default function AuthRoutes({ operationalElement }) {
     <Route path="/pending" element={<AccountStateRoute state="pending" />} />
     <Route path="/suspended" element={<AccountStateRoute state="suspended" />} />
     <Route path="/inactive" element={<AccountStateRoute state="inactive" />} />
+    <Route path="/admin" element={<AdminRouteBoundary />}>
+      <Route index element={null} />
+      <Route path="workspaces/:workspaceId" element={null} />
+      <Route path="*" element={null} />
+    </Route>
     <Route path="*" element={<OperationalRoute>{operationalElement}</OperationalRoute>} />
   </Routes></SessionBoundary>;
 }

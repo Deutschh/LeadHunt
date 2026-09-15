@@ -23,6 +23,7 @@ const OPERATIONAL_ACCOUNT_STATE_CODES = new Set([
 
 const INITIAL_STATE = Object.freeze({
   status: "bootstrapping",
+  sessionVersion: 0,
   user: null,
   membership: null,
   workspace: null,
@@ -141,6 +142,7 @@ export function createAuthSessionController({ client }) {
   let active = false;
   let authEpoch = 0;
   let tokenRevision = 0;
+  let sessionVersion = 0;
   let accessToken = null;
   let state = INITIAL_STATE;
   let refreshFlight = null;
@@ -178,9 +180,13 @@ export function createAuthSessionController({ client }) {
       return false;
     }
 
-    state = Object.freeze(nextState);
+    state = Object.freeze({ ...nextState, sessionVersion });
     emit();
     return true;
+  }
+
+  function advanceSessionVersion() {
+    sessionVersion += 1;
   }
 
   function setAccessToken(token) {
@@ -239,7 +245,12 @@ export function createAuthSessionController({ client }) {
     return queued;
   }
 
-  function publishAnonymous(epoch, error = null) {
+  function publishAnonymous(
+    epoch,
+    error = null,
+    { invalidateSession = true } = {},
+  ) {
+    if (invalidateSession) advanceSessionVersion();
     clearAccessToken();
     return publish(
       {
@@ -458,6 +469,7 @@ export function createAuthSessionController({ client }) {
     }
 
     active = true;
+    advanceSessionVersion();
     const epoch = beginGeneration();
     const promise = runBootstrap(epoch).finally(() => {
       if (bootstrapFlight?.promise === promise) {
@@ -473,6 +485,7 @@ export function createAuthSessionController({ client }) {
       return Promise.reject(staleOperation());
     }
 
+    advanceSessionVersion();
     const epoch = beginGeneration({ preserveIdentity: true });
     const promise = runBootstrap(epoch).finally(() => {
       if (bootstrapFlight?.promise === promise) {
@@ -488,6 +501,7 @@ export function createAuthSessionController({ client }) {
       throw staleOperation();
     }
 
+    advanceSessionVersion();
     const epoch = beginGeneration();
     try {
       const payload = await enqueueCookieMutation(epoch, () =>
@@ -521,11 +535,12 @@ export function createAuthSessionController({ client }) {
 
     abortOwnedRequests();
     authEpoch += 1;
+    advanceSessionVersion();
     const epoch = authEpoch;
     refreshFlight = null;
     bootstrapFlight = null;
     accountStateFlight = null;
-    publishAnonymous(epoch);
+    publishAnonymous(epoch, null, { invalidateSession: false });
 
     return enqueueCookieMutation(epoch, () =>
       ownedRequest((signal) => client.logout({ signal })),
@@ -639,6 +654,7 @@ export function createAuthSessionController({ client }) {
 
     active = false;
     authEpoch += 1;
+    advanceSessionVersion();
     abortOwnedRequests();
     clearAccessToken();
     refreshFlight = null;

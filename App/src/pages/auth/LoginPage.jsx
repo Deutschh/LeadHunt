@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../auth/AuthProvider.jsx";
-import { getAccountDestination, sanitizeReturnTo } from "../../auth/authFlow.js";
+import { getPostLoginDestination } from "../../auth/authFlow.js";
 import { normalizeEmail, sanitizeAuthError, validateLoginForm } from "../../auth/authUiModel.js";
 import { AuthCard, AuthShell, Field, GeneralAlert, PasswordField, SubmitButton } from "../../components/auth/AuthComponents.jsx";
 
@@ -26,7 +26,13 @@ export default function LoginPage() {
     try {
       const identity = await auth.login(normalizeEmail(values.email), values.password);
       if (!identity) return;
-      navigate(getAccountDestination({ status: "authenticated", workspace: identity.workspace }, sanitizeReturnTo(location.state?.returnTo)), { replace: true });
+      navigate(
+        getPostLoginDestination(
+          { status: "authenticated", workspace: identity.workspace },
+          location.state?.returnTo,
+        ),
+        { replace: true },
+      );
     } catch (error) {
       const safe = sanitizeAuthError(error, ["email", "password"]);
       setFieldErrors(safe.fieldErrors);

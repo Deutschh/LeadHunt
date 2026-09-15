@@ -104,13 +104,13 @@ export function LogoutButton() {
   return <button type="button" onClick={() => void handleLogout()} disabled={busy} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"><LogOut size={17} />Sair</button>;
 }
 
-export function AuthStatusScreen({ unavailable = false }) {
+export function AuthStatusScreen({ unavailable = false, onRetry }) {
   const auth = useAuth();
   return (
     <AuthShell>
       <AuthCard title={unavailable ? "Não foi possível conectar ao LeadHunt" : "Preparando seu acesso"} description={unavailable ? "O serviço está temporariamente indisponível. Sua sessão não foi classificada como encerrada." : "Estamos validando sua sessão com segurança."}>
         {unavailable ? (
-          <button type="button" onClick={() => void auth.retryBootstrap()} className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-5 py-3 font-bold text-white"><RotateCcw size={18} />Tentar novamente</button>
+          <button type="button" onClick={() => void (onRetry || auth.retryBootstrap)()} className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-5 py-3 font-bold text-white"><RotateCcw size={18} />Tentar novamente</button>
         ) : (
           <div role="status" aria-live="polite" className="flex items-center gap-3 text-slate-600"><LoaderCircle className="animate-spin" />Carregando sessão...</div>
         )}

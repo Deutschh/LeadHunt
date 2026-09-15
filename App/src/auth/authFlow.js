@@ -48,6 +48,20 @@ export function getAccountDestination(auth, returnTo) {
   return "/inactive";
 }
 
+export function getPostLoginDestination(auth, returnTo) {
+  const safeReturnTo = sanitizeReturnTo(returnTo);
+  if (safeReturnTo) {
+    const parsed = new URL(safeReturnTo, "https://leadhunt.invalid");
+    if (
+      parsed.pathname === "/admin" ||
+      parsed.pathname.startsWith("/admin/")
+    ) {
+      return safeReturnTo;
+    }
+  }
+  return getAccountDestination(auth, safeReturnTo);
+}
+
 export function getInternalLocation(location) {
   return sanitizeReturnTo(
     `${location?.pathname || "/"}${location?.search || ""}${location?.hash || ""}`,

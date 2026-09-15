@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Routes, Route } from "react-router-dom";
 import { AuthProvider } from "./auth/AuthProvider.jsx";
 import AuthRoutes from "./auth/AuthRoutes.jsx";
+import { AdminProvider } from "./admin/AdminProvider.jsx";
 import Sidebar from "./components/Sidebar";
 import MyLeads from "./sections/MyLeads";
 import Configs from "./sections/config";
@@ -107,7 +108,9 @@ function App() {
         path="*"
         element={
           <AuthProvider>
-            <AuthRoutes operationalElement={<LegacyAppShell />} />
+            <AdminProvider>
+              <AuthRoutes operationalElement={<LegacyAppShell />} />
+            </AdminProvider>
           </AuthProvider>
         }
       />

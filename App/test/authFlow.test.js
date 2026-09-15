@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { getAccountDestination, sanitizeReturnTo } from "../src/auth/authFlow.js";
+import {
+  getAccountDestination,
+  getPostLoginDestination,
+  sanitizeReturnTo,
+} from "../src/auth/authFlow.js";
 
 test("matriz de destino dá precedência ao kill switch", () => {
   const auth = (accountStatus, isActive) => ({ status: "authenticated", workspace: { accountStatus, isActive } });
@@ -20,4 +24,25 @@ test("returnTo aceita somente caminho operacional interno", () => {
   const auth = { status: "authenticated", workspace: { accountStatus: "active", isActive: true } };
   assert.equal(getAccountDestination(auth, "//evil.test"), "/");
   assert.equal(getAccountDestination(auth, "/leads"), "/leads");
+});
+
+test("destino pós-login preserva Admin para submeter o acesso ao guard", () => {
+  for (const account of [
+    { accountStatus: "pending", isActive: true },
+    { accountStatus: "suspended", isActive: true },
+    { accountStatus: "active", isActive: false },
+  ]) {
+    const auth = { status: "authenticated", workspace: account };
+    assert.equal(getPostLoginDestination(auth, "/admin"), "/admin");
+    assert.equal(
+      getPostLoginDestination(auth, "/admin/workspaces/22?tab=audit"),
+      "/admin/workspaces/22?tab=audit",
+    );
+  }
+  const pending = {
+    status: "authenticated",
+    workspace: { accountStatus: "pending", isActive: true },
+  };
+  assert.equal(getPostLoginDestination(pending, "/administrator"), "/pending");
+  assert.equal(getPostLoginDestination(pending, "//evil.test"), "/pending");
 });

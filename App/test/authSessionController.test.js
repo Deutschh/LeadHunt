@@ -216,6 +216,7 @@ test("múltiplos 401 compartilham um refresh e fazem retry único", async () => 
     }),
   });
   await controller.start();
+  const sessionVersion = controller.getSnapshot().sessionVersion;
 
   const requests = Array.from({ length: 5 }, () =>
     controller.apiRequest("/leads"),
@@ -226,6 +227,38 @@ test("múltiplos 401 compartilham um refresh e fazem retry único", async () => 
   assert.deepEqual(await Promise.all(requests), Array(5).fill({ ok: true }));
   assert.equal(refreshCalls, 2);
   assert.equal(operationCalls, 10);
+  assert.equal(controller.getSnapshot().sessionVersion, sessionVersion);
+});
+
+test("sessionVersion muda entre sessões lógicas e não acompanha refresh normal", async () => {
+  let refreshCalls = 0;
+  const controller = createAuthSessionController({
+    client: createClient({
+      refresh: async () => session(`token-${++refreshCalls}`),
+      request: async (_path, options) => {
+        if (options.accessToken === "token-1") {
+          throw httpError(401, "INVALID_ACCESS_TOKEN");
+        }
+        return { ok: true };
+      },
+    }),
+  });
+
+  await controller.start();
+  const firstSession = controller.getSnapshot().sessionVersion;
+  assert.ok(Number.isSafeInteger(firstSession));
+  await controller.apiRequest("/refresh-required");
+  assert.equal(controller.getSnapshot().sessionVersion, firstSession);
+
+  await controller.retryBootstrap();
+  const retriedBootstrap = controller.getSnapshot().sessionVersion;
+  assert.ok(retriedBootstrap > firstSession);
+
+  await controller.logout();
+  const loggedOut = controller.getSnapshot().sessionVersion;
+  assert.ok(loggedOut > retriedBootstrap);
+  await controller.login("outra@example.com", "password");
+  assert.ok(controller.getSnapshot().sessionVersion > loggedOut);
 });
 
 test("retry 401 encerra sessão sem loop e 403 não provoca logout", async () => {
