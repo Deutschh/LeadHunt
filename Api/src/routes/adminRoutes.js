@@ -10,6 +10,10 @@ const {
   AdminWorkspaceStatusConflictError,
 } = require("../services/adminWorkspaceStatusService");
 const {
+  AdminWorkspaceMaxProfilesConflictError,
+  AdminWorkspaceMaxProfilesValidationError,
+} = require("../services/adminWorkspaceMaxProfilesService");
+const {
   validateEmptyQuery,
   validateWorkspaceAuditQuery,
   validateWorkspaceId,
@@ -18,6 +22,9 @@ const {
 const {
   validateAdminWorkspaceStatusBody,
 } = require("../validation/adminWorkspaceStatusValidation");
+const {
+  validateAdminWorkspaceMaxProfilesBody,
+} = require("../validation/adminWorkspaceMaxProfilesValidation");
 
 const NOT_FOUND_RESPONSE = Object.freeze({
   error: "Workspace não encontrado.",
@@ -33,6 +40,14 @@ const STATUS_CONFLICT_RESPONSE = Object.freeze({
 });
 const STATUS_INTERNAL_ERROR_RESPONSE = Object.freeze({
   error: "Erro interno ao alterar o status administrativo do workspace.",
+  code: "INTERNAL_ERROR",
+});
+const MAX_PROFILES_CONFLICT_RESPONSE = Object.freeze({
+  error: "O limite de perfis foi alterado por outra operação.",
+  code: "ADMIN_WORKSPACE_MAX_PROFILES_CONFLICT",
+});
+const MAX_PROFILES_INTERNAL_ERROR_RESPONSE = Object.freeze({
+  error: "Erro interno ao alterar o limite de perfis do workspace.",
   code: "INTERNAL_ERROR",
 });
 
@@ -53,6 +68,7 @@ function sendValidationError(res, validation) {
 function createAdminRouter({
   workspaceService,
   workspaceStatusService,
+  workspaceMaxProfilesService,
   logger = console,
 } = {}) {
   if (
@@ -70,6 +86,12 @@ function createAdminRouter({
     typeof workspaceStatusService.reactivateWorkspace !== "function"
   ) {
     throw new TypeError("Service de status administrativo é obrigatório.");
+  }
+  if (
+    !workspaceMaxProfilesService ||
+    typeof workspaceMaxProfilesService.updateMaxProfiles !== "function"
+  ) {
+    throw new TypeError("Service administrativo de perfis é obrigatório.");
   }
 
   const router = express.Router();
@@ -186,11 +208,57 @@ function createAdminRouter({
     ),
   );
 
+  router.patch("/workspaces/:workspaceId/max-profiles", async (req, res) => {
+    const idValidation = validateWorkspaceId(req.params.workspaceId);
+    if (idValidation.error) return sendValidationError(res, idValidation);
+    const queryValidation = validateEmptyQuery(req.query);
+    if (queryValidation.error) return sendValidationError(res, queryValidation);
+    const bodyValidation = validateAdminWorkspaceMaxProfilesBody(req.body);
+    if (bodyValidation.error) return sendValidationError(res, bodyValidation);
+
+    try {
+      const result = await workspaceMaxProfilesService.updateMaxProfiles({
+        actorUserId: req.user.id,
+        workspaceId: idValidation.value,
+        maxProfiles: bodyValidation.value.maxProfiles,
+        expectedMaxProfiles: bodyValidation.value.expectedMaxProfiles,
+        reason: bodyValidation.value.reason,
+      });
+      return res.status(200).json(result);
+    } catch (error) {
+      if (error instanceof AdminWorkspaceAuthorizationError) {
+        return res.status(403).json(ADMIN_ACCESS_DENIED_RESPONSE);
+      }
+      if (error instanceof AdminWorkspaceNotFoundError) {
+        return res.status(404).json(NOT_FOUND_RESPONSE);
+      }
+      if (error instanceof AdminWorkspaceMaxProfilesValidationError) {
+        return sendValidationError(res, {
+          error: {
+            status: 400,
+            code: "VALIDATION_ERROR",
+            message: "Revise os dados da ação administrativa.",
+            fieldErrors: {
+              maxProfiles: "must_be_at_least_workspace_min_profiles",
+            },
+          },
+        });
+      }
+      if (error instanceof AdminWorkspaceMaxProfilesConflictError) {
+        return res.status(409).json(MAX_PROFILES_CONFLICT_RESPONSE);
+      }
+      logger.error("ADMIN_WORKSPACE_MAX_PROFILES_UPDATE_FAILED");
+      return res.status(500).json(MAX_PROFILES_INTERNAL_ERROR_RESPONSE);
+    }
+  });
+
   return router;
 }
 
 module.exports = {
   INTERNAL_ERROR_RESPONSE,
+  MAX_PROFILES_CONFLICT_RESPONSE,
+  MAX_PROFILES_INTERNAL_ERROR_RESPONSE,
   NOT_FOUND_RESPONSE,
   STATUS_CONFLICT_RESPONSE,
   STATUS_INTERNAL_ERROR_RESPONSE,

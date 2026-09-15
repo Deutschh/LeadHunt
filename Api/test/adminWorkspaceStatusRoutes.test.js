@@ -105,6 +105,11 @@ async function withServer(options, operation) {
     createAdminRouter({
       workspaceService: readService(),
       workspaceStatusService,
+      workspaceMaxProfilesService: {
+        updateMaxProfiles: async () => {
+          throw new Error("unexpected max profiles update");
+        },
+      },
       logger: { error: () => {} },
     }),
   );

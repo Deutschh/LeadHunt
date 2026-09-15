@@ -92,6 +92,11 @@ async function withServer(options, operation) {
           throw new Error("unexpected workspace reactivation");
         },
       },
+      workspaceMaxProfilesService: {
+        updateMaxProfiles: async () => {
+          throw new Error("unexpected max profiles update");
+        },
+      },
       logger: { error: () => {} },
     }),
   );

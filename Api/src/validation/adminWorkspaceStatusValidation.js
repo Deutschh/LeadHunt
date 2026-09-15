@@ -70,4 +70,5 @@ module.exports = {
   MAX_REASON_BYTES,
   MAX_REASON_CODE_POINTS,
   validateAdminWorkspaceStatusBody,
+  validateReason,
 };

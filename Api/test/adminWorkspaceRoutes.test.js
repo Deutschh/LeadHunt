@@ -122,6 +122,11 @@ async function withServer(options, operation) {
       throw new Error("unexpected workspace reactivation");
     },
   };
+  const workspaceMaxProfilesService = {
+    updateMaxProfiles: async () => {
+      throw new Error("unexpected max profiles update");
+    },
+  };
 
   app.use(
     "/api/admin",
@@ -130,6 +135,7 @@ async function withServer(options, operation) {
     createAdminRouter({
       workspaceService,
       workspaceStatusService,
+      workspaceMaxProfilesService,
       logger: { error: () => {} },
     }),
   );
