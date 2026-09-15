@@ -110,6 +110,11 @@ async function withServer(options, operation) {
           throw new Error("unexpected max profiles update");
         },
       },
+      workspaceReleaseChannelService: {
+        updateReleaseChannel: async () => {
+          throw new Error("unexpected release channel update");
+        },
+      },
       logger: { error: () => {} },
     }),
   );

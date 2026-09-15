@@ -62,6 +62,9 @@ const {
   createAdminWorkspaceMaxProfilesRepository,
 } = require("./repositories/adminWorkspaceMaxProfilesRepository");
 const {
+  createAdminWorkspaceReleaseChannelRepository,
+} = require("./repositories/adminWorkspaceReleaseChannelRepository");
+const {
   createAdminWorkspaceService,
 } = require("./services/adminWorkspaceService");
 const {
@@ -70,6 +73,9 @@ const {
 const {
   createAdminWorkspaceMaxProfilesService,
 } = require("./services/adminWorkspaceMaxProfilesService");
+const {
+  createAdminWorkspaceReleaseChannelService,
+} = require("./services/adminWorkspaceReleaseChannelService");
 const {
   createOperationalWebRouter,
   setOperationalResourceNoStore,
@@ -190,10 +196,17 @@ const adminWorkspaceMaxProfilesRepository =
 const adminWorkspaceMaxProfilesService = createAdminWorkspaceMaxProfilesService({
   repository: adminWorkspaceMaxProfilesRepository,
 });
+const adminWorkspaceReleaseChannelRepository =
+  createAdminWorkspaceReleaseChannelRepository({ db });
+const adminWorkspaceReleaseChannelService =
+  createAdminWorkspaceReleaseChannelService({
+    repository: adminWorkspaceReleaseChannelRepository,
+  });
 const adminRouter = createAdminRouter({
   workspaceService: adminWorkspaceService,
   workspaceStatusService: adminWorkspaceStatusService,
   workspaceMaxProfilesService: adminWorkspaceMaxProfilesService,
+  workspaceReleaseChannelService: adminWorkspaceReleaseChannelService,
 });
 const commercialProfileRepository = createCommercialProfileRepository({ db });
 const commercialProfileService = createCommercialProfileService({

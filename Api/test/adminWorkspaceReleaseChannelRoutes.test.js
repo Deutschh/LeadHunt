@@ -14,56 +14,44 @@ const {
   AdminWorkspaceAuthorizationError,
 } = require("../src/services/adminWorkspaceStatusService");
 const {
-  AdminWorkspaceMaxProfilesConflictError,
-  AdminWorkspaceMaxProfilesValidationError,
-} = require("../src/services/adminWorkspaceMaxProfilesService");
+  AdminWorkspaceReleaseChannelConflictError,
+} = require("../src/services/adminWorkspaceReleaseChannelService");
 const {
   createAdminRouter,
   setAdminNoStore,
 } = require("../src/routes/adminRoutes");
 
-function context() {
+function context({ accountStatus = "active", isActive = true } = {}) {
   return {
     user: { id: "7", name: "Admin", email: "admin@example.com" },
     membership: { userId: "7", workspaceId: "11", role: "owner" },
     workspace: {
       id: "11",
       name: "Conta A",
-      accountStatus: "active",
-      isActive: true,
+      accountStatus,
+      isActive,
       timezone: "America/Sao_Paulo",
       releaseChannel: "stable",
       minProfiles: 2,
-      maxProfiles: 2,
+      maxProfiles: 4,
     },
   };
 }
 
-function readService() {
+function unrelatedServices() {
   return {
-    listWorkspaces: async () => ({
-      workspaces: [],
-      pagination: { page: 1, pageSize: 25, totalItems: 0, totalPages: 0 },
-    }),
-    getWorkspaceDetails: async () => {
-      throw new Error("unexpected details call");
+    workspaceService: {
+      listWorkspaces: async () => { throw new Error("unexpected list"); },
+      getWorkspaceDetails: async () => { throw new Error("unexpected details"); },
+      listWorkspaceAudit: async () => { throw new Error("unexpected audit"); },
     },
-    listWorkspaceAudit: async () => {
-      throw new Error("unexpected audit call");
+    workspaceStatusService: {
+      activateWorkspace: async () => { throw new Error("unexpected activate"); },
+      suspendWorkspace: async () => { throw new Error("unexpected suspend"); },
+      reactivateWorkspace: async () => { throw new Error("unexpected reactivate"); },
     },
-  };
-}
-
-function statusService() {
-  return {
-    activateWorkspace: async () => {
-      throw new Error("unexpected activation");
-    },
-    suspendWorkspace: async () => {
-      throw new Error("unexpected suspension");
-    },
-    reactivateWorkspace: async () => {
-      throw new Error("unexpected reactivation");
+    workspaceMaxProfilesService: {
+      updateMaxProfiles: async () => { throw new Error("unexpected profiles"); },
     },
   };
 }
@@ -77,7 +65,9 @@ async function withServer(options, operation) {
 
   const requireAuthenticatedContext = createRequireAuthenticatedContext({
     accessTokenService: { verify: () => ({ sub: "7", ver: 2 }) },
-    identityService: { resolve: async () => context() },
+    identityService: {
+      resolve: async () => options.context || context(),
+    },
     logger: { error: () => {}, warn: () => {} },
   });
   const requireAdmin = createRequireAdmin({
@@ -93,15 +83,14 @@ async function withServer(options, operation) {
     logger: { error: () => {} },
   });
 
-  const workspaceMaxProfilesService = {
-    updateMaxProfiles: async (input) => {
+  const workspaceReleaseChannelService = {
+    updateReleaseChannel: async (input) => {
       calls.updates.push(input);
       if (options.error) throw options.error;
       return {
         workspace: {
           workspaceId: input.workspaceId,
-          minProfiles: 2,
-          maxProfiles: input.maxProfiles,
+          releaseChannel: input.releaseChannel,
         },
       };
     },
@@ -112,14 +101,8 @@ async function withServer(options, operation) {
     requireAuthenticatedContext,
     requireAdmin,
     createAdminRouter({
-      workspaceService: readService(),
-      workspaceStatusService: statusService(),
-      workspaceMaxProfilesService,
-      workspaceReleaseChannelService: {
-        updateReleaseChannel: async () => {
-          throw new Error("unexpected release channel update");
-        },
-      },
+      ...unrelatedServices(),
+      workspaceReleaseChannelService,
       logger: { error: () => {} },
     }),
   );
@@ -146,15 +129,15 @@ function request(baseUrl, path, { body, headers = {} } = {}) {
 }
 
 const VALID_BODY = JSON.stringify({
-  maxProfiles: 4,
-  expectedMaxProfiles: 2,
-  reason: "Justificativa.",
+  releaseChannel: "canary",
+  expectedReleaseChannel: "stable",
+  reason: "Liberação administrativa.",
 });
 
 test("sem sessão e usuário comum são bloqueados antes da alteração", async () => {
   await withServer({}, async (baseUrl, calls) => {
     const anonymous = await fetch(
-      `${baseUrl}/api/admin/workspaces/22/max-profiles`,
+      `${baseUrl}/api/admin/workspaces/22/release-channel`,
       {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -164,20 +147,21 @@ test("sem sessão e usuário comum são bloqueados antes da alteração", async 
     assert.equal(anonymous.status, 401);
     assert.equal(anonymous.headers.get("cache-control"), "no-store");
 
-    const common = await request(baseUrl, "/workspaces/22/max-profiles", {
+    const common = await request(baseUrl, "/workspaces/22/release-channel", {
       body: VALID_BODY,
     });
     assert.equal(common.status, 403);
+    assert.equal(common.headers.get("cache-control"), "no-store");
     assert.deepEqual(calls.updates, []);
   });
 });
 
 test("usa ator da sessão e alvo da rota, ignorando headers forjados", async () => {
   await withServer({ isAdmin: true }, async (baseUrl, calls) => {
-    const response = await request(baseUrl, "/workspaces/22/max-profiles", {
+    const response = await request(baseUrl, "/workspaces/22/release-channel", {
       body: JSON.stringify({
-        maxProfiles: 4,
-        expectedMaxProfiles: 2,
+        releaseChannel: "canary",
+        expectedReleaseChannel: "stable",
         reason: "  Linha 1\r\nLinha 2  ",
       }),
       headers: { "X-Actor-Id": "99", "X-Workspace-Id": "99" },
@@ -185,39 +169,58 @@ test("usa ator da sessão e alvo da rota, ignorando headers forjados", async () 
     assert.equal(response.status, 200);
     assert.equal(response.headers.get("cache-control"), "no-store");
     assert.deepEqual(await response.json(), {
-      workspace: { workspaceId: "22", minProfiles: 2, maxProfiles: 4 },
+      workspace: { workspaceId: "22", releaseChannel: "canary" },
     });
     assert.deepEqual(calls.updates, [
       {
         actorUserId: "7",
         workspaceId: "22",
-        maxProfiles: 4,
-        expectedMaxProfiles: 2,
+        releaseChannel: "canary",
+        expectedReleaseChannel: "stable",
         reason: "Linha 1\nLinha 2",
       },
     ]);
   });
 });
 
+test("status e kill switch do workspace próprio não bloqueiam Admin", async () => {
+  for (const ownContext of [
+    context({ accountStatus: "pending" }),
+    context({ accountStatus: "suspended" }),
+    context({ isActive: false }),
+  ]) {
+    await withServer(
+      { isAdmin: true, context: ownContext },
+      async (baseUrl, calls) => {
+        const response = await request(baseUrl, "/workspaces/22/release-channel", {
+          body: VALID_BODY,
+        });
+        assert.equal(response.status, 200);
+        assert.equal(calls.updates.length, 1);
+      },
+    );
+  }
+});
+
 test("payloads, query e workspaceId inválidos retornam 400", async () => {
   await withServer({ isAdmin: true }, async (baseUrl, calls) => {
     const cases = [
-      { path: "/workspaces/22/max-profiles" },
-      { path: "/workspaces/22/max-profiles", body: "{}" },
+      { path: "/workspaces/22/release-channel" },
+      { path: "/workspaces/22/release-channel", body: "{}" },
       {
-        path: "/workspaces/22/max-profiles",
-        body: '{"maxProfiles":"4","expectedMaxProfiles":2,"reason":"A"}',
+        path: "/workspaces/22/release-channel",
+        body: '{"releaseChannel":"Stable","expectedReleaseChannel":"stable","reason":"A"}',
       },
       {
-        path: "/workspaces/22/max-profiles",
-        body: '{"maxProfiles":4,"expectedMaxProfiles":2,"reason":"A","actor_user_id":"99"}',
+        path: "/workspaces/22/release-channel",
+        body: '{"releaseChannel":"canary","expectedReleaseChannel":"stable","reason":"A","actor_user_id":"99"}',
       },
       {
-        path: "/workspaces/22/max-profiles",
-        body: '{"maxProfiles":4,"expectedMaxProfiles":2,"reason":"A","__proto__":"x"}',
+        path: "/workspaces/22/release-channel",
+        body: '{"releaseChannel":"canary","expectedReleaseChannel":"stable","reason":"A","__proto__":"x"}',
       },
-      { path: "/workspaces/22/max-profiles?is_admin=true", body: VALID_BODY },
-      { path: "/workspaces/0/max-profiles", body: VALID_BODY },
+      { path: "/workspaces/22/release-channel?is_admin=true", body: VALID_BODY },
+      { path: "/workspaces/0/release-channel", body: VALID_BODY },
     ];
 
     for (const item of cases) {
@@ -239,21 +242,16 @@ test("erros de domínio e falha interna são estáveis e sanitizados", async () 
     },
     { error: new AdminWorkspaceNotFoundError(), status: 404, code: "NOT_FOUND" },
     {
-      error: new AdminWorkspaceMaxProfilesValidationError(),
-      status: 400,
-      code: "VALIDATION_ERROR",
-    },
-    {
-      error: new AdminWorkspaceMaxProfilesConflictError(),
+      error: new AdminWorkspaceReleaseChannelConflictError(),
       status: 409,
-      code: "ADMIN_WORKSPACE_MAX_PROFILES_CONFLICT",
+      code: "ADMIN_WORKSPACE_RELEASE_CHANNEL_CONFLICT",
     },
     { error: new Error("sensitive database failure"), status: 500, code: "INTERNAL_ERROR" },
   ];
 
   for (const item of cases) {
     await withServer({ isAdmin: true, error: item.error }, async (baseUrl) => {
-      const response = await request(baseUrl, "/workspaces/22/max-profiles", {
+      const response = await request(baseUrl, "/workspaces/22/release-channel", {
         body: VALID_BODY,
       });
       const body = await response.json();
@@ -267,7 +265,7 @@ test("erros de domínio e falha interna são estáveis e sanitizados", async () 
 
 test("JSON malformado retorna 400 e no-store antes da autorização", async () => {
   await withServer({ isAdmin: true }, async (baseUrl, calls) => {
-    const response = await request(baseUrl, "/workspaces/22/max-profiles", {
+    const response = await request(baseUrl, "/workspaces/22/release-channel", {
       body: "{",
     });
     assert.equal(response.status, 400);

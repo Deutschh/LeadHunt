@@ -14,6 +14,9 @@ const {
   AdminWorkspaceMaxProfilesValidationError,
 } = require("../services/adminWorkspaceMaxProfilesService");
 const {
+  AdminWorkspaceReleaseChannelConflictError,
+} = require("../services/adminWorkspaceReleaseChannelService");
+const {
   validateEmptyQuery,
   validateWorkspaceAuditQuery,
   validateWorkspaceId,
@@ -25,6 +28,9 @@ const {
 const {
   validateAdminWorkspaceMaxProfilesBody,
 } = require("../validation/adminWorkspaceMaxProfilesValidation");
+const {
+  validateAdminWorkspaceReleaseChannelBody,
+} = require("../validation/adminWorkspaceReleaseChannelValidation");
 
 const NOT_FOUND_RESPONSE = Object.freeze({
   error: "Workspace não encontrado.",
@@ -50,6 +56,14 @@ const MAX_PROFILES_INTERNAL_ERROR_RESPONSE = Object.freeze({
   error: "Erro interno ao alterar o limite de perfis do workspace.",
   code: "INTERNAL_ERROR",
 });
+const RELEASE_CHANNEL_CONFLICT_RESPONSE = Object.freeze({
+  error: "O canal de release foi alterado por outra operação.",
+  code: "ADMIN_WORKSPACE_RELEASE_CHANNEL_CONFLICT",
+});
+const RELEASE_CHANNEL_INTERNAL_ERROR_RESPONSE = Object.freeze({
+  error: "Erro interno ao alterar o canal de release do workspace.",
+  code: "INTERNAL_ERROR",
+});
 
 function setAdminNoStore(_req, res, next) {
   res.set("Cache-Control", "no-store");
@@ -69,6 +83,7 @@ function createAdminRouter({
   workspaceService,
   workspaceStatusService,
   workspaceMaxProfilesService,
+  workspaceReleaseChannelService,
   logger = console,
 } = {}) {
   if (
@@ -92,6 +107,12 @@ function createAdminRouter({
     typeof workspaceMaxProfilesService.updateMaxProfiles !== "function"
   ) {
     throw new TypeError("Service administrativo de perfis é obrigatório.");
+  }
+  if (
+    !workspaceReleaseChannelService ||
+    typeof workspaceReleaseChannelService.updateReleaseChannel !== "function"
+  ) {
+    throw new TypeError("Service administrativo de canal é obrigatório.");
   }
 
   const router = express.Router();
@@ -252,6 +273,38 @@ function createAdminRouter({
     }
   });
 
+  router.patch("/workspaces/:workspaceId/release-channel", async (req, res) => {
+    const idValidation = validateWorkspaceId(req.params.workspaceId);
+    if (idValidation.error) return sendValidationError(res, idValidation);
+    const queryValidation = validateEmptyQuery(req.query);
+    if (queryValidation.error) return sendValidationError(res, queryValidation);
+    const bodyValidation = validateAdminWorkspaceReleaseChannelBody(req.body);
+    if (bodyValidation.error) return sendValidationError(res, bodyValidation);
+
+    try {
+      const result = await workspaceReleaseChannelService.updateReleaseChannel({
+        actorUserId: req.user.id,
+        workspaceId: idValidation.value,
+        releaseChannel: bodyValidation.value.releaseChannel,
+        expectedReleaseChannel: bodyValidation.value.expectedReleaseChannel,
+        reason: bodyValidation.value.reason,
+      });
+      return res.status(200).json(result);
+    } catch (error) {
+      if (error instanceof AdminWorkspaceAuthorizationError) {
+        return res.status(403).json(ADMIN_ACCESS_DENIED_RESPONSE);
+      }
+      if (error instanceof AdminWorkspaceNotFoundError) {
+        return res.status(404).json(NOT_FOUND_RESPONSE);
+      }
+      if (error instanceof AdminWorkspaceReleaseChannelConflictError) {
+        return res.status(409).json(RELEASE_CHANNEL_CONFLICT_RESPONSE);
+      }
+      logger.error("ADMIN_WORKSPACE_RELEASE_CHANNEL_UPDATE_FAILED");
+      return res.status(500).json(RELEASE_CHANNEL_INTERNAL_ERROR_RESPONSE);
+    }
+  });
+
   return router;
 }
 
@@ -260,6 +313,8 @@ module.exports = {
   MAX_PROFILES_CONFLICT_RESPONSE,
   MAX_PROFILES_INTERNAL_ERROR_RESPONSE,
   NOT_FOUND_RESPONSE,
+  RELEASE_CHANNEL_CONFLICT_RESPONSE,
+  RELEASE_CHANNEL_INTERNAL_ERROR_RESPONSE,
   STATUS_CONFLICT_RESPONSE,
   STATUS_INTERNAL_ERROR_RESPONSE,
   createAdminRouter,

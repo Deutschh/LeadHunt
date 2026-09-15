@@ -127,6 +127,11 @@ async function withServer(options, operation) {
       throw new Error("unexpected max profiles update");
     },
   };
+  const workspaceReleaseChannelService = {
+    updateReleaseChannel: async () => {
+      throw new Error("unexpected release channel update");
+    },
+  };
 
   app.use(
     "/api/admin",
@@ -136,6 +141,7 @@ async function withServer(options, operation) {
       workspaceService,
       workspaceStatusService,
       workspaceMaxProfilesService,
+      workspaceReleaseChannelService,
       logger: { error: () => {} },
     }),
   );
