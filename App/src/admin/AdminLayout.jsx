@@ -5,13 +5,13 @@ import { getAccountDestination } from "../auth/authFlow.js";
 import { LeadHuntBrand, LogoutButton } from "../components/auth/AuthComponents.jsx";
 
 function AccountsLink({ compact = false }) {
-  return <NavLink to="/admin" className={({ isActive }) => `flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-black transition ${isActive ? "bg-slate-950 text-white shadow-lg shadow-slate-950/15" : "text-slate-600 hover:bg-white hover:text-slate-950"} ${compact ? "whitespace-nowrap" : ""}`}><Building2 size={19} />Contas</NavLink>;
+  return <NavLink to="/admin" aria-label={compact ? "Contas" : undefined} className={({ isActive }) => `flex items-center rounded-2xl text-sm font-black transition ${isActive ? "bg-slate-950 text-white shadow-lg shadow-slate-950/15" : "text-slate-600 hover:bg-white hover:text-slate-950"} ${compact ? "min-h-11 min-w-11 justify-center px-2 py-2" : "gap-3 px-4 py-3"}`}><Building2 size={19} /><span className={compact ? "sr-only" : ""}>Contas</span></NavLink>;
 }
 
 export default function AdminLayout() {
   const auth = useAuth();
   return (
-    <div className="min-h-screen bg-[#F0F2F5] text-slate-900 lg:flex">
+    <div className="min-h-screen overflow-x-hidden bg-[#F0F2F5] text-slate-900 lg:flex">
       <aside className="sticky top-0 hidden h-screen w-72 shrink-0 flex-col border-r border-white/60 bg-white/60 p-8 backdrop-blur-2xl lg:flex">
         <Link to="/admin"><LeadHuntBrand compact /></Link>
         <p className="mb-8 mt-4 px-1 text-[10px] font-black uppercase tracking-[0.28em] text-slate-400">Admin LeadHunt</p>
