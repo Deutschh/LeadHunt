@@ -32,6 +32,10 @@ function resetTokenKeyGenerator(req) {
   return `password-reset:${hashOpaqueKey(token)}`;
 }
 
+function authenticatedUserKeyGenerator(req) {
+  return `user:${req.user.id}`;
+}
+
 function hashOpaqueKey(value) {
   return crypto.createHash("sha256").update(value, "utf8").digest("hex");
 }
@@ -146,10 +150,19 @@ function createAuthRateLimits(config = {}) {
         keyGenerator: resetTokenKeyGenerator,
       }),
     ],
+    changePassword: [
+      createLimiter({ windowMs: 15 * 60 * 1000, limit: 10 }),
+      createLimiter({
+        windowMs: 15 * 60 * 1000,
+        limit: 5,
+        keyGenerator: authenticatedUserKeyGenerator,
+      }),
+    ],
   });
 }
 
 module.exports = {
+  authenticatedUserKeyGenerator,
   createAuthRateLimits,
   emailKeyGenerator,
   refreshCookieKeyGenerator,

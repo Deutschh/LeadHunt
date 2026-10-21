@@ -65,6 +65,41 @@ function normalizeEmail(rawEmail) {
   return email;
 }
 
+function normalizeName(rawName) {
+  if (typeof rawName !== "string") {
+    return null;
+  }
+
+  const name = rawName.trim();
+  const nameLength = [...name].length;
+
+  if (
+    nameLength < 2 ||
+    nameLength > 120 ||
+    CONTROL_CHARACTER_PATTERN.test(name)
+  ) {
+    return null;
+  }
+
+  return name;
+}
+
+function isValidPassword(password) {
+  if (typeof password !== "string") {
+    return false;
+  }
+
+  const passwordLength = [...password].length;
+  const passwordByteLength = Buffer.byteLength(password, "utf8");
+  return (
+    passwordLength >= 12 &&
+    passwordLength <= 128 &&
+    passwordByteLength <= 512 &&
+    /\S/u.test(password) &&
+    !CONTROL_CHARACTER_PATTERN.test(password)
+  );
+}
+
 function validatePassword(password) {
   if (typeof password !== "string") {
     return error(400, "WEAK_PASSWORD", "A senha informada não é válida.", {
@@ -72,16 +107,7 @@ function validatePassword(password) {
     });
   }
 
-  const passwordLength = [...password].length;
-  const passwordByteLength = Buffer.byteLength(password, "utf8");
-
-  if (
-    passwordLength < 12 ||
-    passwordLength > 128 ||
-    passwordByteLength > 512 ||
-    !/\S/u.test(password) ||
-    CONTROL_CHARACTER_PATTERN.test(password)
-  ) {
+  if (!isValidPassword(password)) {
     return error(400, "WEAK_PASSWORD", "A senha informada não é válida.", {
       password: "Use entre 12 e 128 caracteres válidos.",
     });
@@ -99,16 +125,13 @@ function validateRegister(body, config) {
     );
   }
 
-  const name = typeof body.name === "string" ? body.name.trim() : "";
-  const nameLength = [...name].length;
+  const name = normalizeName(body.name);
   const email = normalizeEmail(body.email);
 
   const fieldErrors = {};
 
   if (
-    nameLength < 2 ||
-    nameLength > 120 ||
-    CONTROL_CHARACTER_PATTERN.test(name)
+    name === null
   ) {
     fieldErrors.name = "Informe um nome válido entre 2 e 120 caracteres.";
   }
@@ -306,7 +329,9 @@ function validateResetPassword(body) {
 }
 
 module.exports = {
+  isValidPassword,
   normalizeEmail,
+  normalizeName,
   validateForgotPassword,
   validateLogin,
   validateRegister,

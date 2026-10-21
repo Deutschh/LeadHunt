@@ -553,25 +553,52 @@ export function createAuthSessionController({ client }) {
     }
 
     const epoch = authEpoch;
-    const revision = tokenRevision;
-    const first = await loadIdentity(epoch, revision, {
-      anonymousOn401: false,
-    });
+    const expectedSessionVersion = sessionVersion;
+    let revision = tokenRevision;
 
-    if (first.stale || !first.error) {
-      return first.identity || null;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const loaded = await loadIdentity(epoch, revision, {
+        anonymousOn401: attempt > 0,
+      });
+
+      if (!loaded.stale && !loaded.error) {
+        return loaded.identity || null;
+      }
+
+      if (loaded.error) {
+        if (
+          !(loaded.error instanceof AuthHttpError) ||
+          loaded.error.status !== 401
+        ) {
+          throw loaded.error;
+        }
+        if (attempt === 1) {
+          throw loaded.error;
+        }
+
+        const refreshed = await refreshAccessToken(epoch);
+        if (
+          !isCurrent(epoch, refreshed.revision) ||
+          sessionVersion !== expectedSessionVersion
+        ) {
+          throw staleOperation();
+        }
+        revision = refreshed.revision;
+        continue;
+      }
+
+      if (
+        !isCurrent(epoch) ||
+        accessToken === null ||
+        sessionVersion !== expectedSessionVersion ||
+        tokenRevision === revision
+      ) {
+        throw staleOperation();
+      }
+      revision = tokenRevision;
     }
 
-    if (!(first.error instanceof AuthHttpError) || first.error.status !== 401) {
-      throw first.error;
-    }
-
-    const refreshed = await refreshAccessToken(epoch);
-    const second = await loadIdentity(epoch, refreshed.revision);
-    if (second.error) {
-      throw second.error;
-    }
-    return second.identity || null;
+    throw staleOperation();
   }
 
   async function apiRequest(path, options = {}) {

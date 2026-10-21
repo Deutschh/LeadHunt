@@ -13,6 +13,10 @@ const {
   createCommercialProfileRouter,
 } = require("./routes/commercialProfileRoutes");
 const { createAuthRouter } = require("./routes/authRoutes");
+const {
+  createAccountRouter,
+  setAccountNoStore,
+} = require("./routes/accountRoutes");
 const { loadAuthConfig } = require("./config/authConfig");
 const { loadServerConfig } = require("./config/serverConfig");
 const { createAuthRateLimits } = require("./middleware/authRateLimits");
@@ -22,6 +26,10 @@ const { createAuthCryptoService } = require("./services/authCryptoService");
 const { createAuthService } = require("./services/authService");
 const { createAccessTokenService } = require("./services/accessTokenService");
 const { createAuthSessionService } = require("./services/authSessionService");
+const { createAccountService } = require("./services/accountService");
+const {
+  createAccountPasswordService,
+} = require("./services/accountPasswordService");
 const {
   createPasswordRecoveryService,
 } = require("./services/passwordRecoveryService");
@@ -134,6 +142,7 @@ app.use(
   setOperationalResourceNoStore,
 );
 app.use("/api/admin", setAdminNoStore);
+app.use("/api/account", setAccountNoStore);
 const corsPolicy = createCorsPolicy(serverConfig.corsAllowedOrigins);
 app.use(corsPolicy.enforceOrigin);
 app.use(corsPolicy.middleware);
@@ -180,6 +189,17 @@ const requireAuthenticatedContext = createRequireAuthenticatedContext({
   identityService: authIdentityService,
 });
 const requireOperationalAccess = createRequireOperationalAccess();
+const accountService = createAccountService({ db });
+const accountPasswordService = createAccountPasswordService({
+  db,
+  cryptoService: authCryptoService,
+});
+const authRateLimits = createAuthRateLimits(authConfig);
+const accountRouter = createAccountRouter({
+  service: accountService,
+  passwordService: accountPasswordService,
+  rateLimits: authRateLimits,
+});
 const requireAdmin = createRequireAdmin({ db });
 const adminWorkspaceRepository = createAdminWorkspaceRepository({ db });
 const adminWorkspaceService = createAdminWorkspaceService({
@@ -263,7 +283,7 @@ const authRouter = createAuthRouter({
   cookieService: refreshCookieService,
   requireAuthenticatedContext,
   config: authConfig,
-  rateLimits: createAuthRateLimits(authConfig),
+  rateLimits: authRateLimits,
 });
 
 const server = http.createServer(app);
@@ -288,6 +308,8 @@ if (process.env.NODE_ENV === "production") {
 // --- Rotas públicas sem contexto de workspace ---
 app.use("/api/public/briefings", publicBriefingRoutes);
 app.use("/api/auth", authRouter);
+
+app.use("/api/account", requireAuthenticatedContext, accountRouter);
 
 // --- Rotas administrativas autenticadas e autorizadas no servidor ---
 app.use(

@@ -53,6 +53,7 @@ export function getPostLoginDestination(auth, returnTo) {
   if (safeReturnTo) {
     const parsed = new URL(safeReturnTo, "https://leadhunt.invalid");
     if (
+      parsed.pathname === "/account" ||
       parsed.pathname === "/admin" ||
       parsed.pathname.startsWith("/admin/")
     ) {

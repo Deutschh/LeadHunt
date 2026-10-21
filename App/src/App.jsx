@@ -69,10 +69,10 @@ function LegacyAppShell() {
   }, []);
 
   return (
-    <div className="flex h-screen bg-[#F0F2F5] text-slate-900 overflow-hidden font-sans">
+    <div className="flex h-screen flex-col overflow-hidden bg-[#F0F2F5] font-sans text-slate-900 lg:flex-row">
       <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
 
-      <main className="flex-1 overflow-y-auto">
+      <main className="min-w-0 flex-1 overflow-y-auto">
         {activeTab === "home" && <Home />}
 
         {activeTab === "leads" && (

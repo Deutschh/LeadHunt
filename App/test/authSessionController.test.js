@@ -40,6 +40,13 @@ function identity(overrides = {}) {
   };
 }
 
+function identityFor(name, email = "maria@example.com", workspace = {}) {
+  return {
+    ...identity(workspace),
+    user: { name, email },
+  };
+}
+
 function httpError(status, code) {
   return new AuthHttpError({
     status,
@@ -664,6 +671,155 @@ test("resposta /me do token A não sobrescreve contexto do token B", async () =>
   await oldReload;
 
   assert.equal(controller.getSnapshot().workspace.accountStatus, "active");
+});
+
+test("profile update seguido de reloadMe publica o nome autoritativo", async () => {
+  let persistedName = "Maria Silva";
+  const controller = createAuthSessionController({
+    client: createClient({
+      me: async () => identityFor(persistedName),
+      request: async (path, options) => {
+        assert.equal(path, "/account/profile");
+        persistedName = options.data.name;
+        return { user: { name: persistedName, email: "maria@example.com" } };
+      },
+    }),
+  });
+  await controller.start();
+
+  await controller.apiRequest("/account/profile", {
+    method: "PATCH",
+    data: { name: "Maria Atualizada" },
+  });
+  const reloaded = await controller.reloadMe();
+
+  assert.equal(reloaded.user.name, "Maria Atualizada");
+  assert.equal(controller.getSnapshot().user.name, "Maria Atualizada");
+});
+
+test("reloadMe repete uma vez quando refresh normal descarta a primeira resposta", async () => {
+  let refreshCalls = 0;
+  let meCalls = 0;
+  const staleMe = deferred();
+  const staleMeStarted = deferred();
+  const controller = createAuthSessionController({
+    client: createClient({
+      refresh: async () => session(`token-${++refreshCalls}`),
+      me: async (token) => {
+        meCalls += 1;
+        if (meCalls === 2) {
+          staleMeStarted.resolve();
+          return staleMe.promise;
+        }
+        return identityFor(
+          token === "token-2" ? "Maria Atualizada" : "Maria Silva",
+        );
+      },
+      request: async (_path, options) => {
+        if (options.accessToken === "token-1") {
+          throw httpError(401, "INVALID_ACCESS_TOKEN");
+        }
+        return { ok: true };
+      },
+    }),
+  });
+  await controller.start();
+  const sessionVersion = controller.getSnapshot().sessionVersion;
+
+  const reload = controller.reloadMe();
+  await staleMeStarted.promise;
+  await controller.apiRequest("/rotate-token");
+  staleMe.resolve(identityFor("Resposta Antiga"));
+
+  const reloaded = await reload;
+  assert.equal(reloaded.user.name, "Maria Atualizada");
+  assert.equal(controller.getSnapshot().user.name, "Maria Atualizada");
+  assert.equal(controller.getSnapshot().sessionVersion, sessionVersion);
+  assert.equal(meCalls, 3);
+});
+
+test("reloadMe mantém um único refresh quando a segunda leitura também retorna 401", async () => {
+  let refreshCalls = 0;
+  let meCalls = 0;
+  const controller = createAuthSessionController({
+    client: createClient({
+      refresh: async () => session(`token-${++refreshCalls}`),
+      me: async () => {
+        meCalls += 1;
+        if (meCalls === 1) return identityFor("Maria Silva");
+        throw httpError(401, "INVALID_ACCESS_TOKEN");
+      },
+    }),
+  });
+  await controller.start();
+
+  await assert.rejects(
+    controller.reloadMe(),
+    (error) => error.code === "INVALID_ACCESS_TOKEN",
+  );
+  assert.equal(refreshCalls, 2);
+  assert.equal(meCalls, 3);
+  assert.equal(controller.getSnapshot().status, "anonymous");
+});
+
+test("logout durante reloadMe descarta a identidade anterior", async () => {
+  let meCalls = 0;
+  const staleMe = deferred();
+  const staleMeStarted = deferred();
+  const controller = createAuthSessionController({
+    client: createClient({
+      me: async () => {
+        meCalls += 1;
+        if (meCalls === 2) {
+          staleMeStarted.resolve();
+          return staleMe.promise;
+        }
+        return identityFor("Maria Silva");
+      },
+    }),
+  });
+  await controller.start();
+
+  const reload = controller.reloadMe();
+  await staleMeStarted.promise;
+  const logout = controller.logout();
+  staleMe.resolve(identityFor("Maria Atualizada"));
+
+  await assert.rejects(reload, (error) => error.code === "STALE_AUTH_OPERATION");
+  await logout;
+  assert.equal(controller.getSnapshot().status, "anonymous");
+  assert.equal(controller.getSnapshot().user, null);
+});
+
+test("login de outra conta durante reloadMe não recebe identidade anterior", async () => {
+  let meCalls = 0;
+  const staleMe = deferred();
+  const staleMeStarted = deferred();
+  const controller = createAuthSessionController({
+    client: createClient({
+      login: async () => session("token-b"),
+      me: async (token) => {
+        meCalls += 1;
+        if (meCalls === 2) {
+          staleMeStarted.resolve();
+          return staleMe.promise;
+        }
+        return token === "token-b"
+          ? identityFor("Beatriz Souza", "beatriz@example.com")
+          : identityFor("Maria Silva");
+      },
+    }),
+  });
+  await controller.start();
+
+  const reload = controller.reloadMe();
+  await staleMeStarted.promise;
+  await controller.login("beatriz@example.com", "password");
+  staleMe.resolve(identityFor("Maria Atualizada"));
+
+  await assert.rejects(reload, (error) => error.code === "STALE_AUTH_OPERATION");
+  assert.equal(controller.getSnapshot().user.name, "Beatriz Souza");
+  assert.equal(controller.getSnapshot().user.email, "beatriz@example.com");
 });
 
 test("resposta operacional 200 sobrevive à rotação na mesma epoch", async () => {

@@ -46,3 +46,19 @@ test("destino pós-login preserva Admin para submeter o acesso ao guard", () => 
   assert.equal(getPostLoginDestination(pending, "/administrator"), "/pending");
   assert.equal(getPostLoginDestination(pending, "//evil.test"), "/pending");
 });
+
+test("destino pós-login preserva Minha conta para qualquer sessão autenticada", () => {
+  for (const account of [
+    { accountStatus: "pending", isActive: true },
+    { accountStatus: "suspended", isActive: true },
+    { accountStatus: "active", isActive: false },
+  ]) {
+    assert.equal(
+      getPostLoginDestination(
+        { status: "authenticated", workspace: account },
+        "/account",
+      ),
+      "/account",
+    );
+  }
+});

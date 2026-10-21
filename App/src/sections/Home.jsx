@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from "react";
+import { getFirstName } from "../account/accountModel.js";
+import { useAuth } from "../auth/AuthProvider.jsx";
 import useOperationalApi from "../hooks/useOperationalApi.js";
 import {
   Target,
@@ -18,7 +20,9 @@ import {
 } from "lucide-react";
 
 const Home = () => {
+  const auth = useAuth();
   const api = useOperationalApi();
+  const firstName = getFirstName(auth.user?.name);
   const [leads, setLeads] = useState([]);
   const [notes, setNotes] = useState([]);
   const [showNoteModal, setShowNoteModal] = useState(false);
@@ -170,6 +174,9 @@ const Home = () => {
       {/* 2. HEADER E BARRA DE META */}
       <header className="mb-12 flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
         <div>
+          <p className="mb-1 text-sm font-bold text-slate-500">
+            {firstName ? `Olá, ${firstName}` : "Olá!"}
+          </p>
           <p className="text-[10px] font-black uppercase tracking-[0.4em] text-blue-600 mb-2">
             Dashboard Operacional
           </p>

@@ -6,6 +6,7 @@ import AdminRouteBoundary from "../admin/AdminRoutes.jsx";
 import AdminLayout from "../admin/AdminLayout.jsx";
 import AdminWorkspaceDetailsPage from "../admin/AdminWorkspaceDetailsPage.jsx";
 import AdminWorkspacesPage from "../admin/AdminWorkspacesPage.jsx";
+import AccountPage from "../account/AccountPage.jsx";
 import AccountStatePage from "../pages/auth/AccountStatePage.jsx";
 import ForgotPasswordPage from "../pages/auth/ForgotPasswordPage.jsx";
 import LoginPage from "../pages/auth/LoginPage.jsx";
@@ -44,6 +45,15 @@ function OperationalRoute({ children }) {
   return children;
 }
 
+function AuthenticatedAccountRoute({ children }) {
+  const auth = useAuth();
+  const location = useLocation();
+  if (auth.status !== "authenticated") {
+    return <Navigate to="/login" replace state={{ returnTo: getInternalLocation(location) }} />;
+  }
+  return children;
+}
+
 export default function AuthRoutes({ operationalElement }) {
   return <SessionBoundary><Routes>
     <Route path="/login" element={<PublicOnlyRoute><LoginPage /></PublicOnlyRoute>} />
@@ -54,6 +64,7 @@ export default function AuthRoutes({ operationalElement }) {
     <Route path="/pending" element={<AccountStateRoute state="pending" />} />
     <Route path="/suspended" element={<AccountStateRoute state="suspended" />} />
     <Route path="/inactive" element={<AccountStateRoute state="inactive" />} />
+    <Route path="/account" element={<AuthenticatedAccountRoute><AccountPage /></AuthenticatedAccountRoute>} />
     <Route path="/admin" element={<AdminRouteBoundary />}>
       <Route element={<AdminLayout />}>
         <Route index element={<AdminWorkspacesPage />} />
