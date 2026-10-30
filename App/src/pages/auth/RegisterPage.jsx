@@ -1,13 +1,15 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { createAuthHttpClient } from "../../auth/authHttpClient.js";
-import { createVerificationNavigationState, expectAcceptedResponse, normalizeEmail, resetLegalConsentsForError, sanitizeAuthError, validateRegisterForm } from "../../auth/authUiModel.js";
+import { createVerificationNavigationState, expectRegistrationResponse, normalizeEmail, resetLegalConsentsForError, sanitizeAuthError, validateRegisterForm } from "../../auth/authUiModel.js";
+import {useAuth} from '../../auth/AuthProvider.jsx';
 import { usePublicAuthConfig } from "../../auth/usePublicAuthConfig.js";
 import { AuthCard, AuthShell, Field, GeneralAlert, PasswordField, SubmitButton } from "../../components/auth/AuthComponents.jsx";
 
 const client = createAuthHttpClient();
 
 export default function RegisterPage() {
+  const {rememberVerificationAttempt}=useAuth();
   const navigate = useNavigate();
   const publicConfig = usePublicAuthConfig();
   const [values, setValues] = useState({ name: "", email: "", password: "", passwordConfirmation: "", termsAccepted: false, privacyPolicyAccepted: false });
@@ -25,7 +27,8 @@ export default function RegisterPage() {
     if (Object.keys(errors).length) return;
     setBusy(true);
     try {
-      expectAcceptedResponse(await client.register({ name: values.name.trim(), email: normalizeEmail(values.email), password: values.password, termsAccepted: true, termsVersion: registration.terms.version, privacyPolicyAccepted: true, privacyPolicyVersion: registration.privacyPolicy.version }), "verify_email");
+      const result=expectRegistrationResponse(await client.register({ name: values.name.trim(), email: normalizeEmail(values.email), password: values.password, termsAccepted: true, termsVersion: registration.terms.version, privacyPolicyAccepted: true, privacyPolicyVersion: registration.privacyPolicy.version }));
+      rememberVerificationAttempt(normalizeEmail(values.email),result.verificationAttempt);
       navigate("/verify-email", {
         replace: true,
         state: createVerificationNavigationState(

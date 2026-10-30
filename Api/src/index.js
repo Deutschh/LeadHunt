@@ -125,9 +125,11 @@ const {
 const {
   createLeadMessageRouter,
 } = require("./routes/leadMessageRoutes");
-const {
-  attachLegacySocketQuarantine,
-} = require("./socket/legacySocketQuarantine");
+const { createJobService } = require('./services/jobService');
+const { createRuntimeRepository } = require('./repositories/runtimeRepository');
+const { attachRuntimeSocketServer } = require('./socket/runtimeSocketServer');
+const { createJobWebRouter, createAgentJobRouter } = require('./routes/jobRoutes');
+const { createRequireDeviceContext } = require('./middleware/requireDeviceContext');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -287,12 +289,29 @@ const authRouter = createAuthRouter({
 });
 
 const server = http.createServer(app);
-attachLegacySocketQuarantine({
+const runtimeRepository = createRuntimeRepository({ db });
+const runtimeSocket = attachRuntimeSocketServer({
   httpServer: server,
-  corsOrigins: ["http://localhost:5173", process.env.FRONTEND_URL].filter(
-    Boolean,
-  ),
+  runtime: runtimeRepository,
+  accessTokenService,
+  identityService: authIdentityService,
+  corsOrigins: serverConfig.corsAllowedOrigins,
 });
+const jobService = createJobService({
+  db,
+  authorizeConsumer: runtimeRepository.authorizeConsumer,
+  onEvent: runtimeSocket.notify,
+});
+let recoveringJobs = false;
+const jobRecoveryTimer = setInterval(async () => {
+  if (recoveringJobs || !await runtimeSocket.ready) return;
+  recoveringJobs = true;
+  try { await jobService.recover(); }
+  catch { console.error('JOB_RECOVERY_UNAVAILABLE'); }
+  finally { recoveringJobs = false; }
+}, 5000);
+jobRecoveryTimer.unref();
+server.once('close', () => clearInterval(jobRecoveryTimer));
 
 // --- Lógica de Ambiente ---
 if (process.env.NODE_ENV === "production") {
@@ -310,6 +329,16 @@ app.use("/api/public/briefings", publicBriefingRoutes);
 app.use("/api/auth", authRouter);
 
 app.use("/api/account", requireAuthenticatedContext, accountRouter);
+
+app.use('/api/jobs', createJobWebRouter({
+  service: jobService,
+  requireAuthenticatedContext,
+  requireOperationalAccess,
+}));
+app.use('/api/agent/jobs', createAgentJobRouter({
+  service: jobService,
+  authenticate: createRequireDeviceContext({ runtime: runtimeRepository }),
+}));
 
 // --- Rotas administrativas autenticadas e autorizadas no servidor ---
 app.use(

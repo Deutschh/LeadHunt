@@ -32,6 +32,9 @@ function createHarness({ providerFails = false, bypass = false } = {}) {
   let slugCounter = 0;
   const cryptoService = {
     createOtpDigest: baseCrypto.createOtpDigest,
+    createRegistrationProof:baseCrypto.createRegistrationProof,
+    matchesRegistrationProof:baseCrypto.matchesRegistrationProof,
+    generateRegistrationDecoy:baseCrypto.generateRegistrationDecoy,
     generateOtp: () => generatedCodes.shift(),
     generateWorkspaceSlug: () =>
       `ws-00000000-0000-4000-8000-${String(++slugCounter).padStart(12, "0")}`,
@@ -54,7 +57,7 @@ function createHarness({ providerFails = false, bypass = false } = {}) {
     error: (event) => logEvents.push(event),
     warn: (event) => logEvents.push(event),
   };
-  const service = createAuthService({
+  const baseService = createAuthService({
     db,
     cryptoService,
     emailService,
@@ -62,6 +65,14 @@ function createHarness({ providerFails = false, bypass = false } = {}) {
     logger,
   });
 
+  // Existing scenarios follow the same pending attempt, as the browser now does.
+  // Security regressions use the raw service and explicitly pass stale proofs.
+  const attempts=new Map();
+  const service={
+    register:async(input)=>{const result=await baseService.register(input);attempts.set(input.email,result.verificationAttempt);return result;},
+    resend:input=>baseService.resend({verificationAttempt:attempts.get(input.email),...input}),
+    verify:input=>baseService.verify({verificationAttempt:attempts.get(input.email),...input}),
+  };
   return { db, service, sentEmails, logEvents };
 }
 
@@ -97,7 +108,7 @@ test("register cria somente user e challenge, sem workspace", async () => {
   assert.equal(harness.sentEmails[0].code, "111111");
 });
 
-test("cadastro duplicado não sobrescreve credenciais/aceites e respeita cooldown", async () => {
+test("cadastro pendente substitui credenciais/aceites, invalida código anterior e preserva cooldown", async () => {
   const harness = createHarness();
   await harness.service.register(registration());
   const originalUser = { ...harness.db.state.users[0] };
@@ -111,12 +122,13 @@ test("cadastro duplicado não sobrescreve credenciais/aceites e respeita cooldow
   );
 
   assert.equal(harness.db.state.users.length, 1);
-  assert.equal(harness.db.state.users[0].name, originalUser.name);
-  assert.equal(
+  assert.equal(harness.db.state.users[0].name, 'Nome Alterado');
+  assert.notEqual(
     harness.db.state.users[0].password_hash,
     originalUser.password_hash,
   );
-  assert.equal(harness.db.state.users[0].terms_version, originalUser.terms_version);
+  assert.equal(harness.db.state.users[0].terms_version, 'terms-v2');
+  assert.notEqual(harness.db.state.challenges[0].invalidated_at,null);
   assert.equal(harness.db.state.challenges.length, 1);
   assert.equal(harness.sentEmails.length, 1);
 });

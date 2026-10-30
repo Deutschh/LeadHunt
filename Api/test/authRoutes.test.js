@@ -100,7 +100,7 @@ async function post(baseUrl, path, body) {
 
 test("public-config é público, não exige sessão e não define cookie", async () => {
   await withServer(
-    { register: async () => {}, resend: async () => {}, verify: async () => ({}) },
+    { register: async () => ({verificationAttempt:'v'.repeat(43)}), resend: async () => {}, verify: async () => ({}) },
     noRateLimits,
     async (baseUrl) => {
       const response = await fetch(`${baseUrl}/api/auth/public-config`);
@@ -174,7 +174,7 @@ test("register preserva resposta uniforme para todos os no-ops do serviço", asy
     nextStep: "verify_email",
   };
 
-  for (const register of [async () => {}, async () => undefined]) {
+  for (const register of [async () => ({verificationAttempt:'a'.repeat(43)}), async () => ({verificationAttempt:'b'.repeat(43)})]) {
     await withServer(
       { register, resend: async () => {}, verify: async () => ({}) },
       noRateLimits,
@@ -185,7 +185,9 @@ test("register preserva resposta uniforme para todos os no-ops do serviço", asy
           validRegistration(),
         );
         assert.equal(response.status, 202);
-        assert.deepEqual(response.body, expected);
+        assert.match(response.body.verificationAttempt,/^[A-Za-z0-9_-]{43}$/);
+        const {verificationAttempt:_attempt,...publicBody}=response.body;
+        assert.deepEqual(publicBody, expected);
       },
     );
   }
@@ -193,7 +195,7 @@ test("register preserva resposta uniforme para todos os no-ops do serviço", asy
 
 test("JSON malformado recebe erro JSON seguro antes das rotas", async () => {
   await withServer(
-    { register: async () => {}, resend: async () => {}, verify: async () => ({}) },
+    { register: async () => ({verificationAttempt:'v'.repeat(43)}), resend: async () => {}, verify: async () => ({}) },
     noRateLimits,
     async (baseUrl) => {
       const response = await fetch(`${baseUrl}/api/auth/register`, {
@@ -242,7 +244,7 @@ test("resend preserva resposta uniforme para conta real ou inexistente", async (
 
   await withServer(
     {
-      register: async () => {},
+      register: async () => ({verificationAttempt:'v'.repeat(43)}),
       resend: async () => {},
       verify: async () => ({}),
     },
@@ -251,6 +253,7 @@ test("resend preserva resposta uniforme para conta real ou inexistente", async (
       for (const email of ["real@example.com", "missing@example.com"]) {
         const response = await post(baseUrl, "/api/auth/email/resend", {
           email,
+          verificationAttempt:'v'.repeat(43),
         });
         assert.equal(response.status, 202);
         assert.deepEqual(response.body, expected);
@@ -293,7 +296,7 @@ test("resend mantém 202 e invalida somente o challenge cuja entrega falhou", as
     logger: { error: () => {}, warn: () => {} },
   });
 
-  await service.register({
+  const mariaRegistration=await service.register({
     name: "Maria Silva",
     email: "maria@example.com",
     password: "senha longa segura",
@@ -314,6 +317,7 @@ test("resend mantém 202 e invalida somente o challenge cuja entrega falhou", as
   await withServer(service, noRateLimits, async (baseUrl) => {
     const response = await post(baseUrl, "/api/auth/email/resend", {
       email: "maria@example.com",
+      verificationAttempt:mariaRegistration.verificationAttempt,
     });
     assert.equal(response.status, 202);
     assert.deepEqual(response.body, RESEND_RESPONSE);
@@ -329,7 +333,7 @@ test("resend mantém 202 e invalida somente o challenge cuja entrega falhou", as
 test("verify mapeia sucesso e erro público sem IDs internos", async () => {
   let shouldFail = false;
   const service = {
-    register: async () => {},
+    register: async () => ({verificationAttempt:'v'.repeat(43)}),
     resend: async () => {},
     verify: async () => {
       if (shouldFail) {
@@ -347,6 +351,7 @@ test("verify mapeia sucesso e erro público sem IDs internos", async () => {
     const success = await post(baseUrl, "/api/auth/email/verify", {
       email: "maria@example.com",
       code: "123456",
+      verificationAttempt:'v'.repeat(43),
     });
     assert.deepEqual(success, {
       status: 200,
@@ -357,6 +362,7 @@ test("verify mapeia sucesso e erro público sem IDs internos", async () => {
     const failure = await post(baseUrl, "/api/auth/email/verify", {
       email: "maria@example.com",
       code: "000000",
+      verificationAttempt:'v'.repeat(43),
     });
     assert.deepEqual(failure, {
       status: 400,
@@ -370,7 +376,7 @@ test("verify mapeia sucesso e erro público sem IDs internos", async () => {
 
 test("rate limit por e-mail normalizado retorna contrato 429", async () => {
   const service = {
-    register: async () => {},
+    register: async () => ({verificationAttempt:'v'.repeat(43)}),
     resend: async () => {},
     verify: async () => ({ accountStatus: "pending" }),
   };
@@ -446,7 +452,7 @@ test("forgot mantém 202 uniforme para todos os estados públicos", async () => 
     });
 
     await withServer(
-      { register: async () => {}, resend: async () => {}, verify: async () => ({}) },
+      { register: async () => ({verificationAttempt:'v'.repeat(43)}), resend: async () => {}, verify: async () => ({}) },
       noRateLimits,
       async (baseUrl) => {
         const response = await post(baseUrl, "/api/auth/password/forgot", {
@@ -474,7 +480,7 @@ test("forgot mantém 202 uniforme para todos os estados públicos", async () => 
 
 test("rate limits HTTP bloqueiam forgot e reset antes do serviço", async () => {
   const service = {
-    register: async () => {},
+    register: async () => ({verificationAttempt:'v'.repeat(43)}),
     resend: async () => {},
     verify: async () => ({ accountStatus: "pending" }),
   };
@@ -556,7 +562,7 @@ test("forgot sem provider mantém 202 e não deixa reset token aberto", async ()
   });
 
   await withServer(
-    { register: async () => {}, resend: async () => {}, verify: async () => ({}) },
+    { register: async () => ({verificationAttempt:'v'.repeat(43)}), resend: async () => {}, verify: async () => ({}) },
     noRateLimits,
     async (baseUrl) => {
       const response = await post(baseUrl, "/api/auth/password/forgot", {
@@ -584,7 +590,7 @@ test("forgot sem provider mantém 202 e não deixa reset token aberto", async ()
 test("reset retorna sucesso sem sessão e erro de token uniforme", async () => {
   let shouldFail = false;
   await withServer(
-    { register: async () => {}, resend: async () => {}, verify: async () => ({}) },
+    { register: async () => ({verificationAttempt:'v'.repeat(43)}), resend: async () => {}, verify: async () => ({}) },
     noRateLimits,
     async (baseUrl) => {
       const success = await post(baseUrl, "/api/auth/password/reset", {
@@ -634,7 +640,7 @@ test("recovery separa indisponibilidade transitória de erro interno", async () 
 
   for (const item of cases) {
     await withServer(
-      { register: async () => {}, resend: async () => {}, verify: async () => ({}) },
+      { register: async () => ({verificationAttempt:'v'.repeat(43)}), resend: async () => {}, verify: async () => ({}) },
       noRateLimits,
       async (baseUrl) => {
         const response = await post(baseUrl, "/api/auth/password/forgot", {

@@ -8,10 +8,12 @@ import {
 } from "react";
 import { createAuthHttpClient } from "./authHttpClient.js";
 import { createAuthSessionController } from "./authSessionController.js";
+import { createRegistrationAttemptStore } from './registrationAttemptStore.js';
 
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
+  const [registrationAttempts]=useState(createRegistrationAttemptStore);
   const [controller] = useState(() =>
     createAuthSessionController({ client: createAuthHttpClient() }),
   );
@@ -34,8 +36,11 @@ export function AuthProvider({ children }) {
       logout: controller.logout,
       reloadMe: controller.reloadMe,
       retryBootstrap: controller.retryBootstrap,
+      rememberVerificationAttempt:registrationAttempts.remember,
+      readVerificationAttempt:registrationAttempts.read,
+      clearVerificationAttempt:registrationAttempts.clear,
     }),
-    [controller, snapshot],
+    [controller, snapshot, registrationAttempts],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

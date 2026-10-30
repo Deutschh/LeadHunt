@@ -1,4 +1,7 @@
 const REFRESH_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+// A collision never returns credentials or changes the cookie. This bounded
+// window only avoids revoking the winner of concurrent browser requests.
+const REFRESH_COLLISION_WINDOW_MS = 3000;
 
 class AuthSessionError extends Error {
   constructor(status, code, publicMessage, options = {}) {
@@ -271,12 +274,13 @@ function createAuthSessionService({
            revoked_at,
            revocation_reason,
            replaced_by_token_id,
-           auth_version_at_issue
+           auth_version_at_issue,
+           revoked_at <= clock_timestamp() AND revoked_at >= clock_timestamp() - ($3::integer * INTERVAL '1 millisecond') AS recently_rotated
          FROM public.refresh_tokens
          WHERE token_digest = $1
            AND user_id = $2
          FOR UPDATE`,
-        [digest, lockedUser.rows[0].id],
+        [digest, lockedUser.rows[0].id, REFRESH_COLLISION_WINDOW_MS],
       );
 
       if (lookup.rowCount !== 1) {
@@ -285,28 +289,30 @@ function createAuthSessionService({
 
       const row = lookup.rows[0];
       const user = lockedUser.rows[0];
+      if (row.auth_version_at_issue !== user.auth_version || !user.email_verified_at) {
+        await revokeFamily(client,row.family_id,'auth_version_changed');
+        return {invalid:true};
+      }
+      if(new Date(row.expires_at).getTime()<=clock().getTime()) {
+        await revokeFamily(client,row.family_id,'expired');
+        return {invalid:true};
+      }
       if (
         row.revoked_at &&
         (row.revocation_reason === "rotated" || row.replaced_by_token_id)
       ) {
+        if(row.revocation_reason==='rotated' && row.recently_rotated===true) {
+          const active=await client.query(`/* auth-session:find-active-refresh-family */
+            SELECT id FROM public.refresh_tokens WHERE family_id=$1 AND user_id=$2
+            AND revoked_at IS NULL AND expires_at>clock_timestamp() AND auth_version_at_issue=$3`,
+            [row.family_id,row.user_id,user.auth_version]);
+          if(active.rowCount===1)return {collision:true};
+        }
         await revokeFamily(client, row.family_id, "replay_detected");
         return { invalid: true, replay: true };
       }
 
       if (row.revoked_at) {
-        return { invalid: true };
-      }
-
-      if (new Date(row.expires_at).getTime() <= clock().getTime()) {
-        await revokeFamily(client, row.family_id, "expired");
-        return { invalid: true };
-      }
-
-      if (
-        row.auth_version_at_issue !== user.auth_version ||
-        !user.email_verified_at
-      ) {
-        await revokeFamily(client, row.family_id, "auth_version_changed");
         return { invalid: true };
       }
 
@@ -366,6 +372,9 @@ function createAuthSessionService({
       };
     });
 
+    if(outcome.collision) {
+      throw new AuthSessionError(409,'REFRESH_COLLISION','Renovação concorrente em andamento. Tente novamente.');
+    }
     if (outcome.invalid) {
       if (outcome.replay) {
         logger.warn("AUTH_REFRESH_REPLAY_DETECTED");
@@ -430,5 +439,6 @@ function createAuthSessionService({
 module.exports = {
   AuthSessionError,
   REFRESH_TOKEN_PATTERN,
+  REFRESH_COLLISION_WINDOW_MS,
   createAuthSessionService,
 };

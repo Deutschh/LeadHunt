@@ -1,38 +1,13 @@
-const { startAutomation } = require("./services/automationEngine");
-const { io } = require("socket.io-client");
-require("dotenv").config();
-
-// Conecta à API no Render
-const socket = io("https://leadhunt-api.onrender.com");
-
-global.workerSocket = socket;
-
-console.log("🤖 LeadHunt Worker Iniciado!");
-
-socket.on("connect", () => {
-  console.log("✅ Conectado ao Render!");
-  // Avisa a API que este dispositivo é o motor de automação
-  socket.emit("worker-identify");
-});
-
-// OUVE O COMANDO DE BUSCA (Vindo do celular via Render)
-socket.on("command-start-scraper", (config) => {
-  console.log("🔎 Recebi ordem de busca remota!", config);
-  const { startScraping } = require("./services/scraper");
-
-  // O scraper roda no SEU computador usando o SEU Chrome
-  startScraping(config).catch((err) =>
-    console.error("Erro no scraper remoto:", err),
-  );
-});
-
-// Função global para o motor enviar logs para a nuvem
-global.remoteLog = (message, type = "info") => {
-  const time = new Date().toLocaleTimeString();
-  socket.emit("worker-log", { time, message, type }); // Envia para o Render
-  console.log(`[${type.toUpperCase()}] ${message}`); // Mostra no seu terminal
-};
-
-startAutomation().catch((err) => {
-  console.error("💥 Erro ao iniciar o Worker:", err);
-});
+// Trusted internal legacy runner only. Never distribute this as the Agent.
+async function runLegacyWorker({db,workspaceId,startAutomation}) {
+  const {acquireLegacyWorkerLease}=require('./services/legacyWorkerLease');
+  const lease=await acquireLegacyWorkerLease({db,workspaceId});
+  try {await startAutomation(lease);return lease;}
+  catch(error) {await lease.close();throw error;}
+}
+if(require.main===module) {
+  require('dotenv').config();
+  runLegacyWorker({db:require('./database/db'),workspaceId:process.env.LEGACY_WORKSPACE_ID,startAutomation:require('./services/automationEngine').startAutomation})
+    .catch(()=>{console.error('LEGACY_WORKER_START_REJECTED');process.exitCode=1;});
+}
+module.exports={runLegacyWorker};

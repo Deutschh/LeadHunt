@@ -14,8 +14,9 @@ const REGISTER_FIELDS = new Set([
   "privacyPolicyAccepted",
   "privacyPolicyVersion",
 ]);
-const VERIFY_FIELDS = new Set(["email", "code"]);
-const RESEND_FIELDS = new Set(["email"]);
+const VERIFY_FIELDS = new Set(["email", "code", "verificationAttempt"]);
+const RESEND_FIELDS = new Set(["email", "verificationAttempt"]);
+const VERIFICATION_ATTEMPT_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const LOGIN_FIELDS = new Set(["email", "password"]);
 const FORGOT_PASSWORD_FIELDS = new Set(["email"]);
 const RESET_PASSWORD_FIELDS = new Set(["token", "password"]);
@@ -216,7 +217,9 @@ function validateVerify(body) {
   if (
     email === null ||
     typeof body.code !== "string" ||
-    !OTP_CODE_PATTERN.test(body.code)
+    !OTP_CODE_PATTERN.test(body.code) ||
+    typeof body.verificationAttempt !== 'string' ||
+    !VERIFICATION_ATTEMPT_PATTERN.test(body.verificationAttempt)
   ) {
     return error(
       400,
@@ -225,7 +228,7 @@ function validateVerify(body) {
     );
   }
 
-  return { value: { email, code: body.code } };
+  return { value: { email, code: body.code, verificationAttempt:body.verificationAttempt } };
 }
 
 function validateResend(body) {
@@ -239,13 +242,13 @@ function validateResend(body) {
 
   const email = normalizeEmail(body.email);
 
-  if (email === null) {
+  if (email === null || typeof body.verificationAttempt !== 'string' || !VERIFICATION_ATTEMPT_PATTERN.test(body.verificationAttempt)) {
     return error(400, "VALIDATION_ERROR", "Informe um e-mail válido.", {
       email: "Informe um e-mail válido.",
     });
   }
 
-  return { value: { email } };
+  return { value: { email, verificationAttempt:body.verificationAttempt } };
 }
 
 function validateLogin(body) {

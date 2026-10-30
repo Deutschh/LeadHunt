@@ -3,29 +3,35 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { createAuthHttpClient } from "../../auth/authHttpClient.js";
 import { canResendVerification, decrementResendCountdown, expectAcceptedResponse, expectVerifyResponse, getInitialResendCountdown, normalizeEmail, resolveResendCountdown, sanitizeAuthError, validateVerifyForm } from "../../auth/authUiModel.js";
 import { usePublicAuthConfig } from "../../auth/usePublicAuthConfig.js";
+import {useAuth} from '../../auth/AuthProvider.jsx';
 import { AuthCard, AuthShell, Field, GeneralAlert, SubmitButton } from "../../components/auth/AuthComponents.jsx";
 
 const client = createAuthHttpClient();
 
 export default function VerifyEmailPage() {
+  const {readVerificationAttempt,clearVerificationAttempt}=useAuth();
   const location = useLocation(); const navigate = useNavigate();
   const publicConfig = usePublicAuthConfig();
   const [values, setValues] = useState({ email: location.state?.email || "", code: "" });
   const [fieldErrors, setFieldErrors] = useState({}); const [generalError, setGeneralError] = useState(null);
   const [busy, setBusy] = useState(false); const [resendBusy, setResendBusy] = useState(false); const [countdown, setCountdown] = useState(() => getInitialResendCountdown(location.state));
+  const verificationAttempt=readVerificationAttempt(normalizeEmail(values.email));
+  const missingAttempt='Reinicie o cadastro nesta aba para confirmar os dados e verificar seu e-mail.';
   useEffect(() => { if (countdown <= 0) return undefined; const timer = setTimeout(() => setCountdown(decrementResendCountdown), 1000); return () => clearTimeout(timer); }, [countdown]);
 
   const submit = async (event) => {
     event.preventDefault(); if (busy) return;
+    if(!verificationAttempt){setGeneralError(missingAttempt);return;}
     const errors = validateVerifyForm(values); setFieldErrors(errors); setGeneralError(null); if (Object.keys(errors).length) return;
     setBusy(true);
-    try { expectVerifyResponse(await client.verifyEmail({ email: normalizeEmail(values.email), code: values.code })); navigate("/login", { replace: true, state: { email: normalizeEmail(values.email), message: "E-mail verificado. Entre para continuar." } }); }
+    try { expectVerifyResponse(await client.verifyEmail({ email: normalizeEmail(values.email), code: values.code, verificationAttempt })); clearVerificationAttempt(normalizeEmail(values.email),verificationAttempt); navigate("/login", { replace: true, state: { email: normalizeEmail(values.email), message: "E-mail verificado. Entre para continuar." } }); }
     catch (error) { const safe = sanitizeAuthError(error, ["email", "code"]); setFieldErrors(safe.fieldErrors); setGeneralError(safe.message); }
     finally { setBusy(false); }
   };
   const resend = async () => {
+    if(!verificationAttempt){setGeneralError(missingAttempt);return;}
     if (!canResendVerification({ countdown, busy: resendBusy, email: values.email })) return; setResendBusy(true); setGeneralError(null);
-    try { const result = expectAcceptedResponse(await client.resendVerification({ email: normalizeEmail(values.email) }), "verify_email"); setCountdown(resolveResendCountdown(result.retryAfterSeconds, publicConfig.config?.emailVerification?.resendCooldownSeconds)); setGeneralError(result.message); }
+    try { const result = expectAcceptedResponse(await client.resendVerification({ email: normalizeEmail(values.email), verificationAttempt }), "verify_email"); setCountdown(resolveResendCountdown(result.retryAfterSeconds, publicConfig.config?.emailVerification?.resendCooldownSeconds)); setGeneralError(result.message); }
     catch (error) { const safe = sanitizeAuthError(error, ["email"]); setGeneralError(safe.message); if (safe.retryAfterSeconds) setCountdown(safe.retryAfterSeconds); }
     finally { setResendBusy(false); }
   };

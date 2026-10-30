@@ -126,6 +126,7 @@ function createFakeAuthDb(initialState = {}) {
             id: user.id,
             email: user.email,
             email_verified_at: user.email_verified_at,
+            password_hash: user.password_hash,
           },
         ]);
       }
@@ -142,6 +143,7 @@ function createFakeAuthDb(initialState = {}) {
                   id: user.id,
                   email: user.email,
                   email_verified_at: user.email_verified_at,
+                  password_hash: user.password_hash,
                 },
               ]
             : [],
@@ -159,15 +161,27 @@ function createFakeAuthDb(initialState = {}) {
                   id: user.id,
                   name: user.name,
                   email_verified_at: user.email_verified_at,
+                  password_hash: user.password_hash,
                 },
               ]
             : [],
         );
       }
 
-      case "find-open-challenge": {
+      case "replace-pending-registration": {
+        const user=state.users.find(u=>u.id===params[0] && u.email_verified_at===null);
+        if(!user)return result();
+        Object.assign(user,{name:params[1],password_hash:params[2],terms_accepted_at:new Date(state.now),terms_version:params[3],privacy_policy_accepted_at:new Date(state.now),privacy_policy_version:params[4]});
+        return result([{...user}]);
+      }
+      case "invalidate-registration-challenges": {
+        const affected=state.challenges.filter(c=>c.user_id===params[0] && c.consumed_at===null && c.invalidated_at===null);
+        for(const challenge of affected)challenge.invalidated_at=new Date(state.now);
+        return result(affected.map(c=>({id:c.id})));
+      }
+      case "find-latest-challenge": {
         const [userId, cooldownSeconds] = params;
-        const challenge = openChallengesForUser(userId)[0];
+        const challenge = state.challenges.filter(c=>c.user_id===userId).sort((a,b)=>b.created_at-a.created_at)[0];
         return result(
           challenge
             ? [
@@ -726,6 +740,7 @@ function createFakeAuthDb(initialState = {}) {
                   revocation_reason: token.revocation_reason,
                   replaced_by_token_id: token.replaced_by_token_id,
                   auth_version_at_issue: token.auth_version_at_issue,
+                  recently_rotated:token.revoked_at!==null && token.revoked_at<=state.now && state.now-token.revoked_at<=3000,
                 },
               ]
             : [],
@@ -739,6 +754,8 @@ function createFakeAuthDb(initialState = {}) {
         );
         return result(token ? [{ user_id: token.user_id }] : []);
       }
+      case 'find-active-refresh-family':
+        return result(state.refreshTokens.filter(t=>t.family_id===params[0] && t.user_id===params[1] && t.revoked_at===null && t.expires_at>state.now && t.auth_version_at_issue===params[2]).map(t=>({id:t.id})));
 
       case "lock-refresh-user": {
         const user = state.users.find((item) => item.id === params[0]);

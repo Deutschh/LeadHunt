@@ -235,6 +235,13 @@ test("logout é 204 e preserva cookie quando há falha real", async () => {
   );
 });
 
+test('refresh collision is 409 and never clears or sets the HttpOnly cookie',async()=>{
+  await withServer({sessionService:{refresh:async()=>{throw new AuthSessionError(409,'REFRESH_COLLISION','Renovação concorrente em andamento. Tente novamente.');}}},async(baseUrl)=>{
+    const response=await fetch(`${baseUrl}/api/auth/refresh`,{method:'POST',headers:{Cookie:`leadhunt_refresh=${'r'.repeat(43)}`}});
+    assert.equal(response.status,409);assert.equal((await response.json()).code,'REFRESH_COLLISION');assert.equal(response.headers.get('set-cookie'),null);
+  });
+});
+
 test("CORS aceita allowlist/preflight, rejeita origin negada/null e aceita sem Origin", async () => {
   await withServer(
     { sessionService: { logout: async () => {} }, useCors: true },

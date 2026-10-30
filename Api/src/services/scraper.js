@@ -1,12 +1,10 @@
 const puppeteer = require("puppeteer-extra");
 const StealthPlugin = require("puppeteer-extra-plugin-stealth");
 const db = require("../database/db");
+const {workspace}=require('./jobPolicy');
 
 const logScraper = (message, type = "info") => {
-  if (global.workerSocket) {
-    global.workerSocket.emit("scraper-log", { message, type });
-  }
-  console.log(`[Buscador] ${message}`);
+  console.log(`[Buscador] LOCAL_${type.toUpperCase()}`);
 };
 
 puppeteer.use(StealthPlugin());
@@ -18,7 +16,10 @@ async function startScraping({
   minRating = 0,
   minReviews = 0,
   websiteFilter = "any",
-}) {
+},context) {
+  const workspaceId=workspace(context?.workspaceId);
+  if(typeof context.assertActive!=='function') throw new TypeError('Legacy context required');
+  await context.assertActive();
   let browser;
   let page;
   let savedCount = 0;
@@ -75,6 +76,7 @@ async function startScraping({
     let currentIndex = 3;
 
     while (savedCount < targetLimit && currentIndex < 250) {
+      await context.assertActive();
       const items = await page.$$("a.hfpxzc");
 
       if (currentIndex >= items.length) {
@@ -197,14 +199,15 @@ async function startScraping({
 
         if (leadMatchesSearch) {
           const jaExiste = await db.query(
-            "SELECT id FROM leads WHERE phone = $1",
-            [phoneFormatado],
+            "SELECT id FROM leads WHERE phone = $1 AND workspace_id=$2",
+            [phoneFormatado,workspaceId],
           );
 
           if (jaExiste.rowCount > 0) {
             logScraper(`${itemHeader} ⏭️ Já cadastrado.`, "skip");
           } else {
-            await db.query(
+            await context.assertActive();
+            const saved = await db.query(
               `
       INSERT INTO leads (
         name,
@@ -217,7 +220,8 @@ async function startScraping({
         reviews_count,
         interest_level,
         lead_category,
-        lead_city
+        lead_city,
+        workspace_id
       )
       VALUES (
         $1,
@@ -230,9 +234,10 @@ async function startScraping({
         $7,
         0,
         $8,
-        $9
+        $9,
+        $10
       )
-      ON CONFLICT DO NOTHING
+      ON CONFLICT (workspace_id,phone) DO NOTHING
       `,
               [
                 data.name,
@@ -244,10 +249,11 @@ async function startScraping({
                 data.reviewsCount,
                 niche,
                 location.split(",")[0].trim(),
+                workspaceId,
               ],
             );
 
-            savedCount++;
+            savedCount+=saved.rowCount;
 
             logScraper(
               `${itemHeader} ✨ SALVO! [${savedCount}/${targetLimit}]`,

@@ -4,6 +4,7 @@ const test = require("node:test");
 const {
   AuthSessionError,
   createAuthSessionService,
+  REFRESH_COLLISION_WINDOW_MS,
 } = require("../src/services/authSessionService");
 const { createFakeAuthDb } = require("./helpers/fakeAuthDb");
 
@@ -178,7 +179,7 @@ test("refresh rotaciona, preserva expiração absoluta e mantém um ativo por fa
   );
 });
 
-test("replay revoga successor e concorrência não deixa sessão ativa", async () => {
+test("colisão concorrente não emite credenciais nem revoga o successor legítimo", async () => {
   const fixture = createFixture();
   const login = await fixture.service.login({
     email: "maria@example.com",
@@ -194,9 +195,11 @@ test("replay revoga successor e concorrência não deixa sessão ativa", async (
   assert.equal(
     fixture.db.state.refreshTokens.filter((token) => token.revoked_at === null)
       .length,
-    0,
+    1,
   );
-  assert.equal(fixture.logs.includes("AUTH_REFRESH_REPLAY_DETECTED"), true);
+  const error=attempts.find(item=>item.status==='rejected').reason;
+  assert.equal(error.code,'REFRESH_COLLISION');assert.equal(error.status,409);assert.equal(error.clearRefreshCookie,false);
+  assert.equal(fixture.logs.includes("AUTH_REFRESH_REPLAY_DETECTED"), false);
 });
 
 test("refresh, replay e logout sempre bloqueiam user antes do token/família", async () => {
@@ -223,6 +226,7 @@ test("refresh, replay e logout sempre bloqueiam user antes do token/família", a
   );
 
   fixture.db.queryLog.length = 0;
+  fixture.db.state.now=new Date(fixture.db.state.now.getTime()+REFRESH_COLLISION_WINDOW_MS+1);
   await expectSessionError(
     fixture.service.refresh(login.refreshToken),
     "INVALID_SESSION",
@@ -253,6 +257,30 @@ test("refresh, replay e logout sempre bloqueiam user antes do token/família", a
     logoutFixture.db.queryLog.indexOf("lock-logout-token") <
       logoutFixture.db.queryLog.indexOf("revoke-refresh-family"),
   );
+});
+
+test('collision window is fixed, never issues credentials, and replay after it revokes the family',async()=>{
+  const fixture=createFixture();const login=await fixture.service.login({email:'maria@example.com',password:'correct password'});
+  await fixture.service.refresh(login.refreshToken);const issued=fixture.issuedAccessTokens.length;
+  for(const offset of [0,1000,2999]) {
+    fixture.db.state.now=new Date(NOW.getTime()+offset);
+    await expectSessionError(fixture.service.refresh(login.refreshToken),'REFRESH_COLLISION');
+    assert.equal(fixture.issuedAccessTokens.length,issued);
+  }
+  fixture.db.state.now=new Date(NOW.getTime()+REFRESH_COLLISION_WINDOW_MS+1);
+  await expectSessionError(fixture.service.refresh(login.refreshToken),'INVALID_SESSION');
+  assert.equal(fixture.db.state.refreshTokens.filter(t=>t.revoked_at===null).length,0);
+});
+
+test('logout during refresh revokes the winner; rotated token cannot use collision after auth_version change',async()=>{
+  const fixture=createFixture();const login=await fixture.service.login({email:'maria@example.com',password:'correct password'});
+  await Promise.allSettled([fixture.service.refresh(login.refreshToken),fixture.service.logout(login.refreshToken)]);
+  assert.equal(fixture.db.state.refreshTokens.filter(t=>t.revoked_at===null).length,0);
+  await expectSessionError(fixture.service.refresh(login.refreshToken),'INVALID_SESSION');
+  const second=createFixture();const current=await second.service.login({email:'maria@example.com',password:'correct password'});
+  await second.service.refresh(current.refreshToken);second.db.state.users[0].auth_version++;
+  await expectSessionError(second.service.refresh(current.refreshToken),'INVALID_SESSION');
+  assert.equal(second.db.state.refreshTokens.filter(t=>t.revoked_at===null).length,0);
 });
 
 test("auth_version divergente revoga família e não emite token", async () => {

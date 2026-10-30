@@ -1,4 +1,17 @@
 const { AccountServiceError } = require("./accountService");
+const {
+  isValidPassword,
+  normalizeEmail,
+} = require("../validation/authValidation");
+
+class AccountPasswordMaintenanceError extends Error {
+  constructor(code, publicMessage) {
+    super(code);
+    this.name = "AccountPasswordMaintenanceError";
+    this.code = code;
+    this.publicMessage = publicMessage;
+  }
+}
 
 function createAccountPasswordService({ db, cryptoService }) {
   if (!db || typeof db.connect !== "function") {
@@ -108,7 +121,112 @@ function createAccountPasswordService({ db, cryptoService }) {
     }
   }
 
-  return Object.freeze({ changePassword });
+  async function resetPasswordByEmail({ email, newPassword }) {
+    const normalizedEmail = normalizeEmail(email);
+    if (normalizedEmail === null) {
+      throw new AccountPasswordMaintenanceError(
+        "INVALID_EMAIL",
+        "Informe um e-mail válido.",
+      );
+    }
+    if (!isValidPassword(newPassword)) {
+      throw new AccountPasswordMaintenanceError(
+        "WEAK_PASSWORD",
+        "Use uma senha entre 12 e 128 caracteres válidos.",
+      );
+    }
+
+    const client = await db.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SET LOCAL lock_timeout = '10s'");
+      await client.query("SET LOCAL statement_timeout = '30s'");
+
+      const lockedUser = await client.query(
+        `/* account-password:maintenance-lock-user-by-email */
+         SELECT id
+         FROM public.users
+         WHERE LOWER(email) = $1
+         ORDER BY id
+         FOR UPDATE`,
+        [normalizedEmail],
+      );
+
+      if (lockedUser.rowCount === 0) {
+        throw new AccountPasswordMaintenanceError(
+          "USER_NOT_FOUND",
+          "Nenhum usuário foi encontrado para o e-mail informado.",
+        );
+      }
+      if (lockedUser.rowCount !== 1) {
+        throw new AccountPasswordMaintenanceError(
+          "AMBIGUOUS_USER",
+          "Mais de um usuário corresponde ao e-mail informado; nenhuma alteração foi aplicada.",
+        );
+      }
+
+      const userId = lockedUser.rows[0].id;
+      const passwordHash = await cryptoService.hashPassword(newPassword);
+      const activeRefreshTokens = await client.query(
+        `/* account-password:maintenance-lock-refresh-tokens */
+         SELECT id
+         FROM public.refresh_tokens
+         WHERE user_id = $1
+           AND revoked_at IS NULL
+         ORDER BY id
+         FOR UPDATE`,
+        [userId],
+      );
+
+      const updated = await client.query(
+        `/* account-password:maintenance-update-password-and-version */
+         UPDATE public.users
+         SET password_hash = $2,
+             auth_version = auth_version + 1,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1
+         RETURNING id, auth_version`,
+        [userId, passwordHash],
+      );
+      if (updated.rowCount !== 1) {
+        throw new Error("ACCOUNT_PASSWORD_MAINTENANCE_UPDATE_FAILED");
+      }
+
+      const revoked = await client.query(
+        `/* account-password:maintenance-revoke-refresh-tokens */
+         UPDATE public.refresh_tokens
+         SET revoked_at = CURRENT_TIMESTAMP,
+             revocation_reason = 'password_reset'
+         WHERE user_id = $1
+           AND revoked_at IS NULL
+         RETURNING id`,
+        [userId],
+      );
+      if (revoked.rowCount !== activeRefreshTokens.rowCount) {
+        throw new Error("ACCOUNT_PASSWORD_MAINTENANCE_REFRESH_REVOCATION_FAILED");
+      }
+
+      await client.query("COMMIT");
+      return Object.freeze({
+        authVersion: updated.rows[0].auth_version,
+        revokedRefreshTokens: revoked.rowCount,
+      });
+    } catch (error) {
+      try {
+        await client.query("ROLLBACK");
+      } catch (_rollbackError) {
+        // Preserve the original failure without exposing database details.
+      }
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  return Object.freeze({ changePassword, resetPasswordByEmail });
 }
 
-module.exports = { createAccountPasswordService };
+module.exports = {
+  AccountPasswordMaintenanceError,
+  createAccountPasswordService,
+};

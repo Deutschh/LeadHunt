@@ -1,5 +1,6 @@
 import axios from "axios";
 import { API_BASE_URL } from "../config/apiConfig.js";
+import {authCookieCoordinator,waitForRefreshCookie} from './authCookieCoordinator.js';
 
 const AUTH_PATH_PREFIX = "/auth/";
 const SAFE_FIELD_ERRORS_LIMIT = 50;
@@ -73,7 +74,7 @@ function toSafeHttpError(error) {
     return error;
   }
 
-  if (axios.isCancel(error)) {
+  if (axios.isCancel(error) || error?.name==='AbortError') {
     return new AuthHttpError({
       code: "REQUEST_ABORTED",
       message: "A operação foi cancelada.",
@@ -113,7 +114,7 @@ function toSafeHttpError(error) {
           ? "Autenticação temporariamente indisponível."
           : "Não foi possível concluir a operação.",
     fieldErrors: sanitizeFieldErrors(safeBody.fieldErrors),
-    retryable: status === 503 || status === 0,
+    retryable: status === 503 || status === 0 || safeBody.code==='REFRESH_COLLISION',
     retryAfterSeconds: readRetryAfterSeconds(error.response.headers),
   });
 }
@@ -143,6 +144,8 @@ export function createAuthHttpClient({
   baseURL = API_BASE_URL,
   axiosInstance,
   publicAxiosInstance,
+  cookieCoordinator=authCookieCoordinator,
+  refreshRetryWait=waitForRefreshCookie,
 } = {}) {
   const transport =
     axiosInstance ||
@@ -193,13 +196,19 @@ export function createAuthHttpClient({
     }
   }
 
+  function cookieMutation(operation,signal) {
+    // Abort can cancel a waiter, but must not release the lock while an
+    // already-sent cookie mutation can still apply Set-Cookie. Let its bounded
+    // HTTP response settle; authEpoch discards stale payloads in the controller.
+    return cookieCoordinator.run(operation,{signal}).catch(error=>{throw toSafeHttpError(error);});
+  }
+
   function login(credentials, options = {}) {
-    return send({
+    return cookieMutation(()=>send({
       path: "/auth/login",
       method: "POST",
       data: credentials,
-      signal: options.signal,
-    });
+    }),options.signal);
   }
 
   function getPublicConfig(options = {}) {
@@ -247,28 +256,32 @@ export function createAuthHttpClient({
   }
 
   function resetPassword(payload, options = {}) {
-    return send({
+    return cookieMutation(()=>send({
       path: "/auth/password/reset",
       method: "POST",
       data: payload,
-      signal: options.signal,
-    });
+    }),options.signal);
   }
 
   function refresh(options = {}) {
-    return send({
-      path: "/auth/refresh",
-      method: "POST",
-      signal: options.signal,
-    });
+    return cookieMutation(async()=>{
+      for(let attempt=0;attempt<3;attempt++) {
+        try {return await send({path:'/auth/refresh',method:'POST'});}
+        catch(error) {
+          if(error.status!==409 || error.code!=='REFRESH_COLLISION' || attempt===2)throw error;
+          // Protocol retry only: re-read the HttpOnly cookie on the next request.
+          // Never retry INVALID_SESSION or manufacture a successor client-side.
+          await refreshRetryWait(100*(attempt+1),options.signal);
+        }
+      }
+    },options.signal);
   }
 
   function logout(options = {}) {
-    return send({
+    return cookieMutation(()=>send({
       path: "/auth/logout",
       method: "POST",
-      signal: options.signal,
-    });
+    }),options.signal);
   }
 
   function me(accessToken, options = {}) {

@@ -1,4 +1,4 @@
-const db = require("../database/db");
+const {workspace}=require('./jobPolicy');
 
 const FOLLOWUP_RULES = [
   {
@@ -31,7 +31,9 @@ const FOLLOWUP_RULES = [
   },
 ];
 
-async function getFollowupSettings() {
+function createFollowupService({db}) {
+async function getFollowupSettings(workspaceId) {
+  workspace(workspaceId);
   const result = await db.query(`
     SELECT
       followup_enabled,
@@ -39,8 +41,8 @@ async function getFollowupSettings() {
       followup_delay_hours_1,
       followup_delay_hours_2
     FROM automation_settings
-    WHERE id = 1
-  `);
+    WHERE workspace_id = $1
+  `,[workspaceId]);
 
   return result.rows[0];
 }
@@ -58,8 +60,8 @@ function getFollowupMessage(lead, currentFollowupCount = 0) {
   return rule.message;
 }
 
-async function getNextFollowupDelayHours(currentFollowupCount = 0) {
-  const settings = await getFollowupSettings();
+async function getNextFollowupDelayHours(workspaceId,currentFollowupCount = 0) {
+  const settings = await getFollowupSettings(workspaceId);
 
   const count = Number(currentFollowupCount || 0);
 
@@ -69,60 +71,63 @@ async function getNextFollowupDelayHours(currentFollowupCount = 0) {
 
   return Number(settings.followup_delay_hours_2 || 72);
 }
-async function hasRemainingFollowups(currentFollowupCount = 0) {
-  const settings = await getFollowupSettings();
+async function hasRemainingFollowups(workspaceId,currentFollowupCount = 0) {
+  const settings = await getFollowupSettings(workspaceId);
 
   return (
     Number(currentFollowupCount || 0) < Number(settings.followup_max_count || 2)
   );
 }
 
-async function scheduleNextFollowup(leadId, currentFollowupCount = 0) {
+async function scheduleNextFollowup(workspaceId,leadId, currentFollowupCount = 0) {
+  workspace(workspaceId);
   const nextCount = Number(currentFollowupCount || 0);
 
-  if (!(await hasRemainingFollowups(nextCount))) {
+  if (!(await hasRemainingFollowups(workspaceId,nextCount))) {
     await db.query(
       `
       UPDATE leads
       SET next_followup_at = NULL
-      WHERE id = $1
+      WHERE id = $1 AND workspace_id = $2
       `,
-      [leadId],
+      [leadId,workspaceId],
     );
     return;
   }
 
-  const delayHours = await getNextFollowupDelayHours(nextCount);
+  const delayHours = await getNextFollowupDelayHours(workspaceId,nextCount);
 
   await db.query(
     `
     UPDATE leads
     SET next_followup_at = NOW() + ($2 || ' hours')::interval
-    WHERE id = $1
+    WHERE id = $1 AND workspace_id = $3
     `,
-    [leadId, String(delayHours)],
+    [leadId, String(delayHours),workspaceId],
   );
 }
 
-async function clearNextFollowup(leadId) {
+async function clearNextFollowup(workspaceId,leadId) {
+  workspace(workspaceId);
   await db.query(
     `
     UPDATE leads
     SET next_followup_at = NULL
-    WHERE id = $1
+    WHERE id = $1 AND workspace_id = $2
     `,
-    [leadId],
+    [leadId,workspaceId],
   );
 }
 
-async function getEligibleFollowupLead() {
-  const settings = await getFollowupSettings();
+async function getEligibleFollowupLead(workspaceId) {
+  const settings = await getFollowupSettings(workspaceId);
+  if (!settings?.followup_enabled) return null;
 
   const result = await db.query(
     `
 SELECT *
 FROM leads
-WHERE status='contacted'
+WHERE workspace_id=$2 AND status='contacted'
 AND is_archived=false
 AND COALESCE(
 is_invalid_number,
@@ -145,13 +150,14 @@ next_followup_at ASC
 
 LIMIT 1
 `,
-    [Number(settings.followup_max_count)],
+    [Number(settings.followup_max_count),workspaceId],
   );
 
   return result.rows[0] || null;
 }
 
-async function markLeadAsReplied(leadId) {
+async function markLeadAsReplied(workspaceId,leadId) {
+  workspace(workspaceId);
   await db.query(
     `
     UPDATE leads
@@ -161,32 +167,33 @@ async function markLeadAsReplied(leadId) {
       responded_at = COALESCE(responded_at, NOW()),
       last_reply_at = NOW(),
       next_followup_at = NULL
-    WHERE id = $1
+    WHERE id = $1 AND workspace_id = $2
     `,
-    [leadId],
+    [leadId,workspaceId],
   );
 }
 
-async function stopFollowupForLead(leadId, reason = "manual_stop") {
+async function stopFollowupForLead(workspaceId,leadId) {
+  workspace(workspaceId);
   await db.query(
     `
     UPDATE leads
     SET next_followup_at = NULL
-    WHERE id = $1
+    WHERE id = $1 AND workspace_id = $2
     `,
-    [leadId],
+    [leadId,workspaceId],
   );
 
   await db.query(
     `
-    INSERT INTO lead_activities (lead_id, description, type)
-    VALUES ($1, $2, $3)
+    INSERT INTO lead_activities (workspace_id,lead_id, description, type)
+    SELECT workspace_id,id,$2,$3 FROM leads WHERE id=$1 AND workspace_id=$4
     `,
-    [leadId, `Follow-up interrompido (${reason}).`, "followup_stop"],
+    [leadId, 'Follow-up interrompido.', "followup_stop",workspaceId],
   );
 }
 
-module.exports = {
+return {
   FOLLOWUP_RULES,
   getFollowupMessage,
   getNextFollowupDelayHours,
@@ -197,3 +204,6 @@ module.exports = {
   markLeadAsReplied,
   stopFollowupForLead,
 };
+}
+const names=['getFollowupMessage','getNextFollowupDelayHours','hasRemainingFollowups','scheduleNextFollowup','clearNextFollowup','getEligibleFollowupLead','markLeadAsReplied','stopFollowupForLead'];
+module.exports={FOLLOWUP_RULES,createFollowupService,...Object.fromEntries(names.map(name=>[name,(...args)=>createFollowupService({db:require('../database/db')})[name](...args)]))};

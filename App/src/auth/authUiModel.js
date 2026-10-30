@@ -284,6 +284,12 @@ export function expectAcceptedResponse(payload, nextStep) {
   };
 }
 
+export function expectRegistrationResponse(payload) {
+  const accepted=expectAcceptedResponse(payload,'verify_email');
+  if(typeof payload.verificationAttempt!=='string' || !/^[A-Za-z0-9_-]{43}$/.test(payload.verificationAttempt))throw new AuthProtocolError();
+  return {...accepted,verificationAttempt:payload.verificationAttempt};
+}
+
 export function expectVerifyResponse(payload) {
   if (
     !payload ||

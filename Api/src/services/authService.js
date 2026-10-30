@@ -47,17 +47,15 @@ function createAuthService({
   config,
   logger = console,
 }) {
-  async function createChallenge(client, userId) {
+  async function createChallenge(client, userId, registrationProof) {
     const openChallengeResult = await client.query(
       `
-      /* auth:find-open-challenge */
+      /* auth:find-latest-challenge */
       SELECT
         id,
         sent_at > NOW() - ($2 * INTERVAL '1 second') AS cooldown_active
       FROM email_verification_codes
       WHERE user_id = $1
-        AND consumed_at IS NULL
-        AND invalidated_at IS NULL
       ORDER BY created_at DESC
       LIMIT 1
       FOR UPDATE
@@ -115,6 +113,7 @@ function createAuthService({
       userId,
       challengeId,
       code,
+      registrationProof,
     });
 
     await client.query(
@@ -208,18 +207,19 @@ function createAuthService({
         )
         VALUES ($1, $2, $3, NOW(), $4, NOW(), $5)
         ON CONFLICT (LOWER(email)) DO NOTHING
-        RETURNING id, email, email_verified_at
+        RETURNING id, email, email_verified_at, password_hash
         `,
         [name, email, passwordHash, termsVersion, privacyPolicyVersion],
       );
 
       let user = insertUserResult.rows[0] || null;
+      const inserted = user !== null;
 
       if (!user) {
         const existingUserResult = await client.query(
           `
           /* auth:lock-existing-user */
-          SELECT id, email, email_verified_at
+          SELECT id, email, email_verified_at, password_hash
           FROM users
           WHERE LOWER(email) = $1
           FOR UPDATE
@@ -230,24 +230,41 @@ function createAuthService({
       }
 
       if (!user || user.email_verified_at !== null) {
-        return null;
+        return {verificationAttempt:cryptoService.generateRegistrationDecoy()};
       }
 
-      const challenge = await createChallenge(client, user.id);
-      return challenge ? { challenge, email: user.email } : null;
+      if(!inserted) {
+        const replaced=await client.query(`/* auth:replace-pending-registration */
+          UPDATE users SET name=$2,password_hash=$3,terms_accepted_at=NOW(),terms_version=$4,
+          privacy_policy_accepted_at=NOW(),privacy_policy_version=$5,updated_at=NOW()
+          WHERE id=$1 AND email_verified_at IS NULL RETURNING id,email,email_verified_at,password_hash`,
+          [user.id,name,passwordHash,termsVersion,privacyPolicyVersion]);
+        if(replaced.rowCount!==1)throw new Error('AUTH_PENDING_REGISTRATION_CONFLICT');
+        user=replaced.rows[0];
+      }
+      // A new registration owns a new credential set. Invalidate before issuing
+      // its challenge, even if delivery is currently limited. Cooldown queries
+      // include invalidated challenges, so this cannot bypass delivery limits.
+      await client.query(`/* auth:invalidate-registration-challenges */
+        UPDATE email_verification_codes SET invalidated_at=NOW()
+        WHERE user_id=$1 AND consumed_at IS NULL AND invalidated_at IS NULL`,[user.id]);
+      const verificationAttempt=cryptoService.createRegistrationProof({userId:user.id,passwordHash:user.password_hash});
+      const challenge = await createChallenge(client, user.id,verificationAttempt);
+      return {challenge,email:user.email,verificationAttempt};
     });
 
-    if (delivery) {
+    if (delivery?.challenge) {
       await deliverChallenge(delivery);
     }
+    return {verificationAttempt:delivery.verificationAttempt};
   }
 
-  async function resend({ email }) {
+  async function resend({ email, verificationAttempt }) {
     const delivery = await withTransaction(db, async (client) => {
       const userResult = await client.query(
         `
         /* auth:lock-user-for-resend */
-        SELECT id, email, email_verified_at
+        SELECT id, email, email_verified_at, password_hash
         FROM users
         WHERE LOWER(email) = $1
         FOR UPDATE
@@ -256,11 +273,11 @@ function createAuthService({
       );
       const user = userResult.rows[0] || null;
 
-      if (!user || user.email_verified_at !== null) {
+      if (!user || user.email_verified_at !== null || !cryptoService.matchesRegistrationProof({userId:user.id,passwordHash:user.password_hash,proof:verificationAttempt})) {
         return null;
       }
 
-      const challenge = await createChallenge(client, user.id);
+      const challenge = await createChallenge(client, user.id,verificationAttempt);
       return challenge ? { challenge, email: user.email } : null;
     });
 
@@ -303,7 +320,7 @@ function createAuthService({
     return membershipResult.rows[0].account_status;
   }
 
-  async function verifyAlreadyVerifiedUser(client, user, code) {
+  async function verifyAlreadyVerifiedUser(client, user, code, registrationProof) {
     const challengeResult = await client.query(
       `
       /* auth:find-consumed-challenge */
@@ -327,6 +344,7 @@ function createAuthService({
         challengeId: challenge.id,
         code,
         digest: challenge.code_digest,
+        registrationProof,
       })
     ) {
       return { error: INVALID_CODE_ERROR };
@@ -338,7 +356,7 @@ function createAuthService({
     };
   }
 
-  async function verifyUnverifiedUser(client, user, code) {
+  async function verifyUnverifiedUser(client, user, code, registrationProof) {
     const challengeResult = await client.query(
       `
       /* auth:lock-open-challenge-for-verify */
@@ -388,6 +406,7 @@ function createAuthService({
         challengeId: challenge.id,
         code,
         digest: challenge.code_digest,
+        registrationProof,
       });
 
     if (!codeMatches) {
@@ -454,6 +473,7 @@ function createAuthService({
       userId: user.id,
       challengeId: challenge.id,
       code,
+      registrationProof,
     });
     const consumeChallengeResult = await client.query(
       `
@@ -523,12 +543,12 @@ function createAuthService({
     };
   }
 
-  async function verify({ email, code }) {
+  async function verify({ email, code, verificationAttempt }) {
     const outcome = await withTransaction(db, async (client) => {
       const userResult = await client.query(
         `
         /* auth:lock-user-for-verify */
-        SELECT id, name, email_verified_at
+        SELECT id, name, email_verified_at, password_hash
         FROM users
         WHERE LOWER(email) = $1
         FOR UPDATE
@@ -537,15 +557,15 @@ function createAuthService({
       );
       const user = userResult.rows[0] || null;
 
-      if (!user) {
+      if (!user || !cryptoService.matchesRegistrationProof({userId:user.id,passwordHash:user.password_hash,proof:verificationAttempt})) {
         return { error: INVALID_CODE_ERROR };
       }
 
       if (user.email_verified_at !== null) {
-        return verifyAlreadyVerifiedUser(client, user, code);
+        return verifyAlreadyVerifiedUser(client, user, code, verificationAttempt);
       }
 
-      return verifyUnverifiedUser(client, user, code);
+      return verifyUnverifiedUser(client, user, code, verificationAttempt);
     });
 
     if (outcome.error) {

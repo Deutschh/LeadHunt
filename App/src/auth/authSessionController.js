@@ -28,6 +28,7 @@ const INITIAL_STATE = Object.freeze({
   membership: null,
   workspace: null,
   error: null,
+  loginPending: false,
 });
 
 function isNonEmptyString(value) {
@@ -180,7 +181,7 @@ export function createAuthSessionController({ client }) {
       return false;
     }
 
-    state = Object.freeze({ ...nextState, sessionVersion });
+    state = Object.freeze({ loginPending:false, ...nextState, sessionVersion });
     emit();
     return true;
   }
@@ -333,7 +334,7 @@ export function createAuthSessionController({ client }) {
     return promise;
   }
 
-  async function loadIdentity(epoch, revision, { anonymousOn401 = true } = {}) {
+  async function loadIdentity(epoch, revision, { anonymousOn401 = true, interactive = false } = {}) {
     if (!isCurrent(epoch, revision) || accessToken === null) {
       return { stale: true };
     }
@@ -363,7 +364,8 @@ export function createAuthSessionController({ client }) {
         return { stale: true };
       }
 
-      handleAuthFailure(error, epoch, { anonymousOn401 });
+      if(interactive)publishAnonymous(epoch,publicError(error),{invalidateSession:false});
+      else handleAuthFailure(error, epoch, { anonymousOn401 });
       return { error };
     }
   }
@@ -441,7 +443,7 @@ export function createAuthSessionController({ client }) {
     return true;
   }
 
-  function beginGeneration({ preserveIdentity = false } = {}) {
+  function beginGeneration({ preserveIdentity = false, bootstrap = true } = {}) {
     abortOwnedRequests();
     authEpoch += 1;
     clearAccessToken();
@@ -452,7 +454,8 @@ export function createAuthSessionController({ client }) {
     const epoch = authEpoch;
     publish(
       {
-        status: "bootstrapping",
+        status: bootstrap ? "bootstrapping" : "anonymous",
+        loginPending: !bootstrap,
         user: preserveIdentity ? state.user : null,
         membership: preserveIdentity ? state.membership : null,
         workspace: preserveIdentity ? state.workspace : null,
@@ -502,7 +505,7 @@ export function createAuthSessionController({ client }) {
     }
 
     advanceSessionVersion();
-    const epoch = beginGeneration();
+    const epoch = beginGeneration({bootstrap:false});
     try {
       const payload = await enqueueCookieMutation(epoch, () =>
         ownedRequest((signal) =>
@@ -515,14 +518,14 @@ export function createAuthSessionController({ client }) {
 
       const session = normalizeSessionResponse(payload);
       const revision = setAccessToken(session.accessToken);
-      const loaded = await loadIdentity(epoch, revision);
+      const loaded = await loadIdentity(epoch, revision, {interactive:true});
       if (loaded.error) {
         throw loaded.error;
       }
       return loaded.identity || null;
     } catch (error) {
       if (isCurrent(epoch)) {
-        handleAuthFailure(error, epoch);
+        publishAnonymous(epoch,publicError(error),{invalidateSession:false});
       }
       throw error;
     }

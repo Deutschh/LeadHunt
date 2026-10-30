@@ -5,6 +5,8 @@
   "main": "index.js",
   "scripts": {
     "test": "node --test \"test/*.test.js\"",
+    "test:stage7:postgres": "node --test test/integration/stage7.postgres.js",
+    "maintenance:reset-password": "node scripts/maintenance/reset-user-password.js",
     "start": "node src/index.js",
     "dev": "nodemon src/index.js"
   },

@@ -1,7 +1,7 @@
 const db = require("../database/db");
 const puppeteer = require("puppeteer-extra");
 const StealthPlugin = require("puppeteer-extra-plugin-stealth");
-const { createLeadEvent } = require("./eventService");
+const { createWorkspaceLeadEvent } = require("./eventService");
 const {
   getFollowupMessage,
   getEligibleFollowupLead,
@@ -17,12 +17,36 @@ const {
   markNumberHealthy,
   markNumberFailure,
   clearExpiredPauses,
+  resetDailyCountersIfNeeded,
 } = require("./numberRoutingService");
 
 puppeteer.use(StealthPlugin());
 
 const sessions = new Map();
 let isLoopRunning = false;
+const {workspace,RuntimeError,dispatchPolicy}=require('./jobPolicy');
+let workerContext;
+let activeLead;
+let activeMode;
+let activeSendingNumber;
+function getWorkspaceId() {
+  if (!workerContext) throw new RuntimeError('LEGACY_CONTEXT_REQUIRED',503);
+  return workspace(workerContext.workspaceId);
+}
+async function assertSendingAllowed() {
+  await workerContext.assertActive();
+  const settings=await getAutomationSettings();
+  if (!dispatchPolicy(settings,new Date(),activeMode==='followup'?'followup':'send_message').allowed) throw new RuntimeError('LEGACY_PAUSED',409);
+  const row=(await db.query(`SELECT * FROM leads WHERE workspace_id=$1 AND id=$2 AND status=$3 AND is_archived=false
+    AND COALESCE(is_invalid_number,false)=false AND last_reply_at IS NULL`,[getWorkspaceId(),activeLead?.id,activeMode==='followup'?'contacted':'pending'])).rows[0];
+  if (!row) throw new RuntimeError('LEGACY_LEAD_OBSOLETE',409);
+  const sender=await getSendingNumberByPhone(getWorkspaceId(),activeSendingNumber?.phone_number);
+  if(!sender?.is_active || sender.status!=='active' || !['healthy','warning'].includes(sender.health_status) || Number(sender.sent_today)>=Number(sender.daily_limit) || (sender.paused_until && new Date(sender.paused_until)>new Date())) throw new RuntimeError('LEGACY_SENDER_UNAVAILABLE',409);
+  const total=(await db.query('SELECT COALESCE(sum(sent_today),0)::int AS used FROM sending_numbers WHERE workspace_id=$1',[getWorkspaceId()])).rows[0].used;
+  if(total>=Number(settings.daily_limit))throw new RuntimeError('LEGACY_DAILY_LIMIT',409);
+  if(activeMode==='followup' && (row.assigned_number!==sender.phone_number || Number(row.followup_count || 0)!==Number(activeLead.followup_count || 0) || Number(row.followup_count || 0)>=Number(settings.followup_max_count) || !row.next_followup_at || new Date(row.next_followup_at)>new Date()))throw new RuntimeError('LEGACY_LEAD_OBSOLETE',409);
+  if(activeMode==='initial' && row.custom_message!==activeLead.custom_message)throw new RuntimeError('LEGACY_LEAD_OBSOLETE',409);
+}
 
 const getGreeting = () => {
   const hour = new Date().getHours();
@@ -63,16 +87,14 @@ async function sendBubble(page, selector, text, isMultiline = false) {
   }
 
   await new Promise((r) => setTimeout(r, 600));
+  await assertSendingAllowed();
   await page.keyboard.press("Enter");
   await new Promise((r) => setTimeout(r, 2000));
 }
 
 const log = (message, type = "info") => {
-  if (global.remoteLog) {
-    global.remoteLog(message, type);
-  }
-
-  console.log(`[Automação] ${message}`);
+  // Keep browser/commercial text local to the execution stack, never in logs.
+  console.log(`[Automação] LOCAL_${type.toUpperCase()}`);
 };
 
 function logWithPort(message, type = "info", sendingNumber = null) {
@@ -89,14 +111,14 @@ async function getNextPendingLead() {
   const leadRes = await db.query(`
     SELECT *
     FROM leads
-    WHERE is_verified = true
+    WHERE workspace_id = $1 AND is_verified = true
       AND status = 'pending'
       AND is_ai_ready = true
       AND is_archived = false
       AND COALESCE(is_invalid_number, false) = false
     ORDER BY RANDOM()
     LIMIT 1
-  `);
+  `,[getWorkspaceId()]);
 
   return leadRes.rows[0] || null;
 }
@@ -201,9 +223,9 @@ async function checkIfLeadReplied(currentPage, lead) {
 }
 
 async function handleDetectedReply(lead, sendingNumber) {
-  await markLeadAsReplied(lead.id);
+  await markLeadAsReplied(getWorkspaceId(), lead.id);
 
-  await createLeadEvent(
+  await createWorkspaceLeadEvent(getWorkspaceId(),
     lead.id,
     "lead_replied_detected",
     sendingNumber.phone_number,
@@ -218,13 +240,14 @@ async function handleDetectedReply(lead, sendingNumber) {
 
   await db.query(
     `
-    INSERT INTO lead_activities (lead_id, description, type)
-    VALUES ($1, $2, $3)
+    INSERT INTO lead_activities (workspace_id,lead_id, description, type)
+    SELECT workspace_id,id,$2,$3 FROM leads WHERE id=$1 AND workspace_id=$4
     `,
     [
       lead.id,
       `Resposta detectada automaticamente. Follow-up interrompido no número ${sendingNumber.label}.`,
       "reply_detected",
+      getWorkspaceId(),
     ],
   );
 }
@@ -233,18 +256,18 @@ async function markInvalidNumber(lead) {
   await db.query(
     `
     UPDATE leads
-    SET 
+    SET
       is_invalid_number = true,
       status = 'lost',
       pipeline_stage = 'lost',
       lost_reason = 'invalid_number',
       next_followup_at = NULL
-    WHERE id = $1
+    WHERE id = $1 AND workspace_id=$2
     `,
-    [lead.id],
+    [lead.id,getWorkspaceId()],
   );
 
-  await createLeadEvent(
+  await createWorkspaceLeadEvent(getWorkspaceId(),
     lead.id,
     "invalid_number_detected",
     lead.phone,
@@ -256,14 +279,14 @@ async function markInvalidNumber(lead) {
   );
 
   await db.query(
-    "INSERT INTO lead_activities (lead_id, description, type) VALUES ($1, $2, $3)",
-    [lead.id, "Número inválido detectado na automação.", "invalid_number"],
+    "INSERT INTO lead_activities (workspace_id,lead_id, description, type) SELECT workspace_id,id,$2,$3 FROM leads WHERE id=$1 AND workspace_id=$4",
+    [lead.id, "Número inválido detectado na automação.", "invalid_number",getWorkspaceId()],
   );
 }
 
 async function resolveSendingNumberForInitialLead(lead) {
   if (lead.assigned_number) {
-    const existingNumber = await getSendingNumberByPhone(lead.assigned_number);
+    const existingNumber = await getSendingNumberByPhone(getWorkspaceId(), lead.assigned_number);
 
     if (
       existingNumber &&
@@ -275,26 +298,26 @@ async function resolveSendingNumberForInitialLead(lead) {
     }
   }
 
-  const availableNumber = await getAvailableSendingNumber();
+  const availableNumber = await getAvailableSendingNumber(getWorkspaceId());
 
   if (!availableNumber) {
     return null;
   }
 
-  await assignNumberToLead(lead.id, availableNumber);
+  await assignNumberToLead(getWorkspaceId(), lead.id, availableNumber);
   lead.assigned_number = availableNumber.phone_number;
 
   return availableNumber;
 }
 
 async function resolveSendingNumberForFollowup(lead) {
-  const assignedPhone = await getLeadAssignedNumber(lead.id);
+  const assignedPhone = await getLeadAssignedNumber(getWorkspaceId(), lead.id);
 
   if (!assignedPhone) {
     return null;
   }
 
-  const sendingNumber = await getSendingNumberByPhone(assignedPhone);
+  const sendingNumber = await getSendingNumberByPhone(getWorkspaceId(), assignedPhone);
 
   if (
     !sendingNumber ||
@@ -314,6 +337,7 @@ async function handleInitialApproach(
   inputSelector,
   sendingNumber,
 ) {
+  activeLead=lead;activeMode='initial';activeSendingNumber=sendingNumber;
   logWithPort("🚀 MODO: ABORDAGEM INICIAL", "info", sendingNumber);
 
   logWithPort(
@@ -375,7 +399,7 @@ async function handleInitialApproach(
   await db.query(
     `
     UPDATE leads
-    SET 
+    SET
       status = 'contacted',
       pipeline_stage = 'contacted',
       last_contact = NOW(),
@@ -384,14 +408,14 @@ async function handleInitialApproach(
       last_followup_at = NULL,
       last_reply_at = NULL,
       assigned_number = $2
-    WHERE id = $1
+    WHERE id = $1 AND workspace_id=$3 AND status='pending' AND last_reply_at IS NULL AND is_archived=false
     `,
-    [lead.id, sendingNumber.phone_number],
+    [lead.id, sendingNumber.phone_number,getWorkspaceId()],
   );
 
-  await incrementNumberUsage(sendingNumber.phone_number);
+  await incrementNumberUsage(getWorkspaceId(), sendingNumber.phone_number);
 
-  await createLeadEvent(
+  await createWorkspaceLeadEvent(getWorkspaceId(),
     lead.id,
     "message_sent",
     sendingNumber.phone_number,
@@ -407,16 +431,18 @@ async function handleInitialApproach(
   );
 
   await db.query(
-    "INSERT INTO lead_activities (lead_id, description, type) VALUES ($1, $2, $3)",
+    "INSERT INTO lead_activities (workspace_id,lead_id, description, type) SELECT workspace_id,id,$2,$3 FROM leads WHERE id=$1 AND workspace_id=$4",
     [
       lead.id,
       `Abordagem inicial enviada pelo número ${sendingNumber.label}.`,
       "contact",
+      getWorkspaceId(),
     ],
   );
 }
 
 async function handleFollowup(currentPage, lead, inputSelector, sendingNumber) {
+  activeLead=lead;activeMode='followup';activeSendingNumber=sendingNumber;
   logWithPort("🔁 MODO: FOLLOW-UP", "info", sendingNumber);
 
   const currentFollowupCount = Number(lead.followup_count || 0);
@@ -440,15 +466,15 @@ async function handleFollowup(currentPage, lead, inputSelector, sendingNumber) {
       last_followup_at = NOW(),
       last_contact = NOW(),
       assigned_number = $3
-    WHERE id = $1
+    WHERE id = $1 AND workspace_id=$4 AND status='contacted' AND last_reply_at IS NULL AND is_archived=false
     `,
-    [lead.id, newFollowupCount, sendingNumber.phone_number],
+    [lead.id, newFollowupCount, sendingNumber.phone_number,getWorkspaceId()],
   );
 
-  await scheduleNextFollowup(lead.id, newFollowupCount);
-  await incrementNumberUsage(sendingNumber.phone_number);
+  await scheduleNextFollowup(getWorkspaceId(), lead.id, newFollowupCount);
+  await incrementNumberUsage(getWorkspaceId(), sendingNumber.phone_number);
 
-  await createLeadEvent(
+  await createWorkspaceLeadEvent(getWorkspaceId(),
     lead.id,
     "followup_sent",
     String(newFollowupCount),
@@ -465,11 +491,12 @@ async function handleFollowup(currentPage, lead, inputSelector, sendingNumber) {
   );
 
   await db.query(
-    "INSERT INTO lead_activities (lead_id, description, type) VALUES ($1, $2, $3)",
+    "INSERT INTO lead_activities (workspace_id,lead_id, description, type) SELECT workspace_id,id,$2,$3 FROM leads WHERE id=$1 AND workspace_id=$4",
     [
       lead.id,
       `Follow-up ${newFollowupCount} enviado automaticamente pelo número ${sendingNumber.label}.`,
       "followup",
+      getWorkspaceId(),
     ],
   );
 
@@ -480,20 +507,22 @@ async function handleFollowup(currentPage, lead, inputSelector, sendingNumber) {
   );
 }
 
-const startAutomation = async () => {
+const startAutomation = async (context) => {
   if (isLoopRunning) return;
+  workspace(context?.workspaceId);
+  if (typeof context.assertActive!=='function') throw new RuntimeError('LEGACY_CONTEXT_REQUIRED',503);
+  await context.assertActive();workerContext=context;
   isLoopRunning = true;
 
   log("⚙️ Motor iniciado. Aguardando ativação...", "info");
 
   const loop = async () => {
     try {
-      await clearExpiredPauses();
+      await workerContext.assertActive();
+      await resetDailyCountersIfNeeded(getWorkspaceId());
+      await clearExpiredPauses(getWorkspaceId());
 
-      const settingsRes = await db.query(
-        "SELECT * FROM automation_settings WHERE id = 1",
-      );
-      const settings = settingsRes.rows[0];
+      const settings = await getAutomationSettings();
 
       if (!settings || !settings.is_active) {
         if (sessions.size > 0) {
@@ -545,7 +574,7 @@ const startAutomation = async () => {
         lead = newLead;
         mode = "initial";
       } else {
-        const followupLead = await getEligibleFollowupLead();
+        const followupLead = await getEligibleFollowupLead(getWorkspaceId());
 
         if (followupLead) {
           lead = followupLead;
@@ -584,11 +613,12 @@ const startAutomation = async () => {
           );
 
           await db.query(
-            "INSERT INTO lead_activities (lead_id, description, type) VALUES ($1, $2, $3)",
+            "INSERT INTO lead_activities (workspace_id,lead_id, description, type) SELECT workspace_id,id,$2,$3 FROM leads WHERE id=$1 AND workspace_id=$4",
             [
               lead.id,
               "Follow-up não enviado: número atribuído ausente ou inválido.",
               "followup_error",
+              getWorkspaceId(),
             ],
           );
 
@@ -619,7 +649,7 @@ const startAutomation = async () => {
           );
 
           await markInvalidNumber(lead);
-          await markNumberFailure(
+          await markNumberFailure(getWorkspaceId(),
             sendingNumber.phone_number,
             `Número inválido ou conversa não abriu para o lead ${lead.phone}`,
           );
@@ -654,7 +684,7 @@ const startAutomation = async () => {
           if (hasReply) {
             await handleDetectedReply(lead, sendingNumber);
 
-            await markNumberHealthy(sendingNumber.phone_number);
+            await markNumberHealthy(getWorkspaceId(), sendingNumber.phone_number);
 
             setTimeout(loop, 10000);
 
@@ -686,7 +716,7 @@ const startAutomation = async () => {
           );
         }
 
-        await markNumberHealthy(sendingNumber.phone_number);
+        await markNumberHealthy(getWorkspaceId(), sendingNumber.phone_number);
 
         if (mode === "initial") {
           await wait(Number(settings.followup_gap_seconds || 30) * 1000);
@@ -701,8 +731,9 @@ const startAutomation = async () => {
           }
         }
       } catch (err) {
+        if (err instanceof RuntimeError) {log('Execução pausada.','warning');setTimeout(loop,10000);return;}
         if (sendingNumber?.phone_number) {
-          await markNumberFailure(sendingNumber.phone_number, err.message);
+          await markNumberFailure(getWorkspaceId(), sendingNumber.phone_number, err.message);
         }
 
         if (err.message.includes("Chrome não detectado")) {
@@ -754,10 +785,10 @@ async function wait(ms) {
 
 async function getAutomationSettings() {
   const result = await db.query(`
-    SELECT *
-    FROM automation_settings
-    WHERE id=1
-  `);
+    SELECT s.*,w.timezone
+    FROM automation_settings s JOIN workspaces w ON w.id=s.workspace_id
+    WHERE s.workspace_id=$1
+  `,[getWorkspaceId()]);
 
   return result.rows[0];
 }
@@ -765,7 +796,7 @@ async function getAutomationSettings() {
 async function executeFollowupsBatch() {
   const settings = await getAutomationSettings();
 
-  if (!settings.followup_enabled) {
+  if (!settings?.is_active || !settings.followup_enabled) {
     return 0;
   }
 
@@ -776,7 +807,10 @@ async function executeFollowupsBatch() {
   let executed = 0;
 
   for (let i = 0; i < maxBatch; i++) {
-    const lead = await getEligibleFollowupLead();
+    await workerContext.assertActive();
+    const currentSettings=await getAutomationSettings();
+    if(!currentSettings?.is_active || !currentSettings.followup_enabled)break;
+    const lead = await getEligibleFollowupLead(getWorkspaceId());
 
     if (!lead) {
       break;

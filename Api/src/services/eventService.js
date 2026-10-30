@@ -1,4 +1,5 @@
 const db = require("../database/db");
+const {workspace}=require('./jobPolicy');
 
 /**
  * Cria um evento sempre usando o workspace do próprio lead.
@@ -18,7 +19,9 @@ async function createLeadEvent(
   source = "system",
   metadata = {},
   queryExecutor = db,
+  expectedWorkspaceId,
 ) {
+  if(expectedWorkspaceId!==undefined)workspace(expectedWorkspaceId);
   const result = await queryExecutor.query(
     `
     INSERT INTO lead_events (
@@ -38,6 +41,7 @@ async function createLeadEvent(
       $5::jsonb
     FROM leads
     WHERE id = $1
+    ${expectedWorkspaceId===undefined ? '' : 'AND workspace_id = $6'}
     RETURNING *
     `,
     [
@@ -46,6 +50,7 @@ async function createLeadEvent(
       eventValue,
       source,
       JSON.stringify(metadata || {}),
+      ...(expectedWorkspaceId===undefined ? []:[expectedWorkspaceId]),
     ],
   );
 
@@ -58,4 +63,6 @@ async function createLeadEvent(
 
 module.exports = {
   createLeadEvent,
+  createWorkspaceLeadEvent: (workspaceId,leadId,eventType,eventValue=null,source='system',metadata={},queryExecutor=db) =>
+    createLeadEvent(leadId,eventType,eventValue,source,metadata,queryExecutor,workspace(workspaceId)),
 };

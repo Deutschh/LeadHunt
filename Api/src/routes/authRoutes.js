@@ -90,6 +90,7 @@ function createAuthRouter({
   logger = console,
 }) {
   const router = express.Router();
+  router.use((_req,res,next)=>{res.set('Cache-Control','no-store');next();});
   const loginRateLimits = rateLimits.login || [];
   const refreshRateLimits = rateLimits.refresh || [];
   const logoutRateLimits = rateLimits.logout || [];
@@ -137,8 +138,9 @@ function createAuthRouter({
     }
 
     try {
-      await service.register(validationResult.value);
-      return res.status(202).json(REGISTER_RESPONSE);
+      const result=await service.register(validationResult.value);
+      if(typeof result?.verificationAttempt!=='string' || !/^[A-Za-z0-9_-]{43}$/.test(result.verificationAttempt))throw new Error('AUTH_INVALID_REGISTRATION_RESULT');
+      return res.status(202).json({...REGISTER_RESPONSE,verificationAttempt:result.verificationAttempt});
     } catch (_error) {
       logger.error("AUTH_REGISTER_PROCESSING_FAILED");
       return res.status(503).json({

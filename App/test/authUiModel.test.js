@@ -12,8 +12,21 @@ import {
   sanitizeAuthError,
   validatePassword,
   validateRegisterForm,
+  expectRegistrationResponse,
 } from "../src/auth/authUiModel.js";
 import { AuthProtocolError } from "../src/auth/authHttpClient.js";
+import {createRegistrationAttemptStore} from '../src/auth/registrationAttemptStore.js';
+
+test('registration proof stays in volatile per-provider memory, scoped to email and generation',()=>{
+  const store=createRegistrationAttemptStore(),other=createRegistrationAttemptStore();
+  const first='a'.repeat(43),second='b'.repeat(43);
+  store.remember('User@example.test',first);assert.equal(store.read('user@example.test'),first);
+  assert.equal(store.read('other@example.test'),null);assert.equal(other.read('user@example.test'),null);
+  store.remember('user@example.test',second);store.clear('user@example.test',first);assert.equal(store.read('user@example.test'),second);
+  store.clear('user@example.test',second);assert.equal(store.read('user@example.test'),null);
+  assert.throws(()=>expectRegistrationResponse({message:'Accepted',nextStep:'verify_email'}),AuthProtocolError);
+  assert.equal(expectRegistrationResponse({message:'Accepted',nextStep:'verify_email',verificationAttempt:first}).verificationAttempt,first);
+});
 
 test("config pública válida é reduzida ao contrato conhecido", () => {
   const normalized = normalizePublicConfig({

@@ -114,8 +114,8 @@ test("register rejeita versões legais divergentes", () => {
 
 test("verify exige código como string de seis dígitos", () => {
   assert.deepEqual(
-    validateVerify({ email: " USER@example.com ", code: "001234" }).value,
-    { email: "user@example.com", code: "001234" },
+    validateVerify({ email: " USER@example.com ", code: "001234", verificationAttempt:'v'.repeat(43) }).value,
+    { email: "user@example.com", code: "001234", verificationAttempt:'v'.repeat(43) },
   );
   assert.equal(
     validateVerify({ email: "user@example.com", code: 123456 }).error.code,
@@ -123,10 +123,13 @@ test("verify exige código como string de seis dígitos", () => {
   );
 });
 
-test("resend aceita somente e-mail válido", () => {
-  assert.deepEqual(validateResend({ email: " USER@example.com " }).value, {
+test("resend exige e-mail válido e prova da tentativa", () => {
+  assert.deepEqual(validateResend({ email: " USER@example.com ", verificationAttempt:'v'.repeat(43) }).value, {
     email: "user@example.com",
+    verificationAttempt:'v'.repeat(43),
   });
+  assert.equal(validateResend({email:'user@example.com'}).error.code,'VALIDATION_ERROR');
+  assert.equal(validateVerify({email:'user@example.com',code:'123456'}).error.code,'VALIDATION_ERROR');
   assert.equal(
     validateResend({ email: "user@example.com", extra: true }).error.code,
     "VALIDATION_ERROR",
